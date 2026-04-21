@@ -15,6 +15,9 @@ import {
   type ScheduleVisibility,
 } from "@/types";
 import { getErrorMessage } from "@/lib/error";
+import EmptyState from "@/components/ui/EmptyState";
+import ErrorState from "@/components/ui/ErrorState";
+import { FullSpinner } from "@/components/ui/Spinner";
 
 function toLocalInputValue(iso?: string | null): string {
   if (!iso) return "";
@@ -295,7 +298,9 @@ function ScheduleRow({ schedule }: { schedule: Schedule }) {
 
 export default function Schedules() {
   const createMutation = useCreateSchedule();
-  const { data, isLoading, isError, error } = useSchedules({ view: "list" });
+  const { data, isLoading, isError, error, isFetching, refetch } = useSchedules(
+    { view: "list" },
+  );
 
   const items = data?.items ?? [];
 
@@ -340,18 +345,19 @@ export default function Schedules() {
 
         <div className="mt-6">
           {isLoading ? (
-            <div className="space-y-2">
-              <div className="h-16 animate-pulse rounded bg-slate-100" />
-              <div className="h-16 animate-pulse rounded bg-slate-100" />
-            </div>
+            <FullSpinner message="일정을 불러오는 중..." />
           ) : isError ? (
-            <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              불러오기 실패: {(error as Error).message}
-            </div>
+            <ErrorState
+              title="일정을 불러오지 못했습니다"
+              message={(error as Error).message}
+              onRetry={() => refetch()}
+              retrying={isFetching}
+            />
           ) : items.length === 0 ? (
-            <div className="rounded-md border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-sm text-slate-500">
-              일정이 없습니다.
-            </div>
+            <EmptyState
+              title="아직 일정이 없습니다"
+              description="위 폼에서 새 일정을 등록해 보세요."
+            />
           ) : (
             <ul className="space-y-2">
               {items.map((s) => (

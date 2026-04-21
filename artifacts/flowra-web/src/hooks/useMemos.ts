@@ -64,6 +64,10 @@ export function useCreateMemo() {
       return res.data;
     },
     onSuccess: () => invalidate(),
+    meta: {
+      successMessage: "메모를 추가했습니다.",
+      errorMessage: "메모 추가에 실패했습니다.",
+    },
   });
 }
 
@@ -82,6 +86,10 @@ export function useUpdateMemo() {
       return res.data;
     },
     onSuccess: () => invalidate(),
+    meta: {
+      successMessage: "메모를 수정했습니다.",
+      errorMessage: "메모 수정에 실패했습니다.",
+    },
   });
 }
 
@@ -94,6 +102,10 @@ export function useDeleteMemo() {
       return res.data;
     },
     onSuccess: () => invalidate(),
+    meta: {
+      successMessage: "메모를 삭제했습니다.",
+      errorMessage: "메모 삭제에 실패했습니다.",
+    },
   });
 }
 
@@ -107,6 +119,10 @@ export function useParseMemo() {
       return res.data;
     },
     onSuccess: () => invalidate(),
+    meta: {
+      successMessage: "AI 분석을 시작했습니다.",
+      errorMessage: "AI 분석 요청에 실패했습니다.",
+    },
   });
 }
 

@@ -51,6 +51,10 @@ export function useCreateTask() {
       return res.data;
     },
     onSuccess: () => invalidate(),
+    meta: {
+      successMessage: "할 일을 추가했습니다.",
+      errorMessage: "할 일 추가에 실패했습니다.",
+    },
   });
 }
 
@@ -69,6 +73,10 @@ export function useUpdateTask() {
       return res.data;
     },
     onSuccess: () => invalidate(),
+    meta: {
+      successMessage: "할 일을 수정했습니다.",
+      errorMessage: "할 일 수정에 실패했습니다.",
+    },
   });
 }
 
@@ -81,6 +89,10 @@ export function useDeleteTask() {
       return res.data;
     },
     onSuccess: () => invalidate(),
+    meta: {
+      successMessage: "할 일을 삭제했습니다.",
+      errorMessage: "할 일 삭제에 실패했습니다.",
+    },
   });
 }
 
@@ -94,5 +106,9 @@ export function useCompleteTask() {
       return res.data;
     },
     onSuccess: () => invalidate(),
+    meta: {
+      successMessage: "완료로 표시했습니다.",
+      errorMessage: "완료 처리에 실패했습니다.",
+    },
   });
 }

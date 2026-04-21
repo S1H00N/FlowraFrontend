@@ -2,6 +2,9 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import TaskForm from "@/components/TaskForm";
 import TaskItem from "@/components/TaskItem";
+import EmptyState from "@/components/ui/EmptyState";
+import ErrorState from "@/components/ui/ErrorState";
+import { FullSpinner } from "@/components/ui/Spinner";
 import { useTasks } from "@/hooks/useTasks";
 import {
   TASK_STATUSES,
@@ -15,7 +18,8 @@ export default function Tasks() {
   const [filter, setFilter] = useState<Filter>("all");
 
   const query = filter === "all" ? {} : { status: filter };
-  const { data, isLoading, isError, error, isFetching } = useTasks(query);
+  const { data, isLoading, isError, error, isFetching, refetch } =
+    useTasks(query);
 
   const items = data?.items ?? [];
 
@@ -74,19 +78,23 @@ export default function Tasks() {
 
         <div className="mt-4">
           {isLoading ? (
-            <div className="space-y-2">
-              <div className="h-14 animate-pulse rounded bg-slate-100" />
-              <div className="h-14 animate-pulse rounded bg-slate-100" />
-              <div className="h-14 animate-pulse rounded bg-slate-100" />
-            </div>
+            <FullSpinner message="할 일을 불러오는 중..." />
           ) : isError ? (
-            <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              불러오기 실패: {(error as Error).message}
-            </div>
+            <ErrorState
+              title="할 일을 불러오지 못했습니다"
+              message={(error as Error).message}
+              onRetry={() => refetch()}
+              retrying={isFetching}
+            />
           ) : items.length === 0 ? (
-            <div className="rounded-md border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-sm text-slate-500">
-              할 일이 없습니다. 위 폼으로 추가해 보세요.
-            </div>
+            <EmptyState
+              title={
+                filter === "all"
+                  ? "할 일이 없습니다"
+                  : "이 상태의 할 일이 없습니다"
+              }
+              description="위 폼에서 새로운 할 일을 추가해 보세요."
+            />
           ) : (
             <ul className="space-y-2">
               {items.map((t) => (

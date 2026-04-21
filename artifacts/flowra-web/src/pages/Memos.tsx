@@ -17,6 +17,9 @@ import {
   type ParseStatus,
 } from "@/types";
 import { getErrorMessage } from "@/lib/error";
+import EmptyState from "@/components/ui/EmptyState";
+import ErrorState from "@/components/ui/ErrorState";
+import { FullSpinner } from "@/components/ui/Spinner";
 
 const parseStatusBadge: Record<ParseStatus, string> = {
   pending: "bg-slate-100 text-slate-600 border-slate-200",
@@ -429,7 +432,7 @@ function MemoCard({ memo }: { memo: Memo }) {
 }
 
 export default function Memos() {
-  const { data, isLoading, isError, error, isFetching } = useMemos();
+  const { data, isLoading, isError, error, isFetching, refetch } = useMemos();
 
   const items = data?.items ?? [];
 
@@ -462,18 +465,19 @@ export default function Memos() {
 
         <div className="mt-2">
           {isLoading ? (
-            <div className="space-y-2">
-              <div className="h-20 animate-pulse rounded bg-slate-100" />
-              <div className="h-20 animate-pulse rounded bg-slate-100" />
-            </div>
+            <FullSpinner message="메모를 불러오는 중..." />
           ) : isError ? (
-            <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-              불러오기 실패: {(error as Error).message}
-            </div>
+            <ErrorState
+              title="메모를 불러오지 못했습니다"
+              message={(error as Error).message}
+              onRetry={() => refetch()}
+              retrying={isFetching}
+            />
           ) : items.length === 0 ? (
-            <div className="rounded-md border border-dashed border-slate-300 bg-white px-3 py-10 text-center text-sm text-slate-500">
-              메모가 없습니다.
-            </div>
+            <EmptyState
+              title="아직 메모가 없습니다"
+              description="위 폼에서 메모를 추가하면 AI가 자동으로 분석해 드려요."
+            />
           ) : (
             <ul className="space-y-2">
               {items.map((m) => (

@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMe } from "@/hooks/useMe";
 import { useTodayBriefing } from "@/hooks/useTodayBriefing";
+import ErrorState from "@/components/ui/ErrorState";
 import type {
   BriefingPriorityTask,
   BriefingSchedule,
@@ -156,9 +157,13 @@ export default function Home() {
                 <div className="h-9 animate-pulse rounded bg-slate-100" />
               </div>
             ) : briefingQuery.isError ? (
-              <p className="text-sm text-red-600">
-                불러오기 실패: {(briefingQuery.error as Error).message}
-              </p>
+              <ErrorState
+                compact
+                title="일정을 불러오지 못했습니다"
+                message={(briefingQuery.error as Error).message}
+                onRetry={() => briefingQuery.refetch()}
+                retrying={briefingQuery.isFetching}
+              />
             ) : briefingQuery.data &&
               (briefingQuery.data.schedules?.length ?? 0) > 0 ? (
               <ul className="space-y-2">
@@ -193,9 +198,13 @@ export default function Home() {
                 <div className="h-9 animate-pulse rounded bg-slate-100" />
               </div>
             ) : briefingQuery.isError ? (
-              <p className="text-sm text-red-600">
-                불러오기 실패: {(briefingQuery.error as Error).message}
-              </p>
+              <ErrorState
+                compact
+                title="할 일을 불러오지 못했습니다"
+                message={(briefingQuery.error as Error).message}
+                onRetry={() => briefingQuery.refetch()}
+                retrying={briefingQuery.isFetching}
+              />
             ) : briefingQuery.data &&
               (briefingQuery.data.tasks?.length ?? 0) > 0 ? (
               <ul className="space-y-2">
@@ -216,9 +225,13 @@ export default function Home() {
               <div className="h-4 w-2/3 animate-pulse rounded bg-slate-100" />
             </div>
           ) : briefingQuery.isError ? (
-            <p className="text-sm text-red-600">
-              불러오기 실패: {(briefingQuery.error as Error).message}
-            </p>
+            <ErrorState
+              compact
+              title="요약을 불러오지 못했습니다"
+              message={(briefingQuery.error as Error).message}
+              onRetry={() => briefingQuery.refetch()}
+              retrying={briefingQuery.isFetching}
+            />
           ) : (
             <p className="text-sm leading-relaxed text-slate-700">
               {briefingQuery.data?.ai_summary || "오늘의 요약이 없습니다."}
