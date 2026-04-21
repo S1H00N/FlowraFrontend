@@ -4,3 +4,5 @@ export * from "./briefing";
 export * from "./task";
 export * from "./schedule";
 export * from "./memo";
+export * from "./category";
+export * from "./reminder";

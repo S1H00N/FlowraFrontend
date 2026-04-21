@@ -1,5 +1,7 @@
-import { useState, type FormEvent } from "react";
+import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
+import { useForm, Controller } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import {
   useCreateMemo,
   useDeleteMemo,
@@ -8,6 +10,7 @@ import {
   useParseMemo,
   useUpdateMemo,
 } from "@/hooks/useMemos";
+import { useCategories } from "@/hooks/useCategories";
 import {
   MEMO_TYPES,
   MEMO_TYPE_LABELS,
@@ -20,6 +23,8 @@ import { getErrorMessage } from "@/lib/error";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
+import CategorySelect, { CategoryDot } from "@/components/CategorySelect";
+import { memoSchema, type MemoFormValues } from "@/lib/schemas";
 
 const parseStatusBadge: Record<ParseStatus, string> = {
   pending: "bg-slate-100 text-slate-600 border-slate-200",
@@ -42,46 +47,74 @@ function ParseStatusBadge({ status }: { status: ParseStatus }) {
 }
 
 function MemoForm() {
-  const [text, setText] = useState("");
-  const [memoType, setMemoType] = useState<MemoType>("quick");
-  const [autoParse, setAutoParse] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const createMutation = useCreateMemo();
+  const {
+    register,
+    handleSubmit,
+    control,
+    reset,
+    formState: { errors },
+  } = useForm<MemoFormValues>({
+    resolver: zodResolver(memoSchema),
+    defaultValues: {
+      raw_text: "",
+      memo_type: "quick",
+      category_id: "",
+      auto_parse: true,
+    },
+  });
 
-  const handle = async (e: FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    if (!text.trim()) return;
-    try {
-      await createMutation.mutateAsync({
-        raw_text: text.trim(),
-        memo_type: memoType,
-        source_type: "manual",
-        auto_parse: autoParse,
-      });
-      setText("");
-    } catch (err) {
-      setError(getErrorMessage(err, "메모 저장에 실패했습니다."));
-    }
-  };
+  const onSubmit = useCallback(
+    async (values: MemoFormValues) => {
+      try {
+        await createMutation.mutateAsync({
+          raw_text: values.raw_text,
+          memo_type: values.memo_type,
+          source_type: "manual",
+          auto_parse: values.auto_parse,
+          category_id:
+            typeof values.category_id === "number"
+              ? values.category_id
+              : undefined,
+        });
+        reset({
+          raw_text: "",
+          memo_type: values.memo_type,
+          category_id: values.category_id ?? "",
+          auto_parse: values.auto_parse,
+        });
+      } catch {
+        /* global toast */
+      }
+    },
+    [createMutation, reset],
+  );
 
   return (
     <form
-      onSubmit={handle}
+      onSubmit={handleSubmit(onSubmit)}
+      noValidate
       className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
     >
-      <textarea
-        required
-        rows={3}
-        placeholder="메모를 입력하세요. AI가 일정/할일을 자동으로 추출합니다."
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-      />
+      <div>
+        <textarea
+          rows={3}
+          placeholder="메모를 입력하세요. AI가 일정/할일을 자동으로 추출합니다."
+          {...register("raw_text")}
+          aria-invalid={!!errors.raw_text}
+          className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-1 ${
+            errors.raw_text
+              ? "border-red-400 focus:border-red-500 focus:ring-red-500"
+              : "border-slate-300 focus:border-slate-900 focus:ring-slate-900"
+          }`}
+        />
+        {errors.raw_text && (
+          <p className="mt-1 text-xs text-red-600">{errors.raw_text.message}</p>
+        )}
+      </div>
       <div className="flex flex-wrap items-center gap-2">
         <select
-          value={memoType}
-          onChange={(e) => setMemoType(e.target.value as MemoType)}
+          {...register("memo_type")}
           className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
         >
           {MEMO_TYPES.map((t) => (
@@ -90,12 +123,20 @@ function MemoForm() {
             </option>
           ))}
         </select>
+        <Controller
+          control={control}
+          name="category_id"
+          render={({ field }) => (
+            <CategorySelect
+              type="memo"
+              value={field.value as number | "" | undefined}
+              onChange={field.onChange}
+              className="min-w-44"
+            />
+          )}
+        />
         <label className="flex items-center gap-1.5 text-sm text-slate-700">
-          <input
-            type="checkbox"
-            checked={autoParse}
-            onChange={(e) => setAutoParse(e.target.checked)}
-          />
+          <input type="checkbox" {...register("auto_parse")} />
           AI 자동 분석
         </label>
         <div className="flex-1" />
@@ -107,7 +148,6 @@ function MemoForm() {
           {createMutation.isPending ? "저장 중..." : "메모 추가"}
         </button>
       </div>
-      {error && <p className="text-sm text-red-600">{error}</p>}
     </form>
   );
 }
@@ -291,6 +331,10 @@ function MemoCard({ memo }: { memo: Memo }) {
   const updateMutation = useUpdateMemo();
   const deleteMutation = useDeleteMemo();
   const parseMutation = useParseMemo();
+  const { data: categories = [] } = useCategories("memo");
+  const memoCategoryId = (memo as Memo & { category_id?: number | null })
+    .category_id;
+  const cat = categories.find((c) => c.category_id === memoCategoryId);
 
   const handleSave = async () => {
     setError(null);
@@ -333,6 +377,12 @@ function MemoCard({ memo }: { memo: Memo }) {
               {MEMO_TYPE_LABELS[memo.memo_type]}
             </span>
             <ParseStatusBadge status={memo.parse_status} />
+            {cat && (
+              <span className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-600">
+                <CategoryDot color={cat.color} />
+                {cat.name}
+              </span>
+            )}
             <span className="text-[11px] text-slate-400">
               {new Date(memo.created_at).toLocaleString("ko-KR")}
             </span>

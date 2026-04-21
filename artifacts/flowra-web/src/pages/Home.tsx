@@ -121,6 +121,12 @@ export default function Home() {
             >
               메모
             </Link>
+            <Link
+              to="/categories"
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100"
+            >
+              카테고리
+            </Link>
             <button
               type="button"
               onClick={logout}

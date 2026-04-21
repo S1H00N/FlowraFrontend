@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { memo, useCallback, useState } from "react";
+import { useForm, Controller } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import {
   useCompleteTask,
   useDeleteTask,
@@ -13,7 +15,10 @@ import {
   type TaskPriority,
   type TaskStatus,
 } from "@/types";
-import { getErrorMessage } from "@/lib/error";
+import { taskSchema, type TaskFormValues } from "@/lib/schemas";
+import CategorySelect, { CategoryDot } from "@/components/CategorySelect";
+import ReminderControl from "@/components/ReminderControl";
+import { useCategories } from "@/hooks/useCategories";
 
 const priorityBadge: Record<TaskPriority, string> = {
   urgent: "bg-red-100 text-red-700 border-red-200",
@@ -29,110 +34,179 @@ const statusBadge: Record<TaskStatus, string> = {
   postponed: "bg-slate-100 text-slate-600 border-slate-200",
 };
 
-export default function TaskItem({ task }: { task: Task }) {
+function toLocalDateTimeInput(iso?: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function TaskItemBase({ task }: { task: Task }) {
   const [isEditing, setIsEditing] = useState(false);
-  const [title, setTitle] = useState(task.title);
-  const [priority, setPriority] = useState<TaskPriority>(task.priority);
-  const [status, setStatus] = useState<TaskStatus>(task.status);
-  const [error, setError] = useState<string | null>(null);
+  const [showReminders, setShowReminders] = useState(false);
 
   const updateMutation = useUpdateTask();
   const deleteMutation = useDeleteTask();
   const completeMutation = useCompleteTask();
+  const { data: categories = [] } = useCategories("task");
+  const taskCategory = categories.find(
+    (c) => c.category_id === task.category_id,
+  );
 
   const isDone = task.status === "done";
 
-  const handleSave = async () => {
-    setError(null);
-    try {
-      await updateMutation.mutateAsync({
-        taskId: task.task_id,
-        payload: { title: title.trim(), priority, status },
-      });
-      setIsEditing(false);
-    } catch (err) {
-      setError(getErrorMessage(err, "수정에 실패했습니다."));
-    }
-  };
+  const {
+    register,
+    handleSubmit,
+    control,
+    reset,
+    formState: { errors },
+  } = useForm<TaskFormValues>({
+    resolver: zodResolver(taskSchema),
+    defaultValues: {
+      title: task.title,
+      priority: task.priority,
+      status: task.status,
+      category_id: task.category_id ?? "",
+      due_datetime: toLocalDateTimeInput(task.due_datetime),
+    },
+  });
 
-  const handleCancel = () => {
-    setTitle(task.title);
-    setPriority(task.priority);
-    setStatus(task.status);
+  const handleSave = useCallback(
+    async (values: TaskFormValues) => {
+      try {
+        await updateMutation.mutateAsync({
+          taskId: task.task_id,
+          payload: {
+            title: values.title,
+            priority: values.priority,
+            status: values.status,
+            category_id:
+              typeof values.category_id === "number"
+                ? values.category_id
+                : undefined,
+            due_datetime: values.due_datetime
+              ? new Date(values.due_datetime).toISOString()
+              : undefined,
+          },
+        });
+        setIsEditing(false);
+      } catch {
+        /* global toast */
+      }
+    },
+    [updateMutation, task.task_id],
+  );
+
+  const handleCancel = useCallback(() => {
+    reset({
+      title: task.title,
+      priority: task.priority,
+      status: task.status,
+      category_id: task.category_id ?? "",
+      due_datetime: toLocalDateTimeInput(task.due_datetime),
+    });
     setIsEditing(false);
-    setError(null);
-  };
+  }, [reset, task]);
 
-  const handleDelete = async () => {
+  const handleDelete = useCallback(async () => {
     if (!confirm("정말 삭제하시겠습니까?")) return;
-    setError(null);
     try {
       await deleteMutation.mutateAsync(task.task_id);
-    } catch (err) {
-      setError(getErrorMessage(err, "삭제에 실패했습니다."));
+    } catch {
+      /* global toast */
     }
-  };
+  }, [deleteMutation, task.task_id]);
 
-  const handleComplete = async () => {
-    setError(null);
+  const handleComplete = useCallback(async () => {
     try {
       await completeMutation.mutateAsync(task.task_id);
-    } catch (err) {
-      setError(getErrorMessage(err, "완료 처리에 실패했습니다."));
+    } catch {
+      /* global toast */
     }
-  };
+  }, [completeMutation, task.task_id]);
 
   if (isEditing) {
     return (
       <li className="rounded-md border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-900"
-          />
-          <select
-            value={priority}
-            onChange={(e) => setPriority(e.target.value as TaskPriority)}
-            className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
-          >
-            {TASK_PRIORITIES.map((p) => (
-              <option key={p} value={p}>
-                {TASK_PRIORITY_LABELS[p]}
-              </option>
-            ))}
-          </select>
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as TaskStatus)}
-            className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
-          >
-            {TASK_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {TASK_STATUS_LABELS[s]}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="mt-2 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={handleCancel}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
-          >
-            취소
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={updateMutation.isPending}
-            className="rounded-md bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-60"
-          >
-            저장
-          </button>
-        </div>
-        {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+        <form onSubmit={handleSubmit(handleSave)} noValidate className="space-y-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="flex-1">
+              <input
+                type="text"
+                {...register("title")}
+                className={`w-full rounded-md border px-3 py-1.5 text-sm focus:outline-none focus:ring-1 ${
+                  errors.title
+                    ? "border-red-400 focus:border-red-500 focus:ring-red-500"
+                    : "border-slate-300 focus:border-slate-900 focus:ring-slate-900"
+                }`}
+              />
+              {errors.title && (
+                <p className="mt-1 text-xs text-red-600">
+                  {errors.title.message}
+                </p>
+              )}
+            </div>
+            <select
+              {...register("priority")}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
+            >
+              {TASK_PRIORITIES.map((p) => (
+                <option key={p} value={p}>
+                  {TASK_PRIORITY_LABELS[p]}
+                </option>
+              ))}
+            </select>
+            <select
+              {...register("status")}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
+            >
+              {TASK_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {TASK_STATUS_LABELS[s]}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Controller
+              control={control}
+              name="category_id"
+              render={({ field }) => (
+                <CategorySelect
+                  type="task"
+                  value={field.value as number | "" | undefined}
+                  onChange={field.onChange}
+                  className="sm:min-w-44"
+                />
+              )}
+            />
+            <label className="flex flex-1 items-center gap-2 text-xs text-slate-600">
+              마감
+              <input
+                type="datetime-local"
+                {...register("due_datetime")}
+                className="flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm"
+              />
+            </label>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            >
+              취소
+            </button>
+            <button
+              type="submit"
+              disabled={updateMutation.isPending}
+              className="rounded-md bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-60"
+            >
+              저장
+            </button>
+          </div>
+        </form>
       </li>
     );
   }
@@ -173,6 +247,12 @@ export default function TaskItem({ task }: { task: Task }) {
             >
               {TASK_STATUS_LABELS[task.status]}
             </span>
+            {taskCategory && (
+              <span className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-600">
+                <CategoryDot color={taskCategory.color} />
+                {taskCategory.name}
+              </span>
+            )}
             {task.due_datetime && (
               <span className="text-[11px] text-slate-500">
                 마감 {new Date(task.due_datetime).toLocaleString("ko-KR")}
@@ -182,6 +262,17 @@ export default function TaskItem({ task }: { task: Task }) {
         </div>
 
         <div className="flex shrink-0 gap-1">
+          <button
+            type="button"
+            onClick={() => setShowReminders((v) => !v)}
+            className={`rounded-md border px-2 py-1 text-xs font-medium hover:bg-slate-100 ${
+              showReminders
+                ? "border-slate-900 bg-slate-900 text-white hover:bg-slate-800"
+                : "border-slate-300 bg-white text-slate-700"
+            }`}
+          >
+            알림
+          </button>
           <button
             type="button"
             onClick={() => setIsEditing(true)}
@@ -199,7 +290,11 @@ export default function TaskItem({ task }: { task: Task }) {
           </button>
         </div>
       </div>
-      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {showReminders && (
+        <ReminderControl targetType="task" targetId={task.task_id} />
+      )}
     </li>
   );
 }
+
+export default memo(TaskItemBase);

@@ -40,11 +40,13 @@ export interface CreateMemoRequest {
   memo_type: MemoType;
   source_type: MemoSourceType;
   auto_parse?: boolean;
+  category_id?: number;
 }
 
 export interface UpdateMemoRequest {
   raw_text?: string;
   memo_type?: MemoType;
+  category_id?: number;
 }
 
 export interface MemoListQuery {

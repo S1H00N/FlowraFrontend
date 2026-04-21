@@ -6,6 +6,7 @@ import {
   useSchedules,
   useUpdateSchedule,
 } from "@/hooks/useSchedules";
+import { useCategories } from "@/hooks/useCategories";
 import {
   SCHEDULE_TYPES,
   SCHEDULE_TYPE_LABELS,
@@ -18,6 +19,8 @@ import { getErrorMessage } from "@/lib/error";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
+import CategorySelect, { CategoryDot } from "@/components/CategorySelect";
+import ReminderControl from "@/components/ReminderControl";
 
 function toLocalInputValue(iso?: string | null): string {
   if (!iso) return "";
@@ -40,6 +43,7 @@ interface ScheduleFormState {
   all_day: boolean;
   location: string;
   visibility: ScheduleVisibility;
+  category_id: number | "";
 }
 
 const emptyForm: ScheduleFormState = {
@@ -51,6 +55,7 @@ const emptyForm: ScheduleFormState = {
   all_day: false,
   location: "",
   visibility: "private",
+  category_id: "",
 };
 
 function ScheduleForm({
@@ -164,6 +169,12 @@ function ScheduleForm({
           onChange={(e) => setForm({ ...form, location: e.target.value })}
           className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
         />
+        <CategorySelect
+          type="schedule"
+          value={form.category_id}
+          onChange={(v) => setForm({ ...form, category_id: v })}
+          className="sm:min-w-44"
+        />
       </div>
       <textarea
         placeholder="설명 (선택)"
@@ -197,8 +208,11 @@ function ScheduleForm({
 
 function ScheduleRow({ schedule }: { schedule: Schedule }) {
   const [isEditing, setIsEditing] = useState(false);
+  const [showReminders, setShowReminders] = useState(false);
   const updateMutation = useUpdateSchedule();
   const deleteMutation = useDeleteSchedule();
+  const { data: categories = [] } = useCategories("schedule");
+  const cat = categories.find((c) => c.category_id === schedule.category_id);
 
   if (isEditing) {
     return (
@@ -215,6 +229,7 @@ function ScheduleRow({ schedule }: { schedule: Schedule }) {
             all_day: schedule.all_day,
             location: schedule.location ?? "",
             visibility: schedule.visibility,
+            category_id: schedule.category_id ?? "",
           }}
           onCancel={() => setIsEditing(false)}
           onSubmit={async (form) => {
@@ -231,6 +246,8 @@ function ScheduleRow({ schedule }: { schedule: Schedule }) {
                 all_day: form.all_day,
                 location: form.location || undefined,
                 visibility: form.visibility,
+                category_id:
+                  form.category_id === "" ? undefined : Number(form.category_id),
               },
             });
             setIsEditing(false);
@@ -254,6 +271,12 @@ function ScheduleRow({ schedule }: { schedule: Schedule }) {
             <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-600">
               {SCHEDULE_VISIBILITY_LABELS[schedule.visibility]}
             </span>
+            {cat && (
+              <span className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-600">
+                <CategoryDot color={cat.color} />
+                {cat.name}
+              </span>
+            )}
           </div>
           <div className="mt-1 text-xs text-slate-500">
             {schedule.all_day
@@ -274,6 +297,17 @@ function ScheduleRow({ schedule }: { schedule: Schedule }) {
         <div className="flex shrink-0 gap-1">
           <button
             type="button"
+            onClick={() => setShowReminders((v) => !v)}
+            className={`rounded-md border px-2 py-1 text-xs font-medium hover:bg-slate-100 ${
+              showReminders
+                ? "border-slate-900 bg-slate-900 text-white hover:bg-slate-800"
+                : "border-slate-300 bg-white text-slate-700"
+            }`}
+          >
+            알림
+          </button>
+          <button
+            type="button"
             onClick={() => setIsEditing(true)}
             className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
           >
@@ -292,6 +326,12 @@ function ScheduleRow({ schedule }: { schedule: Schedule }) {
           </button>
         </div>
       </div>
+      {showReminders && (
+        <ReminderControl
+          targetType="schedule"
+          targetId={schedule.schedule_id}
+        />
+      )}
     </li>
   );
 }
@@ -338,6 +378,10 @@ export default function Schedules() {
                 all_day: form.all_day,
                 location: form.location || undefined,
                 visibility: form.visibility,
+                category_id:
+                  form.category_id === ""
+                    ? undefined
+                    : Number(form.category_id),
               });
             }}
           />
