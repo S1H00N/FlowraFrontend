@@ -7,8 +7,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useNavigate } from "react-router-dom";
 import { authStorage } from "@/lib/auth-storage";
 import * as authApi from "@/api/auth";
+import { setOnAuthFailure } from "@/api/client";
 import type { LoginRequest, SignupRequest, User } from "@/types";
 
 interface AuthContextValue {
@@ -23,6 +25,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(() => authStorage.getUser<User>());
   const [isInitializing, setIsInitializing] = useState<boolean>(true);
 
@@ -34,6 +37,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setIsInitializing(false);
   }, []);
+
+  const logout = useCallback(() => {
+    authStorage.clear();
+    setUser(null);
+    navigate("/login", { replace: true });
+  }, [navigate]);
+
+  // Register handler so axios interceptor can trigger logout on
+  // refresh failure / unrecoverable auth errors.
+  useEffect(() => {
+    setOnAuthFailure(() => {
+      setUser(null);
+      navigate("/login", { replace: true });
+    });
+    return () => setOnAuthFailure(null);
+  }, [navigate]);
 
   const login = useCallback(async (payload: LoginRequest) => {
     const res = await authApi.login(payload);
@@ -51,11 +70,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!res.success) {
       throw new Error(res.message || "회원가입에 실패했습니다.");
     }
-  }, []);
-
-  const logout = useCallback(() => {
-    authStorage.clear();
-    setUser(null);
   }, []);
 
   const value = useMemo<AuthContextValue>(
