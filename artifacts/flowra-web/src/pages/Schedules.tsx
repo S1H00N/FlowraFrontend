@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import {
   useCreateSchedule,
@@ -21,6 +21,7 @@ import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import CategorySelect, { CategoryDot } from "@/components/CategorySelect";
 import ReminderControl from "@/components/ReminderControl";
+import { Calendar } from "@/components/ui/calendar";
 import AppShell from "@/components/AppShell";
 
 function toLocalInputValue(iso?: string | null): string {
@@ -33,6 +34,28 @@ function toLocalInputValue(iso?: string | null): string {
 function fromLocalInputValue(local: string): string {
   if (!local) return "";
   return new Date(local).toISOString();
+}
+
+function toDateKey(input: Date | string): string {
+  const d = typeof input === "string" ? new Date(input) : input;
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function fromDateKey(key: string): Date {
+  const [yyyy, mm, dd] = key.split("-").map(Number);
+  return new Date(yyyy, mm - 1, dd);
+}
+
+function formatSelectedDate(date?: Date): string {
+  if (!date) return "날짜를 선택해 주세요";
+  return date.toLocaleDateString("ko-KR", {
+    month: "long",
+    day: "numeric",
+    weekday: "long",
+  });
 }
 
 interface ScheduleFormState {
@@ -338,12 +361,71 @@ function ScheduleRow({ schedule }: { schedule: Schedule }) {
 }
 
 export default function Schedules() {
-  const createMutation = useCreateSchedule();
-  const { data, isLoading, isError, error, isFetching, refetch } = useSchedules(
-    { view: "list" },
+  const [visibleMonth, setVisibleMonth] = useState(() => new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(
+    () => new Date(),
   );
 
-  const items = data?.items ?? [];
+  const monthRange = useMemo(() => {
+    const start = new Date(
+      visibleMonth.getFullYear(),
+      visibleMonth.getMonth(),
+      1,
+    );
+    const end = new Date(
+      visibleMonth.getFullYear(),
+      visibleMonth.getMonth() + 1,
+      0,
+    );
+    return {
+      startDate: toDateKey(start),
+      endDate: toDateKey(end),
+    };
+  }, [visibleMonth]);
+
+  const createMutation = useCreateSchedule();
+  const { data, isLoading, isError, error, isFetching, refetch } = useSchedules(
+    {
+      view: "month",
+      start_date: monthRange.startDate,
+      end_date: monthRange.endDate,
+      size: 300,
+    },
+  );
+
+  const items = useMemo(
+    () =>
+      [...(data?.items ?? [])].sort(
+        (a, b) =>
+          new Date(a.start_datetime).getTime() -
+          new Date(b.start_datetime).getTime(),
+      ),
+    [data?.items],
+  );
+
+  const schedulesByDate = useMemo(() => {
+    const grouped = new Map<string, Schedule[]>();
+    for (const item of items) {
+      const key = toDateKey(item.start_datetime);
+      const bucket = grouped.get(key);
+      if (bucket) {
+        bucket.push(item);
+      } else {
+        grouped.set(key, [item]);
+      }
+    }
+    return grouped;
+  }, [items]);
+
+  const markedDays = useMemo(
+    () => Array.from(schedulesByDate.keys()).map(fromDateKey),
+    [schedulesByDate],
+  );
+
+  const selectedKey = selectedDate ? toDateKey(selectedDate) : "";
+  const selectedSchedules = selectedKey
+    ? (schedulesByDate.get(selectedKey) ?? [])
+    : [];
 
   return (
     <AppShell>
@@ -395,6 +477,104 @@ export default function Schedules() {
           />
         </div>
 
+        <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="rounded-[28px] border border-white/70 bg-white/90 p-4 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur sm:p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-base font-semibold text-slate-900">월간 캘린더</h2>
+              {isFetching && (
+                <span className="text-xs text-slate-500">새로고침 중...</span>
+              )}
+            </div>
+            {isLoading ? (
+              <div className="h-[340px] animate-pulse rounded-2xl bg-slate-100" />
+            ) : isError ? (
+              <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-8 text-sm text-red-700">
+                캘린더를 불러오지 못했습니다.
+              </p>
+            ) : (
+              <>
+                <Calendar
+                  mode="single"
+                  month={visibleMonth}
+                  onMonthChange={(month) => {
+                    setVisibleMonth(month);
+                    setSelectedDate(
+                      new Date(month.getFullYear(), month.getMonth(), 1),
+                    );
+                  }}
+                  selected={selectedDate}
+                  onSelect={setSelectedDate}
+                  modifiers={{ hasSchedule: markedDays }}
+                  modifiersClassNames={{
+                    hasSchedule:
+                      "after:absolute after:bottom-1.5 after:left-1/2 after:h-1.5 after:w-1.5 after:-translate-x-1/2 after:rounded-full after:bg-cyan-500",
+                  }}
+                  className="mx-auto rounded-2xl border border-slate-200 bg-white"
+                />
+                <p className="mt-3 text-xs text-slate-500">
+                  점이 있는 날짜는 일정이 있는 날입니다.
+                </p>
+              </>
+            )}
+          </div>
+
+          <div className="rounded-[28px] border border-white/70 bg-white/90 p-4 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur sm:p-5">
+            <h2 className="text-base font-semibold text-slate-900">
+              {formatSelectedDate(selectedDate)}
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              선택한 날짜의 일정 {selectedSchedules.length}건
+            </p>
+
+            <div className="mt-4">
+              {isLoading ? (
+                <div className="space-y-2">
+                  <div className="h-14 animate-pulse rounded-2xl bg-slate-100" />
+                  <div className="h-14 animate-pulse rounded-2xl bg-slate-100" />
+                </div>
+              ) : isError ? (
+                <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-6 text-sm text-red-700">
+                  선택 일정 정보를 불러오지 못했습니다.
+                </p>
+              ) : selectedSchedules.length === 0 ? (
+                <p className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                  선택한 날짜에 일정이 없습니다.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {selectedSchedules.map((schedule) => (
+                    <li
+                      key={schedule.schedule_id}
+                      className="rounded-2xl border border-slate-200 bg-white px-3 py-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-sm font-medium text-slate-900">
+                          {schedule.title}
+                        </p>
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
+                          {SCHEDULE_TYPE_LABELS[schedule.schedule_type]}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {schedule.all_day
+                          ? "종일"
+                          : new Date(schedule.start_datetime).toLocaleTimeString(
+                              "ko-KR",
+                              {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              },
+                            )}
+                        {schedule.location ? ` · ${schedule.location}` : ""}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </section>
+
         <div className="mt-6">
           {isLoading ? (
             <FullSpinner message="일정을 불러오는 중..." />
@@ -407,15 +587,23 @@ export default function Schedules() {
             />
           ) : items.length === 0 ? (
             <EmptyState
-              title="아직 일정이 없습니다"
+              title="이번 달 일정이 없습니다"
               description="위 폼에서 새 일정을 등록해 보세요."
             />
           ) : (
-            <ul className="space-y-2">
+            <>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-base font-semibold text-slate-900">
+                  이번 달 전체 일정
+                </h2>
+                <span className="text-xs text-slate-500">총 {items.length}건</span>
+              </div>
+              <ul className="space-y-2">
               {items.map((s) => (
                 <ScheduleRow key={s.schedule_id} schedule={s} />
               ))}
-            </ul>
+              </ul>
+            </>
           )}
         </div>
       </div>
