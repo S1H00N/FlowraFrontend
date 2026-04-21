@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMe } from "@/hooks/useMe";
 import { useTodayBriefing } from "@/hooks/useTodayBriefing";
@@ -92,13 +93,21 @@ export default function Home() {
             )}
             <p className="mt-1 text-sm text-slate-500">오늘의 브리핑을 확인하세요.</p>
           </div>
-          <button
-            type="button"
-            onClick={logout}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100"
-          >
-            로그아웃
-          </button>
+          <div className="flex gap-2">
+            <Link
+              to="/tasks"
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100"
+            >
+              할 일
+            </Link>
+            <button
+              type="button"
+              onClick={logout}
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100"
+            >
+              로그아웃
+            </button>
+          </div>
         </header>
 
         {meQuery.isError && (
