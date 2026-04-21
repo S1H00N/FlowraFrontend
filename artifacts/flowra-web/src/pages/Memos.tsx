@@ -109,44 +109,108 @@ function MemoForm() {
   );
 }
 
-function ParseResultPanel({ memoId }: { memoId: number }) {
+function PendingSkeleton() {
+  return (
+    <div
+      className="mt-2 space-y-2 rounded-md border border-dashed border-slate-200 bg-slate-50 p-3"
+      aria-label="AI 분석 대기 중"
+    >
+      <div className="flex items-center gap-2">
+        <div className="h-3 w-3 animate-pulse rounded-full bg-slate-300" />
+        <div className="h-3 w-24 animate-pulse rounded bg-slate-200" />
+      </div>
+      <div className="h-3 w-3/4 animate-pulse rounded bg-slate-200" />
+      <div className="h-3 w-1/2 animate-pulse rounded bg-slate-200" />
+    </div>
+  );
+}
+
+function Spinner() {
+  return (
+    <span
+      role="status"
+      aria-label="loading"
+      className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600"
+    />
+  );
+}
+
+function ProcessingPanel() {
+  return (
+    <div className="mt-2 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+      <Spinner />
+      <span className="font-medium">AI 분석 중...</span>
+      <span className="text-blue-500/80">잠시만 기다려 주세요.</span>
+    </div>
+  );
+}
+
+function FailedPanel({
+  message,
+  onRetry,
+  retrying,
+}: {
+  message?: string | null;
+  onRetry?: () => void;
+  retrying?: boolean;
+}) {
+  return (
+    <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="font-medium">AI 분석 실패</div>
+          <p className="mt-0.5 text-red-600/90">
+            {message || "분석 중 문제가 발생했습니다."}
+          </p>
+        </div>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={retrying}
+            className="shrink-0 rounded-md border border-red-300 bg-white px-2 py-1 text-[11px] font-medium text-red-700 hover:bg-red-100 disabled:opacity-60"
+          >
+            {retrying ? "요청 중..." : "재시도"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CompletedResult({ memoId }: { memoId: number }) {
   const { data, isLoading, isError, error } = useMemoParseResult(memoId);
 
   if (isLoading) {
-    return (
-      <div className="mt-2 h-16 animate-pulse rounded bg-slate-100" />
-    );
+    return <PendingSkeleton />;
   }
   if (isError) {
     return (
-      <div className="mt-2 rounded border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-700">
-        결과 로드 실패: {(error as Error).message}
-      </div>
+      <FailedPanel
+        message={`결과 로드 실패: ${(error as Error).message}`}
+      />
     );
   }
   if (!data) return null;
 
-  if (data.parse_status !== "completed") {
-    return (
-      <div className="mt-2 rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-600">
-        분석 상태: <ParseStatusBadge status={data.parse_status} />
-      </div>
-    );
-  }
+  // Race: list says "completed" but result endpoint reports otherwise.
+  if (data.parse_status === "processing") return <ProcessingPanel />;
+  if (data.parse_status === "pending") return <PendingSkeleton />;
+  if (data.parse_status === "failed") return <FailedPanel />;
 
   const r = data.result;
   if (!r) {
     return (
-      <div className="mt-2 rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-500">
+      <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
         분석 결과가 없습니다.
       </div>
     );
   }
 
   return (
-    <div className="mt-2 space-y-2 rounded-md border border-slate-200 bg-slate-50 p-2 text-xs">
+    <div className="mt-2 space-y-2 rounded-md border border-green-200 bg-green-50/40 p-2 text-xs animate-in fade-in duration-300">
       <div className="flex flex-wrap items-center gap-2 text-slate-600">
-        <span className="font-medium">AI 분석 결과</span>
+        <span className="font-medium text-green-700">AI 분석 완료</span>
         <span className="text-slate-400">·</span>
         <span>유형: {r.detected_type}</span>
         {typeof r.confidence_score === "number" && (
@@ -157,7 +221,7 @@ function ParseResultPanel({ memoId }: { memoId: number }) {
         )}
       </div>
       {r.suggested_schedule && (
-        <div className="rounded bg-white p-2">
+        <div className="rounded bg-white p-2 ring-1 ring-slate-100">
           <div className="font-medium text-slate-700">제안 일정</div>
           <div className="mt-0.5 text-slate-700">
             {r.suggested_schedule.title}
@@ -172,7 +236,7 @@ function ParseResultPanel({ memoId }: { memoId: number }) {
         </div>
       )}
       {r.suggested_task && (
-        <div className="rounded bg-white p-2">
+        <div className="rounded bg-white p-2 ring-1 ring-slate-100">
           <div className="font-medium text-slate-700">제안 할 일</div>
           <div className="mt-0.5 text-slate-700">{r.suggested_task.title}</div>
           {r.suggested_task.priority && (
@@ -186,11 +250,39 @@ function ParseResultPanel({ memoId }: { memoId: number }) {
   );
 }
 
+function ParseStatusView({
+  memo,
+  onRetry,
+  retrying,
+}: {
+  memo: Memo;
+  onRetry: () => void;
+  retrying: boolean;
+}) {
+  switch (memo.parse_status) {
+    case "pending":
+      return <PendingSkeleton />;
+    case "processing":
+      return <ProcessingPanel />;
+    case "failed":
+      return (
+        <FailedPanel
+          message={memo.parse_error_message}
+          onRetry={onRetry}
+          retrying={retrying}
+        />
+      );
+    case "completed":
+      return <CompletedResult memoId={memo.memo_id} />;
+    default:
+      return null;
+  }
+}
+
 function MemoCard({ memo }: { memo: Memo }) {
   const [isEditing, setIsEditing] = useState(false);
   const [text, setText] = useState(memo.raw_text);
   const [memoType, setMemoType] = useState<MemoType>(memo.memo_type);
-  const [showResult, setShowResult] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const updateMutation = useUpdateMemo();
@@ -224,7 +316,6 @@ function MemoCard({ memo }: { memo: Memo }) {
     setError(null);
     try {
       await parseMutation.mutateAsync(memo.memo_id);
-      setShowResult(true);
     } catch (err) {
       setError(getErrorMessage(err, "AI 파싱 요청에 실패했습니다."));
     }
@@ -268,13 +359,12 @@ function MemoCard({ memo }: { memo: Memo }) {
               {memo.raw_text}
             </p>
           )}
-          {memo.parse_status === "failed" && memo.parse_error_message && (
-            <p className="mt-1 text-xs text-red-600">
-              {memo.parse_error_message}
-            </p>
-          )}
-          {showResult && memo.parse_status === "completed" && (
-            <ParseResultPanel memoId={memo.memo_id} />
+          {!isEditing && (
+            <ParseStatusView
+              memo={memo}
+              onRetry={handleParse}
+              retrying={parseMutation.isPending}
+            />
           )}
         </div>
         <div className="flex shrink-0 flex-col gap-1">
@@ -302,14 +392,6 @@ function MemoCard({ memo }: { memo: Memo }) {
             </>
           ) : (
             <>
-              <button
-                type="button"
-                onClick={() => setShowResult((v) => !v)}
-                disabled={memo.parse_status !== "completed"}
-                className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
-              >
-                {showResult ? "결과 숨김" : "결과 보기"}
-              </button>
               <button
                 type="button"
                 onClick={handleParse}
