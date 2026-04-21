@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   useCreateSchedule,
   useDeleteSchedule,
@@ -21,7 +22,6 @@ import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import CategorySelect, { CategoryDot } from "@/components/CategorySelect";
 import ReminderControl from "@/components/ReminderControl";
-import { Calendar } from "@/components/ui/calendar";
 import AppShell from "@/components/AppShell";
 
 function toLocalInputValue(iso?: string | null): string {
@@ -44,11 +44,6 @@ function toDateKey(input: Date | string): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-function fromDateKey(key: string): Date {
-  const [yyyy, mm, dd] = key.split("-").map(Number);
-  return new Date(yyyy, mm - 1, dd);
-}
-
 function formatSelectedDate(date?: Date): string {
   if (!date) return "날짜를 선택해 주세요";
   return date.toLocaleDateString("ko-KR", {
@@ -56,6 +51,33 @@ function formatSelectedDate(date?: Date): string {
     day: "numeric",
     weekday: "long",
   });
+}
+
+function formatMonthTitle(date: Date): string {
+  return `${date.getFullYear()}년 ${date.getMonth() + 1}월`;
+}
+
+function startOfWeek(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay());
+  return d;
+}
+
+function buildWeekDates(date: Date): Date[] {
+  const start = startOfWeek(date);
+  return Array.from({ length: 7 }, (_, idx) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + idx);
+    return d;
+  });
+}
+
+const weekdayLabels = ["일", "월", "화", "수", "목", "금", "토"];
+
+interface DayMeta {
+  count: number;
+  hasDeadline: boolean;
 }
 
 interface ScheduleFormState {
@@ -361,6 +383,7 @@ function ScheduleRow({ schedule }: { schedule: Schedule }) {
 }
 
 export default function Schedules() {
+  const [calendarView, setCalendarView] = useState<"month" | "week">("month");
   const [visibleMonth, setVisibleMonth] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
     () => new Date(),
@@ -370,12 +393,12 @@ export default function Schedules() {
     const start = new Date(
       visibleMonth.getFullYear(),
       visibleMonth.getMonth(),
-      1,
+      -6,
     );
     const end = new Date(
       visibleMonth.getFullYear(),
       visibleMonth.getMonth() + 1,
-      0,
+      7,
     );
     return {
       startDate: toDateKey(start),
@@ -417,15 +440,66 @@ export default function Schedules() {
     return grouped;
   }, [items]);
 
-  const markedDays = useMemo(
-    () => Array.from(schedulesByDate.keys()).map(fromDateKey),
-    [schedulesByDate],
-  );
+  const dateMeta = useMemo(() => {
+    const meta = new Map<string, DayMeta>();
+    for (const [key, schedules] of schedulesByDate.entries()) {
+      meta.set(key, {
+        count: schedules.length,
+        hasDeadline: schedules.some((s) => s.schedule_type === "deadline"),
+      });
+    }
+    return meta;
+  }, [schedulesByDate]);
+
+  const monthCells = useMemo(() => {
+    const year = visibleMonth.getFullYear();
+    const month = visibleMonth.getMonth();
+    const firstWeekday = new Date(year, month, 1).getDay();
+    const totalDays = new Date(year, month + 1, 0).getDate();
+
+    const cells: Array<Date | null> = [];
+    for (let i = 0; i < firstWeekday; i += 1) cells.push(null);
+    for (let day = 1; day <= totalDays; day += 1) {
+      cells.push(new Date(year, month, day));
+    }
+    return cells;
+  }, [visibleMonth]);
 
   const selectedKey = selectedDate ? toDateKey(selectedDate) : "";
   const selectedSchedules = selectedKey
     ? (schedulesByDate.get(selectedKey) ?? [])
     : [];
+
+  const weekDates = useMemo(
+    () => buildWeekDates(selectedDate ?? new Date()),
+    [selectedDate],
+  );
+
+  const moveMonth = (offset: number) => {
+    setVisibleMonth((prev) => {
+      const next = new Date(prev.getFullYear(), prev.getMonth() + offset, 1);
+      setSelectedDate(new Date(next.getFullYear(), next.getMonth(), 1));
+      return next;
+    });
+  };
+
+  const renderMarker = (meta?: DayMeta, selected?: boolean) => {
+    if (!meta || meta.count === 0) return null;
+    const dotClass = selected
+      ? "bg-white/95"
+      : meta.hasDeadline
+        ? "bg-rose-400"
+        : "bg-emerald-500";
+
+    return (
+      <span className="pointer-events-none absolute bottom-1.5 left-1/2 flex -translate-x-1/2 items-center gap-1">
+        <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
+        {meta.count > 1 && (
+          <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
+        )}
+      </span>
+    );
+  };
 
   return (
     <AppShell>
@@ -477,45 +551,166 @@ export default function Schedules() {
           />
         </div>
 
-        <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <div className="rounded-[28px] border border-white/70 bg-white/90 p-4 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur sm:p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-slate-900">월간 캘린더</h2>
-              {isFetching && (
-                <span className="text-xs text-slate-500">새로고침 중...</span>
-              )}
-            </div>
-            {isLoading ? (
-              <div className="h-[340px] animate-pulse rounded-2xl bg-slate-100" />
-            ) : isError ? (
-              <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-8 text-sm text-red-700">
-                캘린더를 불러오지 못했습니다.
-              </p>
-            ) : (
-              <>
-                <Calendar
-                  mode="single"
-                  month={visibleMonth}
-                  onMonthChange={(month) => {
-                    setVisibleMonth(month);
-                    setSelectedDate(
-                      new Date(month.getFullYear(), month.getMonth(), 1),
-                    );
-                  }}
-                  selected={selectedDate}
-                  onSelect={setSelectedDate}
-                  modifiers={{ hasSchedule: markedDays }}
-                  modifiersClassNames={{
-                    hasSchedule:
-                      "after:absolute after:bottom-1.5 after:left-1/2 after:h-1.5 after:w-1.5 after:-translate-x-1/2 after:rounded-full after:bg-cyan-500",
-                  }}
-                  className="mx-auto rounded-2xl border border-slate-200 bg-white"
-                />
-                <p className="mt-3 text-xs text-slate-500">
-                  점이 있는 날짜는 일정이 있는 날입니다.
+        <section className="grid gap-4 xl:grid-cols-[540px_minmax(0,1fr)]">
+          <div className="rounded-[28px] border border-slate-200 bg-slate-100/80 p-4 shadow-[0_18px_60px_rgba(15,23,42,0.08)] sm:p-5">
+            <div className="rounded-2xl bg-white p-3 shadow-sm">
+              <div className="flex items-center justify-between rounded-xl bg-slate-50 px-2 py-2">
+                <button
+                  type="button"
+                  onClick={() => moveMonth(-1)}
+                  className="rounded-lg p-2 text-slate-500 hover:bg-slate-200/70"
+                  aria-label="이전 달"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <p className="text-xl font-semibold text-slate-900">
+                  {formatMonthTitle(visibleMonth)}
                 </p>
-              </>
-            )}
+                <button
+                  type="button"
+                  onClick={() => moveMonth(1)}
+                  className="rounded-lg p-2 text-slate-500 hover:bg-slate-200/70"
+                  aria-label="다음 달"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 rounded-xl bg-slate-200/80 p-1 text-sm">
+                <button
+                  type="button"
+                  onClick={() => setCalendarView("month")}
+                  className={`rounded-lg px-3 py-2 font-medium transition ${
+                    calendarView === "month"
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-500"
+                  }`}
+                >
+                  월간 보기
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCalendarView("week")}
+                  className={`rounded-lg px-3 py-2 font-medium transition ${
+                    calendarView === "week"
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-500"
+                  }`}
+                >
+                  주간 보기
+                </button>
+              </div>
+
+              <div className="mt-4 rounded-2xl bg-white p-2">
+                {isLoading ? (
+                  <div className="h-[300px] animate-pulse rounded-xl bg-slate-100" />
+                ) : isError ? (
+                  <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-8 text-sm text-red-700">
+                    캘린더를 불러오지 못했습니다.
+                  </p>
+                ) : calendarView === "month" ? (
+                  <>
+                    <div className="grid grid-cols-7 gap-2 px-1 text-center text-xs font-medium">
+                      {weekdayLabels.map((label, idx) => (
+                        <span
+                          key={label}
+                          className={
+                            idx === 0
+                              ? "text-rose-500"
+                              : idx === 6
+                                ? "text-blue-500"
+                                : "text-slate-500"
+                          }
+                        >
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+
+                    <div className="mt-2 grid grid-cols-7 gap-2">
+                      {monthCells.map((day, index) => {
+                        if (!day) {
+                          return <div key={`blank-${index}`} className="h-12" />;
+                        }
+
+                        const key = toDateKey(day);
+                        const meta = dateMeta.get(key);
+                        const isSelected = key === selectedKey;
+                        const dayOfWeek = day.getDay();
+                        const baseTextClass =
+                          dayOfWeek === 0
+                            ? "text-rose-500"
+                            : dayOfWeek === 6
+                              ? "text-blue-500"
+                              : "text-slate-900";
+
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => setSelectedDate(day)}
+                            className={`relative h-12 rounded-xl text-sm font-medium transition ${
+                              isSelected
+                                ? "bg-emerald-500 text-white shadow-sm"
+                                : meta
+                                  ? "bg-slate-100 hover:bg-slate-200"
+                                  : "hover:bg-slate-100"
+                            } ${isSelected ? "text-white" : baseTextClass}`}
+                          >
+                            {day.getDate()}
+                            {renderMarker(meta, isSelected)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    {weekDates.map((day) => {
+                      const key = toDateKey(day);
+                      const meta = dateMeta.get(key);
+                      const isSelected = key === selectedKey;
+                      const dayOfWeek = day.getDay();
+                      const baseTextClass =
+                        dayOfWeek === 0
+                          ? "text-rose-500"
+                          : dayOfWeek === 6
+                            ? "text-blue-500"
+                            : "text-slate-900";
+
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => {
+                            setSelectedDate(day);
+                            setVisibleMonth(
+                              new Date(day.getFullYear(), day.getMonth(), 1),
+                            );
+                          }}
+                          className={`relative flex w-full items-center justify-between rounded-xl border px-3 py-3 text-sm transition ${
+                            isSelected
+                              ? "border-emerald-500 bg-emerald-500 text-white"
+                              : "border-slate-200 bg-white hover:bg-slate-50"
+                          }`}
+                        >
+                          <span className={`font-medium ${isSelected ? "text-white" : baseTextClass}`}>
+                            {weekdayLabels[dayOfWeek]}
+                          </span>
+                          <span className="text-base font-semibold">{day.getDate()}</span>
+                          {renderMarker(meta, isSelected)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+                <span>점으로 일정 여부를 표시합니다.</span>
+                {isFetching && <span>업데이트 중...</span>}
+              </div>
+            </div>
           </div>
 
           <div className="rounded-[28px] border border-white/70 bg-white/90 p-4 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur sm:p-5">
