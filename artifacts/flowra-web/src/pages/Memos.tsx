@@ -24,6 +24,7 @@ import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import CategorySelect, { CategoryDot } from "@/components/CategorySelect";
+import AppShell from "@/components/AppShell";
 import { memoSchema, type MemoFormValues } from "@/lib/schemas";
 
 const parseStatusBadge: Record<ParseStatus, string> = {
@@ -487,22 +488,29 @@ export default function Memos() {
   const items = data?.items ?? [];
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto max-w-3xl px-6 py-12">
-        <header className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">메모</h1>
-            <p className="mt-1 text-sm text-slate-500">
-              빠르게 메모하고 AI가 분석한 결과를 확인하세요.
-            </p>
+    <AppShell>
+      <div className="space-y-6">
+        <section className="rounded-[28px] border border-white/70 bg-white/85 p-6 shadow-[0_20px_70px_rgba(15,23,42,0.08)] backdrop-blur">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
+                Memo workspace
+              </p>
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">
+                메모
+              </h1>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                빠르게 메모하고 AI가 분석한 결과를 확인하세요.
+              </p>
+            </div>
+            <Link
+              to="/"
+              className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-950 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-slate-900/15 transition hover:-translate-y-0.5"
+            >
+              홈으로
+            </Link>
           </div>
-          <Link
-            to="/"
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100"
-          >
-            홈으로
-          </Link>
-        </header>
+        </section>
 
         <div className="mt-6">
           <MemoForm />
@@ -537,6 +545,6 @@ export default function Memos() {
           )}
         </div>
       </div>
-    </div>
+    </AppShell>
   );
 }

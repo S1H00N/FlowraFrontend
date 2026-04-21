@@ -20,14 +20,14 @@ export default function Spinner({
     <span
       role="status"
       aria-label={label ?? "로딩 중"}
-      className={`inline-block animate-spin rounded-full border-slate-200 border-t-slate-700 ${sizeMap[size]} ${className}`}
+      className={`inline-block animate-spin rounded-full border-slate-200 border-t-slate-900 ${sizeMap[size]} ${className}`}
     />
   );
 }
 
 export function FullSpinner({ message }: { message?: string }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 py-12 text-slate-500">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-[28px] border border-white/70 bg-white/80 py-14 text-slate-500 shadow-[0_18px_60px_rgba(15,23,42,0.06)] backdrop-blur">
       <Spinner size="lg" />
       {message && <p className="text-sm">{message}</p>}
     </div>

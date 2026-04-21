@@ -48,7 +48,7 @@ export default function CategorySelect({
 
   return (
     <div
-      className={`relative flex items-center gap-2 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm ${className}`}
+      className={`relative flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm ${className}`}
     >
       {selected ? (
         <CategoryDot color={selected.color} />
@@ -65,7 +65,7 @@ export default function CategorySelect({
           const v = e.target.value;
           onChange(v === "" ? "" : Number(v));
         }}
-        className="min-w-0 flex-1 cursor-pointer appearance-none bg-transparent pr-4 text-slate-700 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+        className="min-w-0 flex-1 cursor-pointer appearance-none bg-transparent pr-4 text-slate-700 outline-none disabled:cursor-not-allowed disabled:opacity-60"
       >
         {includeNone && <option value="">카테고리 없음</option>}
         {options.map((o) => (

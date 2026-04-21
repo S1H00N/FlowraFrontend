@@ -128,17 +128,17 @@ function TaskItemBase({ task }: { task: Task }) {
 
   if (isEditing) {
     return (
-      <li className="rounded-md border border-slate-200 bg-white p-3 shadow-sm">
+      <li className="rounded-[28px] border border-white/70 bg-white/90 p-4 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur">
         <form onSubmit={handleSubmit(handleSave)} noValidate className="space-y-2">
           <div className="flex flex-col gap-2 sm:flex-row">
             <div className="flex-1">
               <input
                 type="text"
                 {...register("title")}
-                className={`w-full rounded-md border px-3 py-1.5 text-sm focus:outline-none focus:ring-1 ${
+                className={`w-full rounded-2xl border px-3 py-3 text-sm shadow-sm outline-none transition focus:ring-2 ${
                   errors.title
-                    ? "border-red-400 focus:border-red-500 focus:ring-red-500"
-                    : "border-slate-300 focus:border-slate-900 focus:ring-slate-900"
+                    ? "border-red-400 focus:border-red-500 focus:ring-red-200"
+                    : "border-slate-200 bg-white focus:border-slate-900 focus:ring-slate-900/10"
                 }`}
               />
               {errors.title && (
@@ -149,7 +149,7 @@ function TaskItemBase({ task }: { task: Task }) {
             </div>
             <select
               {...register("priority")}
-              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
+              className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm outline-none"
             >
               {TASK_PRIORITIES.map((p) => (
                 <option key={p} value={p}>
@@ -159,7 +159,7 @@ function TaskItemBase({ task }: { task: Task }) {
             </select>
             <select
               {...register("status")}
-              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
+              className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm outline-none"
             >
               {TASK_STATUSES.map((s) => (
                 <option key={s} value={s}>
@@ -181,12 +181,12 @@ function TaskItemBase({ task }: { task: Task }) {
                 />
               )}
             />
-            <label className="flex flex-1 items-center gap-2 text-xs text-slate-600">
+                <label className="flex flex-1 items-center gap-2 text-xs font-medium text-slate-600">
               마감
               <input
                 type="datetime-local"
                 {...register("due_datetime")}
-                className="flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    className="flex-1 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm outline-none"
               />
             </label>
           </div>
@@ -194,14 +194,14 @@ function TaskItemBase({ task }: { task: Task }) {
             <button
               type="button"
               onClick={handleCancel}
-              className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+              className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
             >
               취소
             </button>
             <button
               type="submit"
               disabled={updateMutation.isPending}
-              className="rounded-md bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-60"
+              className="rounded-2xl bg-slate-900 px-3 py-2 text-xs font-medium text-white shadow-sm hover:bg-slate-800 disabled:opacity-60"
             >
               저장
             </button>
@@ -212,7 +212,7 @@ function TaskItemBase({ task }: { task: Task }) {
   }
 
   return (
-    <li className="rounded-md border border-slate-200 bg-white p-3 shadow-sm">
+    <li className="rounded-[28px] border border-white/70 bg-white/90 p-4 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur">
       <div className="flex items-center gap-3">
         <button
           type="button"
@@ -238,17 +238,17 @@ function TaskItemBase({ task }: { task: Task }) {
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             <span
-              className={`rounded border px-1.5 py-0.5 text-[11px] font-medium ${priorityBadge[task.priority]}`}
+              className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${priorityBadge[task.priority]}`}
             >
               {TASK_PRIORITY_LABELS[task.priority]}
             </span>
             <span
-              className={`rounded border px-1.5 py-0.5 text-[11px] font-medium ${statusBadge[task.status]}`}
+              className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusBadge[task.status]}`}
             >
               {TASK_STATUS_LABELS[task.status]}
             </span>
             {taskCategory && (
-              <span className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-600">
+              <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
                 <CategoryDot color={taskCategory.color} />
                 {taskCategory.name}
               </span>
@@ -265,7 +265,7 @@ function TaskItemBase({ task }: { task: Task }) {
           <button
             type="button"
             onClick={() => setShowReminders((v) => !v)}
-            className={`rounded-md border px-2 py-1 text-xs font-medium hover:bg-slate-100 ${
+            className={`rounded-2xl border px-2.5 py-1.5 text-xs font-medium hover:bg-slate-100 ${
               showReminders
                 ? "border-slate-900 bg-slate-900 text-white hover:bg-slate-800"
                 : "border-slate-300 bg-white text-slate-700"
@@ -276,7 +276,7 @@ function TaskItemBase({ task }: { task: Task }) {
           <button
             type="button"
             onClick={() => setIsEditing(true)}
-            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            className="rounded-2xl border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
           >
             수정
           </button>
@@ -284,7 +284,7 @@ function TaskItemBase({ task }: { task: Task }) {
             type="button"
             onClick={handleDelete}
             disabled={deleteMutation.isPending}
-            className="rounded-md border border-red-200 bg-white px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
+            className="rounded-2xl border border-red-200 bg-white px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
           >
             삭제
           </button>

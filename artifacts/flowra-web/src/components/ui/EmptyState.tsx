@@ -31,14 +31,14 @@ export default function EmptyState({
   action,
 }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-[28px] border border-dashed border-slate-300 bg-white/80 px-6 py-14 text-center shadow-[0_18px_60px_rgba(15,23,42,0.06)] backdrop-blur">
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-white shadow-lg shadow-slate-900/15">
         {icon ?? DefaultIcon}
       </div>
       <div>
-        <p className="text-sm font-medium text-slate-700">{title}</p>
+        <p className="text-sm font-semibold text-slate-800">{title}</p>
         {description && (
-          <p className="mt-1 text-xs text-slate-500">{description}</p>
+          <p className="mt-1 text-xs leading-6 text-slate-500">{description}</p>
         )}
       </div>
       {action && <div className="mt-1">{action}</div>}

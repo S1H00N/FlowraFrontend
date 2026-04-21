@@ -59,7 +59,7 @@ export default function TaskForm() {
     <form
       onSubmit={handleSubmit(onSubmit)}
       noValidate
-      className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+      className="space-y-3 rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(15,23,42,0.08)] backdrop-blur"
     >
       <div className="flex flex-col gap-2 sm:flex-row">
         <div className="flex-1">
@@ -68,10 +68,10 @@ export default function TaskForm() {
             placeholder="할 일을 입력하세요"
             {...register("title")}
             aria-invalid={!!errors.title}
-            className={`w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-1 ${
+            className={`w-full rounded-2xl border px-3 py-3 text-sm shadow-sm outline-none transition focus:ring-2 ${
               errors.title
-                ? "border-red-400 focus:border-red-500 focus:ring-red-500"
-                : "border-slate-300 focus:border-slate-900 focus:ring-slate-900"
+                ? "border-red-400 focus:border-red-500 focus:ring-red-200"
+                : "border-slate-200 bg-white focus:border-slate-900 focus:ring-slate-900/10"
             }`}
           />
           {errors.title && (
@@ -80,7 +80,7 @@ export default function TaskForm() {
         </div>
         <select
           {...register("priority")}
-          className="rounded-md border border-slate-300 bg-white px-2 py-2 text-sm"
+          className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm outline-none"
         >
           {TASK_PRIORITIES.map((p) => (
             <option key={p} value={p}>
@@ -90,7 +90,7 @@ export default function TaskForm() {
         </select>
         <select
           {...register("status")}
-          className="rounded-md border border-slate-300 bg-white px-2 py-2 text-sm"
+          className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm outline-none"
         >
           {TASK_STATUSES.map((s) => (
             <option key={s} value={s}>
@@ -112,18 +112,18 @@ export default function TaskForm() {
             />
           )}
         />
-        <label className="flex flex-1 items-center gap-2 text-xs text-slate-600">
+        <label className="flex flex-1 items-center gap-2 text-xs font-medium text-slate-600">
           마감
           <input
             type="datetime-local"
             {...register("due_datetime")}
-            className="flex-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+            className="flex-1 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm outline-none"
           />
         </label>
         <button
           type="submit"
           disabled={createMutation.isPending}
-          className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-700 disabled:opacity-60"
+          className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white shadow-lg shadow-slate-900/15 transition hover:-translate-y-0.5 hover:bg-slate-800 disabled:translate-y-0 disabled:opacity-60"
         >
           {createMutation.isPending ? "추가 중..." : "추가"}
         </button>

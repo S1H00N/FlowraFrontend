@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import AppShell from "@/components/AppShell";
 import TaskForm from "@/components/TaskForm";
 import TaskItem from "@/components/TaskItem";
 import EmptyState from "@/components/ui/EmptyState";
@@ -24,28 +25,35 @@ export default function Tasks() {
   const items = data?.items ?? [];
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto max-w-3xl px-6 py-12">
-        <header className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">할 일</h1>
-            <p className="mt-1 text-sm text-slate-500">
-              할 일을 추가하고 관리하세요.
-            </p>
+    <AppShell>
+      <div className="space-y-6">
+        <section className="rounded-[28px] border border-white/70 bg-white/85 p-6 shadow-[0_20px_70px_rgba(15,23,42,0.08)] backdrop-blur">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
+                Task board
+              </p>
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">
+                할 일
+              </h1>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                해야 할 일을 입력하고 상태별로 빠르게 걸러보세요.
+              </p>
+            </div>
+            <Link
+              to="/"
+              className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-950 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-slate-900/15 transition hover:-translate-y-0.5"
+            >
+              홈으로
+            </Link>
           </div>
-          <Link
-            to="/"
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100"
-          >
-            홈으로
-          </Link>
-        </header>
+        </section>
 
         <div className="mt-6">
           <TaskForm />
         </div>
 
-        <div className="mt-6 flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => setFilter("all")}
@@ -76,7 +84,7 @@ export default function Tasks() {
           )}
         </div>
 
-        <div className="mt-4">
+        <div>
           {isLoading ? (
             <FullSpinner message="할 일을 불러오는 중..." />
           ) : isError ? (
@@ -105,11 +113,11 @@ export default function Tasks() {
         </div>
 
         {data?.pagination && data.pagination.total_items > 0 && (
-          <div className="mt-4 text-right text-xs text-slate-500">
+          <div className="text-right text-xs text-slate-500">
             총 {data.pagination.total_items}건
           </div>
         )}
       </div>
-    </div>
+    </AppShell>
   );
 }
