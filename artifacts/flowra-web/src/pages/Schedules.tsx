@@ -1,12 +1,15 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
+  SCHEDULES_QUERY_KEY,
   useCreateSchedule,
   useDeleteSchedule,
   useSchedules,
   useUpdateSchedule,
 } from "@/hooks/useSchedules";
+import { createSchedule } from "@/api/schedules";
 import { useCategories } from "@/hooks/useCategories";
 import {
   SCHEDULE_TYPES,
@@ -23,6 +26,7 @@ import { FullSpinner } from "@/components/ui/Spinner";
 import CategorySelect, { CategoryDot } from "@/components/CategorySelect";
 import ReminderControl from "@/components/ReminderControl";
 import AppShell from "@/components/AppShell";
+import { toast } from "@/lib/toast";
 
 function toLocalInputValue(iso?: string | null): string {
   if (!iso) return "";
@@ -90,6 +94,8 @@ interface ScheduleFormState {
   location: string;
   visibility: ScheduleVisibility;
   category_id: number | "";
+  duplicate_count: number;
+  duplicate_interval_days: number;
 }
 
 const emptyForm: ScheduleFormState = {
@@ -102,6 +108,8 @@ const emptyForm: ScheduleFormState = {
   location: "",
   visibility: "private",
   category_id: "",
+  duplicate_count: 0,
+  duplicate_interval_days: 7,
 };
 
 function ScheduleForm({
@@ -110,12 +118,14 @@ function ScheduleForm({
   onSubmit,
   onCancel,
   isPending,
+  allowBatch,
 }: {
   initial?: ScheduleFormState;
   submitLabel: string;
   onSubmit: (s: ScheduleFormState) => Promise<void> | void;
   onCancel?: () => void;
   isPending?: boolean;
+  allowBatch?: boolean;
 }) {
   const [form, setForm] = useState<ScheduleFormState>(initial ?? emptyForm);
   const [error, setError] = useState<string | null>(null);
@@ -222,6 +232,57 @@ function ScheduleForm({
           className="sm:min-w-44"
         />
       </div>
+
+      {allowBatch && (
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs font-semibold text-slate-700">반복 복제 추가</p>
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+            <label className="flex flex-1 flex-col text-xs text-slate-600">
+              추가 생성 횟수
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={form.duplicate_count}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    duplicate_count: Math.max(
+                      0,
+                      Math.floor(Number(e.target.value) || 0),
+                    ),
+                  })
+                }
+                className="mt-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
+              />
+            </label>
+            <label className="flex flex-1 flex-col text-xs text-slate-600">
+              간격(일)
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={form.duplicate_interval_days}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    duplicate_interval_days: Math.max(
+                      1,
+                      Math.floor(Number(e.target.value) || 1),
+                    ),
+                  })
+                }
+                className="mt-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
+              />
+            </label>
+          </div>
+          <p className="mt-2 text-[11px] text-slate-500">
+            예: 추가 생성 횟수 3, 간격 7일이면 같은 일정을 1주 간격으로 총 4개
+            생성합니다.
+          </p>
+        </div>
+      )}
+
       <textarea
         placeholder="설명 (선택)"
         value={form.description}
@@ -384,10 +445,14 @@ function ScheduleRow({ schedule }: { schedule: Schedule }) {
 
 export default function Schedules() {
   const [calendarView, setCalendarView] = useState<"month" | "week">("month");
+  const [isCreateFormOpen, setIsCreateFormOpen] = useState(false);
+  const [isBulkCreating, setIsBulkCreating] = useState(false);
   const [visibleMonth, setVisibleMonth] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
     () => new Date(),
   );
+
+  const queryClient = useQueryClient();
 
   const monthRange = useMemo(() => {
     const start = new Date(
@@ -526,30 +591,122 @@ export default function Schedules() {
           </div>
         </section>
 
-        <div className="mt-6">
-          <ScheduleForm
-            submitLabel="일정 추가"
-            isPending={createMutation.isPending}
-            onSubmit={async (form) => {
-              await createMutation.mutateAsync({
-                title: form.title.trim(),
-                description: form.description || undefined,
-                schedule_type: form.schedule_type,
-                start_datetime: fromLocalInputValue(form.start_local),
-                end_datetime: form.end_local
-                  ? fromLocalInputValue(form.end_local)
-                  : undefined,
-                all_day: form.all_day,
-                location: form.location || undefined,
-                visibility: form.visibility,
-                category_id:
-                  form.category_id === ""
-                    ? undefined
-                    : Number(form.category_id),
-              });
-            }}
-          />
-        </div>
+        <section className="mt-6 rounded-[28px] border border-white/70 bg-white/90 p-4 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur sm:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">일정 빠른 추가</h2>
+              <p className="text-xs text-slate-500">
+                필요할 때만 입력 폼을 열어서 화면을 깔끔하게 유지합니다.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsCreateFormOpen((v) => !v)}
+              className="rounded-full border border-slate-200 bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:-translate-y-0.5"
+            >
+              {isCreateFormOpen ? "입력 폼 닫기" : "일정 추가 열기"}
+            </button>
+          </div>
+
+          {isCreateFormOpen && (
+            <div className="mt-4">
+              <ScheduleForm
+                submitLabel="일정 추가"
+                isPending={createMutation.isPending || isBulkCreating}
+                allowBatch
+                onSubmit={async (form) => {
+                  const duplicateCount = Math.max(
+                    0,
+                    Math.floor(form.duplicate_count || 0),
+                  );
+                  const intervalDays = Math.max(
+                    1,
+                    Math.floor(form.duplicate_interval_days || 1),
+                  );
+
+                  const basePayload = {
+                    title: form.title.trim(),
+                    description: form.description || undefined,
+                    schedule_type: form.schedule_type,
+                    all_day: form.all_day,
+                    location: form.location || undefined,
+                    visibility: form.visibility,
+                    category_id:
+                      form.category_id === ""
+                        ? undefined
+                        : Number(form.category_id),
+                  };
+
+                  if (duplicateCount === 0) {
+                    await createMutation.mutateAsync({
+                      ...basePayload,
+                      start_datetime: fromLocalInputValue(form.start_local),
+                      end_datetime: form.end_local
+                        ? fromLocalInputValue(form.end_local)
+                        : undefined,
+                    });
+                    return;
+                  }
+
+                  setIsBulkCreating(true);
+
+                  try {
+                    const baseStartDate = new Date(form.start_local);
+                    const baseEndDate = form.end_local
+                      ? new Date(form.end_local)
+                      : undefined;
+
+                    const payloads = Array.from(
+                      { length: duplicateCount + 1 },
+                      (_, index) => {
+                        const dayOffset = index * intervalDays;
+                        const start = new Date(baseStartDate);
+                        start.setDate(start.getDate() + dayOffset);
+
+                        let end: Date | undefined;
+                        if (baseEndDate) {
+                          end = new Date(baseEndDate);
+                          end.setDate(end.getDate() + dayOffset);
+                        }
+
+                        return {
+                          ...basePayload,
+                          start_datetime: start.toISOString(),
+                          end_datetime: end?.toISOString(),
+                        };
+                      },
+                    );
+
+                    const results = await Promise.all(
+                      payloads.map((payload) => createSchedule(payload)),
+                    );
+
+                    const failed = results.find((result) => !result.success);
+                    if (failed) {
+                      throw new Error(
+                        failed.message || "일정 일괄 추가 중 오류가 발생했습니다.",
+                      );
+                    }
+
+                    await queryClient.invalidateQueries({
+                      queryKey: SCHEDULES_QUERY_KEY,
+                    });
+                    toast.success(`${payloads.length}개의 일정을 추가했습니다.`);
+                  } catch (err) {
+                    const message = getErrorMessage(
+                      err,
+                      "일정 일괄 추가에 실패했습니다.",
+                    );
+                    toast.error(message);
+                    throw new Error(message);
+                  } finally {
+                    setIsBulkCreating(false);
+                  }
+                }}
+              />
+            </div>
+          )}
+        </section>
 
         <section className="grid gap-4 xl:grid-cols-[540px_minmax(0,1fr)]">
           <div className="rounded-[28px] border border-slate-200 bg-slate-100/80 p-4 shadow-[0_18px_60px_rgba(15,23,42,0.08)] sm:p-5">
