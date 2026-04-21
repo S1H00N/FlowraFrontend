@@ -95,10 +95,22 @@ export default function Home() {
           </div>
           <div className="flex gap-2">
             <Link
+              to="/schedules"
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100"
+            >
+              캘린더
+            </Link>
+            <Link
               to="/tasks"
               className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100"
             >
               할 일
+            </Link>
+            <Link
+              to="/memos"
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-100"
+            >
+              메모
             </Link>
             <button
               type="button"

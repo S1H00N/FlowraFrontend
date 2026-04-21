@@ -6,6 +6,8 @@ import Home from "@/pages/Home";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
 import Tasks from "@/pages/Tasks";
+import Schedules from "@/pages/Schedules";
+import Memos from "@/pages/Memos";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -33,6 +35,22 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Tasks />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/schedules"
+              element={
+                <ProtectedRoute>
+                  <Schedules />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/memos"
+              element={
+                <ProtectedRoute>
+                  <Memos />
                 </ProtectedRoute>
               }
             />
