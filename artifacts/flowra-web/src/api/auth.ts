@@ -25,6 +25,8 @@ export async function signup(payload: SignupRequest) {
 }
 
 export async function getMe() {
-  const res = await apiClient.get<ApiResponse<User>>("/users/me");
+  const res = await apiClient.get<ApiResponse<User | { user: User }>>(
+    "/users/me",
+  );
   return res.data;
 }

@@ -2,15 +2,21 @@ import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMe } from "@/hooks/useMe";
 import { useTodayBriefing } from "@/hooks/useTodayBriefing";
-import type { BriefingPriorityTask, BriefingSchedule, Priority } from "@/types";
+import type {
+  BriefingPriorityTask,
+  BriefingSchedule,
+  TaskPriority,
+} from "@/types";
 
-const priorityStyles: Record<Priority, string> = {
-  high: "bg-red-100 text-red-700 border-red-200",
+const priorityStyles: Record<TaskPriority, string> = {
+  urgent: "bg-red-100 text-red-700 border-red-200",
+  high: "bg-orange-100 text-orange-700 border-orange-200",
   medium: "bg-amber-100 text-amber-700 border-amber-200",
   low: "bg-slate-100 text-slate-600 border-slate-200",
 };
 
-const priorityLabels: Record<Priority, string> = {
+const priorityLabels: Record<TaskPriority, string> = {
+  urgent: "긴급",
   high: "높음",
   medium: "보통",
   low: "낮음",
@@ -64,9 +70,11 @@ function TaskItem({ t }: { t: BriefingPriorityTask }) {
     <li className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2">
       <span className="text-sm text-slate-800">{t.title}</span>
       <span
-        className={`rounded border px-2 py-0.5 text-xs font-medium ${priorityStyles[t.priority]}`}
+        className={`rounded border px-2 py-0.5 text-xs font-medium ${
+          priorityStyles[t.priority] ?? priorityStyles.medium
+        }`}
       >
-        {priorityLabels[t.priority]}
+        {priorityLabels[t.priority] ?? t.priority}
       </span>
     </li>
   );
@@ -134,7 +142,10 @@ export default function Home() {
             right={
               briefingQuery.data && (
                 <span className="text-xs text-slate-500">
-                  {briefingQuery.data.today_schedules.length}건
+                  {briefingQuery.data.summary?.schedule_count ??
+                    briefingQuery.data.schedules?.length ??
+                    0}
+                  건
                 </span>
               )
             }
@@ -148,9 +159,10 @@ export default function Home() {
               <p className="text-sm text-red-600">
                 불러오기 실패: {(briefingQuery.error as Error).message}
               </p>
-            ) : briefingQuery.data && briefingQuery.data.today_schedules.length > 0 ? (
+            ) : briefingQuery.data &&
+              (briefingQuery.data.schedules?.length ?? 0) > 0 ? (
               <ul className="space-y-2">
-                {briefingQuery.data.today_schedules.map((s) => (
+                {briefingQuery.data.schedules.map((s) => (
                   <ScheduleItem key={s.schedule_id} s={s} />
                 ))}
               </ul>
@@ -164,7 +176,13 @@ export default function Home() {
             right={
               briefingQuery.data && (
                 <span className="text-xs text-slate-500">
-                  미완료 {briefingQuery.data.unfinished_tasks}건
+                  미완료 {briefingQuery.data.summary?.task_count ?? 0}건
+                  {(briefingQuery.data.summary?.overdue_task_count ?? 0) > 0 && (
+                    <>
+                      {" "}
+                      · 지연 {briefingQuery.data.summary?.overdue_task_count}건
+                    </>
+                  )}
                 </span>
               )
             }
@@ -178,9 +196,10 @@ export default function Home() {
               <p className="text-sm text-red-600">
                 불러오기 실패: {(briefingQuery.error as Error).message}
               </p>
-            ) : briefingQuery.data && briefingQuery.data.priority_tasks.length > 0 ? (
+            ) : briefingQuery.data &&
+              (briefingQuery.data.tasks?.length ?? 0) > 0 ? (
               <ul className="space-y-2">
-                {briefingQuery.data.priority_tasks.map((t) => (
+                {briefingQuery.data.tasks.map((t) => (
                   <TaskItem key={t.task_id} t={t} />
                 ))}
               </ul>
