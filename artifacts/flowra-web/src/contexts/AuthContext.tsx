@@ -59,8 +59,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!res.success) {
       throw new Error(res.message || "로그인에 실패했습니다.");
     }
-    const { access_token, refresh_token, user: u } = res.data;
-    authStorage.setTokens(access_token, refresh_token);
+    const { user: u, tokens } = res.data;
+    if (!tokens?.access_token || !tokens?.refresh_token) {
+      throw new Error("로그인 응답에 토큰이 없습니다.");
+    }
+    authStorage.setTokens(tokens.access_token, tokens.refresh_token);
     authStorage.setUser(u);
     setUser(u);
   }, []);
