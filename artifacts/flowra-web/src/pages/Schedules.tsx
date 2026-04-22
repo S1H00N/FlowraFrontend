@@ -4,7 +4,6 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   SCHEDULES_QUERY_KEY,
-  useCreateSchedule,
   useDeleteSchedule,
   useSchedules,
   useUpdateSchedule,
@@ -27,6 +26,11 @@ import CategorySelect, { CategoryDot } from "@/components/CategorySelect";
 import ReminderControl from "@/components/ReminderControl";
 import AppShell from "@/components/AppShell";
 import { toast } from "@/lib/toast";
+import {
+  applyDateWithTime,
+  buildWeeklyRepeatDates,
+  parseDateInput,
+} from "@/utils/dateUtils";
 
 function toLocalInputValue(iso?: string | null): string {
   if (!iso) return "";
@@ -79,6 +83,16 @@ function buildWeekDates(date: Date): Date[] {
 
 const weekdayLabels = ["일", "월", "화", "수", "목", "금", "토"];
 
+const weeklyOptions = [
+  { label: "월", value: 1 },
+  { label: "화", value: 2 },
+  { label: "수", value: 3 },
+  { label: "목", value: 4 },
+  { label: "금", value: 5 },
+  { label: "토", value: 6 },
+  { label: "일", value: 0 },
+] as const;
+
 interface DayMeta {
   count: number;
   hasDeadline: boolean;
@@ -94,8 +108,9 @@ interface ScheduleFormState {
   location: string;
   visibility: ScheduleVisibility;
   category_id: number | "";
-  duplicate_count: number;
-  duplicate_interval_days: number;
+  repeat_mode: "none" | "weekly";
+  repeat_weekdays: number[];
+  repeat_end_date: string;
 }
 
 const emptyForm: ScheduleFormState = {
@@ -108,8 +123,9 @@ const emptyForm: ScheduleFormState = {
   location: "",
   visibility: "private",
   category_id: "",
-  duplicate_count: 0,
-  duplicate_interval_days: 7,
+  repeat_mode: "none",
+  repeat_weekdays: [],
+  repeat_end_date: "",
 };
 
 function ScheduleForm({
@@ -122,13 +138,41 @@ function ScheduleForm({
 }: {
   initial?: ScheduleFormState;
   submitLabel: string;
-  onSubmit: (s: ScheduleFormState) => Promise<void> | void;
+  onSubmit: (s: ScheduleFormState, previewDates: Date[]) => Promise<void> | void;
   onCancel?: () => void;
   isPending?: boolean;
   allowBatch?: boolean;
 }) {
   const [form, setForm] = useState<ScheduleFormState>(initial ?? emptyForm);
   const [error, setError] = useState<string | null>(null);
+
+  const previewDates = useMemo(() => {
+    if (!form.start_local) return [];
+
+    const start = new Date(form.start_local);
+    if (Number.isNaN(start.getTime())) return [];
+
+    if (form.repeat_mode === "none") return [start];
+
+    const endDate = parseDateInput(form.repeat_end_date);
+    if (!endDate) return [];
+
+    const weekdays =
+      form.repeat_weekdays.length > 0
+        ? form.repeat_weekdays
+        : [start.getDay()];
+
+    return buildWeeklyRepeatDates({
+      startDate: start,
+      endDate,
+      weekdays,
+    }).map((date) => applyDateWithTime(date, start));
+  }, [
+    form.start_local,
+    form.repeat_mode,
+    form.repeat_end_date,
+    form.repeat_weekdays,
+  ]);
 
   const handle = async (e: FormEvent) => {
     e.preventDefault();
@@ -137,12 +181,40 @@ function ScheduleForm({
       setError("제목과 시작 일시는 필수입니다.");
       return;
     }
+
+    if (form.repeat_mode === "weekly") {
+      if (form.repeat_weekdays.length === 0) {
+        setError("반복 요일을 1개 이상 선택해 주세요.");
+        return;
+      }
+      if (!form.repeat_end_date) {
+        setError("반복 종료일을 선택해 주세요.");
+        return;
+      }
+      if (previewDates.length === 0) {
+        setError("반복 조건에 해당하는 날짜가 없습니다.");
+        return;
+      }
+    }
+
     try {
-      await onSubmit(form);
+      await onSubmit(form, previewDates);
       if (!initial) setForm(emptyForm);
     } catch (err) {
       setError(getErrorMessage(err, "저장에 실패했습니다."));
     }
+  };
+
+  const toggleWeekday = (weekday: number) => {
+    setForm((prev: ScheduleFormState) => {
+      const exists = prev.repeat_weekdays.includes(weekday);
+      return {
+        ...prev,
+        repeat_weekdays: exists
+          ? prev.repeat_weekdays.filter((d: number) => d !== weekday)
+          : [...prev.repeat_weekdays, weekday].sort((a, b) => a - b),
+      };
+    });
   };
 
   return (
@@ -235,51 +307,128 @@ function ScheduleForm({
 
       {allowBatch && (
         <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-          <p className="text-xs font-semibold text-slate-700">반복 복제 추가</p>
-          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-            <label className="flex flex-1 flex-col text-xs text-slate-600">
-              추가 생성 횟수
-              <input
-                type="number"
-                min={0}
-                step={1}
-                value={form.duplicate_count}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    duplicate_count: Math.max(
-                      0,
-                      Math.floor(Number(e.target.value) || 0),
-                    ),
-                  })
-                }
-                className="mt-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
-              />
-            </label>
-            <label className="flex flex-1 flex-col text-xs text-slate-600">
-              간격(일)
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={form.duplicate_interval_days}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    duplicate_interval_days: Math.max(
-                      1,
-                      Math.floor(Number(e.target.value) || 1),
-                    ),
-                  })
-                }
-                className="mt-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
-              />
-            </label>
+          <p className="text-xs font-semibold text-slate-700">반복 옵션</p>
+
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setForm((prev: ScheduleFormState) => ({
+                  ...prev,
+                  repeat_mode: "none",
+                  repeat_weekdays: [],
+                  repeat_end_date: "",
+                }))
+              }
+              className={`rounded-md border px-3 py-1.5 text-xs font-medium ${
+                form.repeat_mode === "none"
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+              }`}
+            >
+              반복 없음
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setForm((prev: ScheduleFormState) => {
+                  const start = prev.start_local ? new Date(prev.start_local) : new Date();
+                  const fallbackEnd = new Date(start);
+                  fallbackEnd.setDate(fallbackEnd.getDate() + 28);
+                  return {
+                    ...prev,
+                    repeat_mode: "weekly",
+                    repeat_weekdays:
+                      prev.repeat_weekdays.length > 0
+                        ? prev.repeat_weekdays
+                        : [start.getDay()],
+                    repeat_end_date:
+                      prev.repeat_end_date || toDateKey(fallbackEnd),
+                  };
+                })
+              }
+              className={`rounded-md border px-3 py-1.5 text-xs font-medium ${
+                form.repeat_mode === "weekly"
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+              }`}
+            >
+              매주 반복
+            </button>
           </div>
-          <p className="mt-2 text-[11px] text-slate-500">
-            예: 추가 생성 횟수 3, 간격 7일이면 같은 일정을 1주 간격으로 총 4개
-            생성합니다.
-          </p>
+
+          {form.repeat_mode === "weekly" && (
+            <div className="mt-3 space-y-3">
+              <div>
+                <p className="text-xs font-medium text-slate-600">반복 요일</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {weeklyOptions.map((option) => {
+                    const checked = form.repeat_weekdays.includes(option.value);
+                    return (
+                      <label
+                        key={option.value}
+                        className={`inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs ${
+                          checked
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : "border-slate-300 bg-white text-slate-700"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleWeekday(option.value)}
+                          className="sr-only"
+                        />
+                        {option.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <label className="flex flex-col text-xs text-slate-600">
+                반복 종료일
+                <input
+                  type="date"
+                  value={form.repeat_end_date}
+                  min={toDateKey(new Date(form.start_local || new Date()))}
+                  onChange={(e) =>
+                    setForm((prev: ScheduleFormState) => ({
+                      ...prev,
+                      repeat_end_date: e.target.value,
+                    }))
+                  }
+                  className="mt-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
+                />
+              </label>
+            </div>
+          )}
+
+          <div className="mt-3 rounded-md border border-slate-200 bg-white p-3">
+            <p className="text-xs font-semibold text-slate-700">
+              일괄 추가 미리보기 ({previewDates.length}건)
+            </p>
+            {previewDates.length === 0 ? (
+              <p className="mt-2 text-[11px] text-slate-500">
+                반복 조건을 설정하면 생성될 날짜 목록이 여기에 표시됩니다.
+              </p>
+            ) : (
+              <ul className="mt-2 max-h-36 space-y-1 overflow-y-auto text-xs text-slate-600">
+                {previewDates.map((d) => (
+                  <li key={d.toISOString()} className="flex items-center justify-between">
+                    <span>
+                      {d.toLocaleDateString("ko-KR", {
+                        year: "numeric",
+                        month: "2-digit",
+                        day: "2-digit",
+                      })}
+                    </span>
+                    <span className="text-slate-400">{weekdayLabels[d.getDay()]}요일</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       )}
 
@@ -337,6 +486,9 @@ function ScheduleRow({ schedule }: { schedule: Schedule }) {
             location: schedule.location ?? "",
             visibility: schedule.visibility,
             category_id: schedule.category_id ?? "",
+            repeat_mode: "none",
+            repeat_weekdays: [],
+            repeat_end_date: "",
           }}
           onCancel={() => setIsEditing(false)}
           onSubmit={async (form) => {
@@ -446,7 +598,7 @@ function ScheduleRow({ schedule }: { schedule: Schedule }) {
 export default function Schedules() {
   const [calendarView, setCalendarView] = useState<"month" | "week">("month");
   const [isCreateFormOpen, setIsCreateFormOpen] = useState(false);
-  const [isBulkCreating, setIsBulkCreating] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [visibleMonth, setVisibleMonth] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
     () => new Date(),
@@ -471,7 +623,6 @@ export default function Schedules() {
     };
   }, [visibleMonth]);
 
-  const createMutation = useCreateSchedule();
   const { data, isLoading, isError, error, isFetching, refetch } = useSchedules(
     {
       view: "month",
@@ -612,17 +763,12 @@ export default function Schedules() {
             <div className="mt-4">
               <ScheduleForm
                 submitLabel="일정 추가"
-                isPending={createMutation.isPending || isBulkCreating}
+                isPending={isCreating}
                 allowBatch
-                onSubmit={async (form) => {
-                  const duplicateCount = Math.max(
-                    0,
-                    Math.floor(form.duplicate_count || 0),
-                  );
-                  const intervalDays = Math.max(
-                    1,
-                    Math.floor(form.duplicate_interval_days || 1),
-                  );
+                onSubmit={async (form, previewDates) => {
+                  if (previewDates.length === 0) {
+                    throw new Error("생성할 일정 날짜가 없습니다.");
+                  }
 
                   const basePayload = {
                     title: form.title.trim(),
@@ -637,45 +783,29 @@ export default function Schedules() {
                         : Number(form.category_id),
                   };
 
-                  if (duplicateCount === 0) {
-                    await createMutation.mutateAsync({
-                      ...basePayload,
-                      start_datetime: fromLocalInputValue(form.start_local),
-                      end_datetime: form.end_local
-                        ? fromLocalInputValue(form.end_local)
-                        : undefined,
-                    });
-                    return;
-                  }
-
-                  setIsBulkCreating(true);
+                  setIsCreating(true);
 
                   try {
-                    const baseStartDate = new Date(form.start_local);
-                    const baseEndDate = form.end_local
-                      ? new Date(form.end_local)
+                    const baseStart = new Date(form.start_local);
+                    const baseEnd = form.end_local ? new Date(form.end_local) : undefined;
+
+                    const endDiffMs = baseEnd
+                      ? Math.max(0, baseEnd.getTime() - baseStart.getTime())
                       : undefined;
 
-                    const payloads = Array.from(
-                      { length: duplicateCount + 1 },
-                      (_, index) => {
-                        const dayOffset = index * intervalDays;
-                        const start = new Date(baseStartDate);
-                        start.setDate(start.getDate() + dayOffset);
+                    const payloads = previewDates.map((date) => {
+                      const start = new Date(date);
+                      const end =
+                        typeof endDiffMs === "number"
+                          ? new Date(start.getTime() + endDiffMs)
+                          : undefined;
 
-                        let end: Date | undefined;
-                        if (baseEndDate) {
-                          end = new Date(baseEndDate);
-                          end.setDate(end.getDate() + dayOffset);
-                        }
-
-                        return {
-                          ...basePayload,
-                          start_datetime: start.toISOString(),
-                          end_datetime: end?.toISOString(),
-                        };
-                      },
-                    );
+                      return {
+                        ...basePayload,
+                        start_datetime: start.toISOString(),
+                        end_datetime: end?.toISOString(),
+                      };
+                    });
 
                     const results = await Promise.all(
                       payloads.map((payload) => createSchedule(payload)),
@@ -692,6 +822,7 @@ export default function Schedules() {
                       queryKey: SCHEDULES_QUERY_KEY,
                     });
                     toast.success(`${payloads.length}개의 일정을 추가했습니다.`);
+                    setIsCreateFormOpen(false);
                   } catch (err) {
                     const message = getErrorMessage(
                       err,
@@ -700,7 +831,7 @@ export default function Schedules() {
                     toast.error(message);
                     throw new Error(message);
                   } finally {
-                    setIsBulkCreating(false);
+                    setIsCreating(false);
                   }
                 }}
               />
