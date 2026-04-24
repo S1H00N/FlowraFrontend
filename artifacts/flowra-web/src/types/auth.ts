@@ -19,7 +19,6 @@ export interface AuthTokens {
   access_token: string;
   refresh_token: string;
   expires_in: number;
-  refresh_expires_at?: string;
 }
 
 export interface LoginRequest {
@@ -35,18 +34,19 @@ export interface SignupRequest {
 
 export interface LoginResponseData {
   user: User;
-  tokens: AuthTokens;
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
 }
 
-export interface SignupResponseData {
+export interface LegacyTokenResponseData {
   user: User;
   tokens: AuthTokens;
 }
 
-export interface RefreshResponseData {
-  user?: User;
-  tokens: AuthTokens;
-}
+export type SignupResponseData = User;
+
+export type RefreshResponseData = AuthTokens;
 
 export interface UpdateUserRequest {
   name?: string;

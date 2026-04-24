@@ -29,12 +29,10 @@ export interface BriefingSummary {
 
 export interface TodayBriefing {
   date: string;
-  summary: BriefingSummary;
-  schedules: BriefingSchedule[];
-  company_schedules?: BriefingSchedule[];
-  tasks: BriefingTask[];
-  overdue_tasks: BriefingTask[];
-  reminders: unknown[];
+  today_schedules: BriefingSchedule[];
+  priority_tasks: BriefingTask[];
+  unfinished_tasks: number;
+  ai_summary: string;
 }
 
 export type BriefingPriorityTask = BriefingTask;

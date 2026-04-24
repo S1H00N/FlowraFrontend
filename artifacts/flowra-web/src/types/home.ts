@@ -18,6 +18,7 @@ export interface HomeSlotCounts {
 
 export interface HomeSchedule {
   id: number;
+  schedule_id?: number;
   title: string;
   description?: string | null;
   schedule_type: ScheduleType;
@@ -47,6 +48,7 @@ export interface HomeOrganizationSchedule {
 
 export interface HomeTask {
   id: number;
+  task_id?: number;
   title: string;
   description?: string | null;
   priority: TaskPriority;

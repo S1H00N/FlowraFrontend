@@ -1,6 +1,8 @@
 import apiClient from "./client";
 import { toOffsetISOString } from "@/utils/dateUtils";
+import { compactParams, toNullableString, toOptionalNumber } from "./normalize";
 import type {
+  ApiListData,
   ApiResponse,
   CreateTaskRequest,
   Task,
@@ -8,27 +10,60 @@ import type {
   UpdateTaskRequest,
 } from "@/types";
 
-export async function listTasks(query: TaskListQuery = {}) {
-  const res = await apiClient.get<ApiResponse<{ tasks: Task[] }>>("/tasks", {
-    params: query,
+type TaskListData = ApiListData<Task> & { tasks?: Task[] };
+type TaskData = Task | { task: Task };
+
+function unwrapTask(data: TaskData): Task {
+  return "task" in data ? data.task : data;
+}
+
+function normalizeTaskPayload<T extends CreateTaskRequest | UpdateTaskRequest>(
+  payload: T,
+) {
+  return compactParams({
+    ...payload,
+    category_id:
+      "category_id" in payload ? toNullableString(payload.category_id) : undefined,
+    schedule_id:
+      "schedule_id" in payload ? toNullableString(payload.schedule_id) : undefined,
   });
-  return res.data;
+}
+
+function normalizeTaskQuery(query: TaskListQuery) {
+  return compactParams({
+    ...query,
+    category_id: toOptionalNumber(query.category_id),
+    schedule_id: toOptionalNumber(query.schedule_id),
+  });
+}
+
+export async function listTasks(query: TaskListQuery = {}) {
+  const res = await apiClient.get<ApiResponse<TaskListData>>("/tasks", {
+    params: normalizeTaskQuery(query),
+  });
+  return {
+    ...res.data,
+    data: {
+      tasks: res.data.data.items ?? res.data.data.tasks ?? [],
+      pagination: res.data.data.pagination,
+    },
+  };
 }
 
 export async function createTask(payload: CreateTaskRequest) {
-  const res = await apiClient.post<ApiResponse<{ task: Task }>>(
+  const res = await apiClient.post<ApiResponse<TaskData>>(
     "/tasks",
-    payload,
+    normalizeTaskPayload(payload),
   );
-  return res.data;
+  return { ...res.data, data: { task: unwrapTask(res.data.data) } };
 }
 
 export async function updateTask(taskId: number, payload: UpdateTaskRequest) {
-  const res = await apiClient.patch<ApiResponse<{ task: Task }>>(
+  const res = await apiClient.patch<ApiResponse<TaskData>>(
     `/tasks/${taskId}`,
-    payload,
+    normalizeTaskPayload(payload),
   );
-  return res.data;
+  return { ...res.data, data: { task: unwrapTask(res.data.data) } };
 }
 
 export async function deleteTask(taskId: number) {
@@ -39,12 +74,12 @@ export async function deleteTask(taskId: number) {
 }
 
 export async function completeTask(taskId: number) {
-  const res = await apiClient.patch<ApiResponse<{ task: Task }>>(
+  const res = await apiClient.patch<ApiResponse<TaskData>>(
     `/tasks/${taskId}`,
     {
       status: "done",
       completed_at: toOffsetISOString(new Date()),
     },
   );
-  return res.data;
+  return { ...res.data, data: { task: unwrapTask(res.data.data) } };
 }

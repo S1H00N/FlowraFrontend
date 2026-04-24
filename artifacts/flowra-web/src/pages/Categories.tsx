@@ -1,7 +1,18 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
-import { Check, Pencil, Plus, Tags, Trash2 } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  GripVertical,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Settings2,
+  Tags,
+  Trash2,
+} from "lucide-react";
 import {
   useCategories,
   useCreateCategory,
@@ -15,6 +26,21 @@ import {
   type Category,
   type CategoryType,
 } from "@/types";
+import {
+  CLASSIFICATION_GROUP_LABELS,
+  createClassificationOption,
+  getClassificationOptions,
+  moveClassificationOption,
+  readClassificationSettings,
+  removeClassificationOption,
+  reorderClassificationOption,
+  resetClassificationSettings,
+  saveClassificationSettings,
+  type ClassificationGroup,
+  type ClassificationOption,
+  type ClassificationSettings,
+} from "@/lib/classificationSettings";
+import { toast } from "@/lib/toast";
 import { CategoryDot } from "@/components/CategorySelect";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
@@ -27,7 +53,16 @@ interface FormValues {
   type: CategoryType;
 }
 
+type ActiveTab = "categories" | ClassificationGroup;
+
 const hexPattern = /^#[0-9A-Fa-f]{6}$/;
+
+const tabs: Array<{ key: ActiveTab; label: string }> = [
+  { key: "categories", label: "카테고리" },
+  { key: "scheduleTypes", label: "일정 유형" },
+  { key: "taskPriorities", label: "우선순위" },
+  { key: "taskStatuses", label: "할 일 상태" },
+];
 
 function ColorField({
   color,
@@ -128,7 +163,8 @@ function CategoryForm() {
       className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
     >
       <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-        <Tags className="h-4 w-4 text-emerald-600" />새 카테고리
+        <Tags className="h-4 w-4 text-emerald-600" />
+        새 카테고리
       </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_auto]">
@@ -154,7 +190,7 @@ function CategoryForm() {
         <select
           {...register("type")}
           className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-          aria-label="카테고리 타입"
+          aria-label="카테고리 대상"
         >
           {CATEGORY_TYPES.map((type) => (
             <option key={type} value={type}>
@@ -238,11 +274,10 @@ function CategoryRow({ category }: { category: Category }) {
   }, [name, color, category.category_id, updateMutation]);
 
   const handleDelete = useCallback(async () => {
-    if (category.is_default) {
-      if (!confirm("기본 카테고리입니다. 정말 삭제하시겠습니까?")) return;
-    } else if (!confirm("정말 삭제하시겠습니까?")) {
-      return;
-    }
+    const message = category.is_default
+      ? "기본 카테고리입니다. 정말 삭제하시겠습니까?"
+      : "정말 삭제하시겠습니까?";
+    if (!confirm(message)) return;
 
     try {
       await deleteMutation.mutateAsync(category.category_id);
@@ -255,14 +290,12 @@ function CategoryRow({ category }: { category: Category }) {
     return (
       <li className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_220px_auto] lg:items-start">
-          <div>
-            <input
-              type="text"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-            />
-          </div>
+          <input
+            type="text"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+          />
           <div className="flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-600">
             {CATEGORY_TYPE_LABELS[category.type]}
           </div>
@@ -330,7 +363,354 @@ function CategoryRow({ category }: { category: Category }) {
   );
 }
 
+function ClassificationSettingsPanel({
+  group,
+  settings,
+  onChange,
+}: {
+  group: ClassificationGroup;
+  settings: ClassificationSettings;
+  onChange: (settings: ClassificationSettings) => void;
+}) {
+  const [newLabel, setNewLabel] = useState("");
+  const [draggedKey, setDraggedKey] = useState<string | null>(null);
+  const options = getClassificationOptions(settings, group);
+  const defaultOptions = getClassificationOptions(settings, group, {
+    defaultOnly: true,
+  });
+
+  const updateOption = (
+    key: string,
+    patch: Partial<ClassificationOption>,
+  ) => {
+    const groupSettings = settings[group] as Record<string, ClassificationOption>;
+    onChange({
+      ...settings,
+      [group]: {
+        ...groupSettings,
+        [key]: {
+          ...groupSettings[key],
+          ...patch,
+        },
+      },
+    });
+  };
+
+  const handleAdd = () => {
+    const trimmedLabel = newLabel.trim();
+    if (!trimmedLabel) {
+      toast.error("추가할 이름을 입력하세요.");
+      return;
+    }
+    onChange(createClassificationOption(settings, group, trimmedLabel));
+    setNewLabel("");
+  };
+
+  const handleMove = (key: string, direction: -1 | 1) => {
+    onChange(moveClassificationOption(settings, group, key, direction));
+  };
+
+  const handleDrop = (targetIndex: number) => {
+    if (!draggedKey) return;
+    onChange(reorderClassificationOption(settings, group, draggedKey, targetIndex));
+    setDraggedKey(null);
+  };
+
+  const handleRemove = (key: string) => {
+    onChange(removeClassificationOption(settings, group, key));
+  };
+
+  const handleSave = () => {
+    saveClassificationSettings(settings);
+    toast.success("분류 설정을 저장했습니다.");
+  };
+
+  const handleReset = () => {
+    const next = resetClassificationSettings(group);
+    onChange(next);
+    toast.success(`${CLASSIFICATION_GROUP_LABELS[group]} 기본값으로 되돌렸습니다.`);
+  };
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-950">
+            {CLASSIFICATION_GROUP_LABELS[group]} 설정
+          </h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            기본값은 API 명세 enum으로 저장되고, 추가 항목은 현재 명세 안의 저장값에 매핑됩니다.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handleReset}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            기본값
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            className="h-9 rounded-lg bg-emerald-600 px-3 text-xs font-medium text-white shadow-sm hover:bg-emerald-700"
+          >
+            저장
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-2 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <input
+          type="text"
+          value={newLabel}
+          onChange={(event) => setNewLabel(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              handleAdd();
+            }
+          }}
+          placeholder={`${CLASSIFICATION_GROUP_LABELS[group]} 추가`}
+          className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+        />
+        <button
+          type="button"
+          onClick={handleAdd}
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 text-sm font-medium text-white shadow-sm hover:bg-slate-800"
+        >
+          <Plus className="h-4 w-4" />
+          추가
+        </button>
+      </div>
+
+      <div className="divide-y divide-slate-100">
+        {options.map((option, index) => (
+          <div
+            key={option.key}
+            onDragOver={(event) => {
+              if (!draggedKey || draggedKey === option.key) return;
+              event.preventDefault();
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              handleDrop(index);
+            }}
+            className={`grid gap-3 px-5 py-4 transition lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_160px_100px_128px] lg:items-center ${
+              draggedKey === option.key ? "bg-emerald-50" : "bg-white"
+            }`}
+          >
+            <div>
+              <div
+                draggable
+                onDragStart={(event) => {
+                  setDraggedKey(option.key);
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", option.key);
+                }}
+                onDragEnd={() => setDraggedKey(null)}
+                className="flex cursor-grab flex-wrap items-center gap-2 rounded-lg p-1 active:cursor-grabbing"
+                title="드래그해서 순서 변경"
+              >
+                <GripVertical className="h-4 w-4 text-slate-400" />
+                <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                  {index + 1}
+                </span>
+                <code className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-700">
+                  {option.isDefault ? option.key : "custom"}
+                </code>
+                <span
+                  className={`rounded-md border px-2 py-1 text-[11px] font-medium ${
+                    option.isDefault
+                      ? "border-slate-200 bg-white text-slate-500"
+                      : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  }`}
+                >
+                  {option.isDefault ? "기본" : "추가"}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                실제 저장값: {option.value}
+              </p>
+            </div>
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600">표시 이름</span>
+              <input
+                type="text"
+                value={option.label}
+                onChange={(event) =>
+                  updateOption(option.key, { label: event.target.value })
+                }
+                className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600">저장값</span>
+              <select
+                value={option.value}
+                disabled={option.isDefault}
+                onChange={(event) =>
+                  updateOption(option.key, {
+                    value: event.target.value,
+                  })
+                }
+                className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-50 disabled:text-slate-500"
+              >
+                {defaultOptions.map((defaultOption) => (
+                  <option key={defaultOption.key} value={defaultOption.value}>
+                    {defaultOption.label} ({defaultOption.value})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700 md:mt-5">
+              <input
+                type="checkbox"
+                checked={option.enabled}
+                onChange={(event) =>
+                  updateOption(option.key, { enabled: event.target.checked })
+                }
+                className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              사용
+            </label>
+            <div className="flex items-center gap-1 lg:justify-end">
+              <button
+                type="button"
+                onClick={() => handleMove(option.key, -1)}
+                disabled={index === 0}
+                aria-label="위로 이동"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleMove(option.key, 1)}
+                disabled={index === options.length - 1}
+                aria-label="아래로 이동"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+              >
+                <ArrowDown className="h-4 w-4" />
+              </button>
+              {!option.isDefault && (
+                <button
+                  type="button"
+                  onClick={() => handleRemove(option.key)}
+                  aria-label="삭제"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-200 bg-white text-red-600 hover:bg-red-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CategoriesPanel({
+  categories,
+  isLoading,
+  isError,
+  error,
+  isFetching,
+  refetch,
+}: {
+  categories: Category[];
+  isLoading: boolean;
+  isError: boolean;
+  error: unknown;
+  isFetching: boolean;
+  refetch: () => void;
+}) {
+  const grouped = useMemo(() => {
+    const groups: Record<CategoryType, Category[]> = {
+      task: [],
+      schedule: [],
+      memo: [],
+    };
+    for (const category of categories) groups[category.type]?.push(category);
+    return groups;
+  }, [categories]);
+
+  return (
+    <div className="space-y-4">
+      <CategoryForm />
+
+      <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-950">
+              카테고리 목록
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              할 일, 일정, 메모에서 직접 선택하는 사용자 카테고리입니다.
+            </p>
+          </div>
+          <div className="text-right text-xs text-slate-500">
+            <p>총 {categories.length}개</p>
+            {isFetching && <p className="mt-0.5">새로고침 중...</p>}
+          </div>
+        </div>
+
+        <div className="p-5">
+          {isLoading ? (
+            <FullSpinner message="카테고리를 불러오는 중..." />
+          ) : isError ? (
+            <ErrorState
+              title="카테고리를 불러오지 못했습니다"
+              message={(error as Error).message}
+              onRetry={() => refetch()}
+              retrying={isFetching}
+            />
+          ) : categories.length === 0 ? (
+            <EmptyState
+              title="카테고리가 없습니다"
+              description="필요한 분류를 추가해 보세요."
+            />
+          ) : (
+            <div className="grid gap-5 xl:grid-cols-3">
+              {CATEGORY_TYPES.map((type) => (
+                <section key={type} className="min-w-0">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-slate-800">
+                      {CATEGORY_TYPE_LABELS[type]}
+                    </h3>
+                    <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
+                      {grouped[type].length}개
+                    </span>
+                  </div>
+                  {grouped[type].length === 0 ? (
+                    <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                      {CATEGORY_TYPE_LABELS[type]} 카테고리가 없습니다.
+                    </p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {grouped[type].map((category) => (
+                        <CategoryRow
+                          key={category.category_id}
+                          category={category}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function Categories() {
+  const [activeTab, setActiveTab] = useState<ActiveTab>("categories");
+  const [settings, setSettings] = useState(readClassificationSettings);
   const {
     data = [],
     isLoading,
@@ -340,15 +720,12 @@ export default function Categories() {
     refetch,
   } = useCategories();
 
-  const grouped = useMemo(() => {
-    const groups: Record<CategoryType, Category[]> = {
-      task: [],
-      schedule: [],
-      memo: [],
-    };
-    for (const category of data) groups[category.type]?.push(category);
-    return groups;
-  }, [data]);
+  useEffect(() => {
+    const sync = () => setSettings(readClassificationSettings());
+    window.addEventListener("flowra:classification-settings-changed", sync);
+    return () =>
+      window.removeEventListener("flowra:classification-settings-changed", sync);
+  }, []);
 
   return (
     <AppShell>
@@ -357,13 +734,13 @@ export default function Categories() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
-                Category studio
+                Classification studio
               </p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">
-                카테고리
+                분류 관리
               </h1>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                할 일·일정·메모를 분류할 카테고리를 관리하세요.
+                카테고리와 기본 분류값을 한 곳에서 관리합니다. 새 사용자는 시스템 기본값으로 시작합니다.
               </p>
             </div>
             <Link
@@ -375,71 +752,46 @@ export default function Categories() {
           </div>
         </section>
 
-        <CategoryForm />
-
-        <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-950">
-                카테고리 목록
-              </h2>
-              <p className="mt-0.5 text-xs text-slate-500">
-                API 타입값 `task`, `schedule`, `memo` 기준으로 묶어 보여줍니다.
-              </p>
-            </div>
-            <div className="text-right text-xs text-slate-500">
-              <p>총 {data.length}건</p>
-              {isFetching && <p className="mt-0.5">새로고침 중...</p>}
-            </div>
-          </div>
-
-          <div className="p-5">
-            {isLoading ? (
-              <FullSpinner message="카테고리를 불러오는 중..." />
-            ) : isError ? (
-              <ErrorState
-                title="카테고리를 불러오지 못했습니다"
-                message={(error as Error).message}
-                onRetry={() => refetch()}
-                retrying={isFetching}
-              />
-            ) : data.length === 0 ? (
-              <EmptyState
-                title="카테고리가 없습니다"
-                description="위 폼에서 새 카테고리를 추가해 보세요."
-              />
-            ) : (
-              <div className="grid gap-5 xl:grid-cols-3">
-                {CATEGORY_TYPES.map((type) => (
-                  <section key={type} className="min-w-0">
-                    <div className="mb-3 flex items-center justify-between">
-                      <h3 className="text-sm font-semibold text-slate-800">
-                        {CATEGORY_TYPE_LABELS[type]}
-                      </h3>
-                      <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
-                        {grouped[type].length}건
-                      </span>
-                    </div>
-                    {grouped[type].length === 0 ? (
-                      <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-                        {CATEGORY_TYPE_LABELS[type]} 카테고리가 없습니다.
-                      </p>
-                    ) : (
-                      <ul className="space-y-2">
-                        {grouped[type].map((category) => (
-                          <CategoryRow
-                            key={category.category_id}
-                            category={category}
-                          />
-                        ))}
-                      </ul>
-                    )}
-                  </section>
-                ))}
-              </div>
-            )}
+        <section className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
+          <div className="flex flex-wrap gap-1">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                className={`inline-flex h-10 items-center gap-2 rounded-md px-3 text-sm font-medium transition ${
+                  activeTab === tab.key
+                    ? "bg-emerald-600 text-white shadow-sm"
+                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
+                }`}
+              >
+                {tab.key === "categories" ? (
+                  <Tags className="h-4 w-4" />
+                ) : (
+                  <Settings2 className="h-4 w-4" />
+                )}
+                {tab.label}
+              </button>
+            ))}
           </div>
         </section>
+
+        {activeTab === "categories" ? (
+          <CategoriesPanel
+            categories={data}
+            isLoading={isLoading}
+            isError={isError}
+            error={error}
+            isFetching={isFetching}
+            refetch={refetch}
+          />
+        ) : (
+          <ClassificationSettingsPanel
+            group={activeTab}
+            settings={settings}
+            onChange={setSettings}
+          />
+        )}
       </div>
     </AppShell>
   );

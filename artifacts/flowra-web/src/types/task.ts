@@ -54,8 +54,8 @@ export interface CreateTaskRequest {
   status?: TaskStatus;
   due_datetime?: string | null;
   completed_at?: string | null;
-  category_id?: string;
-  schedule_id?: string;
+  category_id?: string | number | null;
+  schedule_id?: string | number | null;
   location?: string | null;
 }
 
@@ -66,16 +66,20 @@ export interface UpdateTaskRequest {
   status?: TaskStatus;
   due_datetime?: string | null;
   completed_at?: string | null;
-  category_id?: string | null;
-  schedule_id?: string | null;
+  category_id?: string | number | null;
+  schedule_id?: string | number | null;
   location?: string | null;
 }
 
 export interface TaskListQuery {
   status?: TaskStatus;
   priority?: TaskPriority;
-  category_id?: string;
-  schedule_id?: string;
+  category_id?: string | number;
+  schedule_id?: string | number;
   due_from?: string;
   due_to?: string;
+  page?: number;
+  size?: number;
+  sort_by?: "created_at" | "due_datetime" | "priority";
+  sort_order?: "asc" | "desc";
 }

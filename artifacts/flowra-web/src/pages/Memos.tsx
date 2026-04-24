@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   BrainCircuit,
@@ -35,6 +35,7 @@ import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import AppShell from "@/components/AppShell";
+import CategorySelect from "@/components/CategorySelect";
 import { memoSchema, type MemoFormValues } from "@/lib/schemas";
 
 type DetectedType = "schedule" | "task" | "note" | "mixed";
@@ -83,6 +84,7 @@ function MemoComposer() {
   const {
     register,
     handleSubmit,
+    control,
     reset,
     formState: { errors },
   } = useForm<MemoFormValues>({
@@ -158,6 +160,19 @@ function MemoComposer() {
             </option>
           ))}
         </select>
+
+        <Controller
+          control={control}
+          name="category_id"
+          render={({ field }) => (
+            <CategorySelect
+              type="memo"
+              value={field.value as number | "" | undefined}
+              onChange={field.onChange}
+              className="h-10 min-w-0 sm:w-48"
+            />
+          )}
+        />
 
         <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
           <input
@@ -274,6 +289,13 @@ function ResultPanel({
   const result = data.latest_result;
   const applyMutation = useApplyMemo();
   const [appliedLink, setAppliedLink] = useState<string | null>(null);
+  const [applyError, setApplyError] = useState<string | null>(null);
+
+  const detected = result?.detected_type as DetectedType;
+  const confidence =
+    typeof result?.confidence_score === "number"
+      ? `${Math.round(result.confidence_score * 100)}%`
+      : null;
 
   if (!result) {
     return (
@@ -282,12 +304,6 @@ function ResultPanel({
       </div>
     );
   }
-
-  const detected = result.detected_type as DetectedType;
-  const confidence =
-    typeof result.confidence_score === "number"
-      ? `${Math.round(result.confidence_score * 100)}%`
-      : null;
 
   return (
     <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
@@ -322,18 +338,24 @@ function ResultPanel({
             )}
             <button
               type="button"
-              disabled={
-                applyMutation.isPending || result.status === "approved"
-              }
+              disabled={applyMutation.isPending || result.status === "approved"}
               onClick={async () => {
-                const applied = await applyMutation.mutateAsync({
-                  memoId,
-                  payload: {
-                    ai_result_id: String(result.ai_result_id),
-                    apply_type: "schedule",
-                  },
-                });
-                setAppliedLink(getAppliedLink(applied.apply_type, applied.resource));
+                setApplyError(null);
+                try {
+                  const applied = await applyMutation.mutateAsync({
+                    memoId,
+                    payload: {
+                      apply_type: "schedule",
+                    },
+                  });
+                  setAppliedLink(
+                    getAppliedLink(applied.apply_type, applied.resource),
+                  );
+                } catch (err) {
+                  setApplyError(
+                    getErrorMessage(err, "일정 생성에 실패했습니다."),
+                  );
+                }
               }}
               className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-60"
             >
@@ -367,18 +389,24 @@ function ResultPanel({
             </div>
             <button
               type="button"
-              disabled={
-                applyMutation.isPending || result.status === "approved"
-              }
+              disabled={applyMutation.isPending || result.status === "approved"}
               onClick={async () => {
-                const applied = await applyMutation.mutateAsync({
-                  memoId,
-                  payload: {
-                    ai_result_id: String(result.ai_result_id),
-                    apply_type: "task",
-                  },
-                });
-                setAppliedLink(getAppliedLink(applied.apply_type, applied.resource));
+                setApplyError(null);
+                try {
+                  const applied = await applyMutation.mutateAsync({
+                    memoId,
+                    payload: {
+                      apply_type: "task",
+                    },
+                  });
+                  setAppliedLink(
+                    getAppliedLink(applied.apply_type, applied.resource),
+                  );
+                } catch (err) {
+                  setApplyError(
+                    getErrorMessage(err, "할 일 생성에 실패했습니다."),
+                  );
+                }
               }}
               className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
             >
@@ -411,6 +439,11 @@ function ResultPanel({
           </Link>
         </div>
       )}
+      {applyError && (
+        <div className="mt-3 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs text-red-700">
+          {applyError}
+        </div>
+      )}
     </div>
   );
 }
@@ -437,7 +470,7 @@ function ParseStatusView({
   retrying,
 }: {
   memo: Memo;
-  onRetry: () => void;
+  onRetry: (force?: boolean) => void;
   retrying: boolean;
 }) {
   switch (memo.parse_status) {
@@ -449,7 +482,7 @@ function ParseStatusView({
       return (
         <FailedPanel
           message={memo.parse_error_message}
-          onRetry={onRetry}
+          onRetry={() => onRetry(true)}
           retrying={retrying}
         />
       );
@@ -493,10 +526,10 @@ function MemoFeedItem({ memo }: { memo: Memo }) {
     }
   };
 
-  const handleParse = async () => {
+  const handleParse = async (force = false) => {
     setError(null);
     try {
-      await parseMutation.mutateAsync(memo.memo_id);
+      await parseMutation.mutateAsync({ memoId: memo.memo_id, force });
     } catch (err) {
       setError(getErrorMessage(err, "AI 파싱 요청에 실패했습니다."));
     }
@@ -583,13 +616,15 @@ function MemoFeedItem({ memo }: { memo: Memo }) {
             <>
               <button
                 type="button"
-                onClick={handleParse}
+                onClick={() => handleParse(memo.parse_status === "completed")}
                 disabled={
                   parseMutation.isPending ||
                   memo.parse_status === "processing" ||
                   memo.parse_status === "pending"
                 }
-                aria-label="재분석"
+                aria-label={
+                  memo.parse_status === "completed" ? "다시 분석" : "AI 분석"
+                }
                 className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
               >
                 <RefreshCw className="h-4 w-4" />

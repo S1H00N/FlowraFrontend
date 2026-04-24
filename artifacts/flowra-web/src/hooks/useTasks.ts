@@ -106,7 +106,7 @@ export function useCompleteTask() {
       const res = await completeTask(taskId);
       if (!res.success)
         throw new Error(res.message || "완료 처리에 실패했습니다.");
-      return res.data.task;
+      return res.data;
     },
     onSuccess: () => invalidate(),
     meta: {

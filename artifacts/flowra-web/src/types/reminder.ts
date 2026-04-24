@@ -23,24 +23,19 @@ export interface Reminder {
 
 export interface CreateReminderRequest {
   target_type: ReminderTargetType;
-  target_id: string;
+  target_id: string | number;
   remind_at: string;
   reminder_type: ReminderType;
 }
 
 export interface ReminderListQuery {
   target_type?: ReminderTargetType;
-  target_id?: string;
-  is_sent?: boolean;
-  remind_from?: string;
-  remind_to?: string;
+  target_id?: string | number;
 }
 
 export interface UpdateReminderRequest {
   target_type?: ReminderTargetType;
-  target_id?: string;
+  target_id?: string | number;
   remind_at?: string;
   reminder_type?: ReminderType;
-  is_sent?: boolean;
-  sent_at?: string | null;
 }

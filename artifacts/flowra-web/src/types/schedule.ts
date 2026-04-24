@@ -5,7 +5,7 @@ export type ScheduleType =
   | "deadline"
   | "other";
 
-export type ScheduleVisibility = "private";
+export type ScheduleVisibility = "private" | "company";
 
 export const SCHEDULE_TYPES: ScheduleType[] = [
   "personal",
@@ -23,7 +23,7 @@ export const SCHEDULE_TYPE_LABELS: Record<ScheduleType, string> = {
   other: "기타",
 };
 
-export const SCHEDULE_VISIBILITY_LABELS: Record<ScheduleVisibility, string> = {
+export const SCHEDULE_VISIBILITY_LABELS: Partial<Record<ScheduleVisibility, string>> = {
   private: "비공개",
 };
 
@@ -57,7 +57,7 @@ export interface CreateScheduleRequest {
   end_datetime?: string | null;
   all_day?: boolean;
   location?: string | null;
-  category_id?: string;
+  category_id?: string | number | null;
   visibility?: ScheduleVisibility;
 }
 
@@ -71,13 +71,18 @@ export interface UpdateScheduleRequest {
   end_datetime?: string | null;
   all_day?: boolean;
   location?: string | null;
-  category_id?: string | null;
+  category_id?: string | number | null;
   visibility?: ScheduleVisibility;
 }
 
 export interface ScheduleListQuery {
   start_from?: string;
   start_to?: string;
-  category_id?: string;
+  start_date?: string;
+  end_date?: string;
+  view?: "month" | "week" | "day" | "list";
+  category_id?: string | number;
   schedule_type?: ScheduleType;
+  page?: number;
+  size?: number;
 }

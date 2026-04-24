@@ -1,5 +1,7 @@
 import { apiClient } from "./client";
+import { compactParams, toOptionalNumber, toOptionalString } from "./normalize";
 import type {
+  ApiListData,
   ApiResponse,
   CreateReminderRequest,
   Reminder,
@@ -11,19 +13,37 @@ interface RemindersData {
   reminders: Reminder[];
 }
 
+type ReminderListData = ApiListData<Reminder> & { reminders?: Reminder[] };
+type ReminderData = Reminder | { reminder: Reminder };
+
+function unwrapReminder(data: ReminderData): Reminder {
+  return "reminder" in data ? data.reminder : data;
+}
+
 export async function listReminders(query: ReminderListQuery = {}) {
-  const res = await apiClient.get<ApiResponse<RemindersData>>("/reminders", {
-    params: query,
+  const res = await apiClient.get<ApiResponse<ReminderListData>>("/reminders", {
+    params: compactParams({
+      ...query,
+      target_id: toOptionalNumber(query.target_id),
+    }),
   });
-  return res.data;
+  return {
+    ...res.data,
+    data: {
+      reminders: res.data.data.items ?? res.data.data.reminders ?? [],
+    } satisfies RemindersData,
+  };
 }
 
 export async function createReminder(payload: CreateReminderRequest) {
-  const res = await apiClient.post<ApiResponse<{ reminder: Reminder }>>(
+  const res = await apiClient.post<ApiResponse<ReminderData>>(
     "/reminders",
-    payload,
+    compactParams({
+      ...payload,
+      target_id: toOptionalString(payload.target_id),
+    }),
   );
-  return res.data;
+  return { ...res.data, data: { reminder: unwrapReminder(res.data.data) } };
 }
 
 export async function deleteReminder(reminderId: number) {
@@ -37,9 +57,12 @@ export async function updateReminder(
   reminderId: number,
   payload: UpdateReminderRequest,
 ) {
-  const res = await apiClient.patch<ApiResponse<{ reminder: Reminder }>>(
+  const res = await apiClient.patch<ApiResponse<ReminderData>>(
     `/reminders/${reminderId}`,
-    payload,
+    compactParams({
+      ...payload,
+      target_id: toOptionalString(payload.target_id),
+    }),
   );
-  return res.data;
+  return { ...res.data, data: { reminder: unwrapReminder(res.data.data) } };
 }

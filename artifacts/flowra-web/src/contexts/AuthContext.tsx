@@ -50,8 +50,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     navigate("/login", { replace: true });
   }, [navigate]);
 
-  // Register handler so axios interceptor can trigger logout on
-  // refresh failure / unrecoverable auth errors.
   useEffect(() => {
     setOnAuthFailure(() => {
       setUser(null);
@@ -63,28 +61,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (payload: LoginRequest) => {
     const res = await authApi.login(payload);
     if (!res.success) {
-      throw new Error(res.message || "로그인에 실패했습니다.");
+      throw new Error(res.message || "Login failed.");
     }
-    const { user: u, tokens } = res.data;
-    if (!tokens?.access_token || !tokens?.refresh_token) {
-      throw new Error("로그인 응답에 토큰이 없습니다.");
+    const { user: nextUser, access_token, refresh_token } = res.data;
+    if (!access_token || !refresh_token) {
+      throw new Error("Login response does not include tokens.");
     }
-    authStorage.setTokens(tokens.access_token, tokens.refresh_token);
-    authStorage.setUser(u);
-    setUser(u);
+    authStorage.setTokens(access_token, refresh_token);
+    authStorage.setUser(nextUser);
+    setUser(nextUser);
   }, []);
 
   const signup = useCallback(async (payload: SignupRequest) => {
     const res = await authApi.signup(payload);
     if (!res.success) {
-      throw new Error(res.message || "회원가입에 실패했습니다.");
+      throw new Error(res.message || "Signup failed.");
     }
-    const { user: u, tokens } = res.data;
-    if (tokens?.access_token && tokens?.refresh_token) {
-      authStorage.setTokens(tokens.access_token, tokens.refresh_token);
-      authStorage.setUser(u);
-      setUser(u);
+
+    const loginRes = await authApi.login({
+      email: payload.email,
+      password: payload.password,
+    });
+    if (!loginRes.success) {
+      authStorage.setUser(res.data);
+      setUser(res.data);
+      return;
     }
+
+    const { user: nextUser, access_token, refresh_token } = loginRes.data;
+    if (access_token && refresh_token) {
+      authStorage.setTokens(access_token, refresh_token);
+    }
+    authStorage.setUser(nextUser);
+    setUser(nextUser);
   }, []);
 
   const value = useMemo<AuthContextValue>(

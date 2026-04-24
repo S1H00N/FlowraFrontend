@@ -17,7 +17,10 @@ interface RetriableConfig extends InternalAxiosRequestConfig {
 }
 
 interface RefreshResponseData {
-  tokens: {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  tokens?: {
     access_token: string;
     refresh_token: string;
     expires_in: number;
@@ -78,7 +81,7 @@ async function refreshAccessToken(): Promise<string> {
     { headers: { "Content-Type": "application/json" } },
   );
 
-  const tokens = res.data?.data?.tokens;
+  const tokens = res.data?.data?.tokens ?? res.data?.data;
   if (!res.data?.success || !tokens?.access_token || !tokens?.refresh_token) {
     throw new Error(res.data?.message || "Failed to refresh token");
   }

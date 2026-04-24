@@ -14,6 +14,7 @@ import { useTodayHome } from "@/hooks/useTodayHome";
 import AppShell from "@/components/AppShell";
 import ErrorState from "@/components/ui/ErrorState";
 import type {
+  HomeFocusItem,
   HomeOrganizationSchedule,
   HomeSchedule,
   HomeTask,
@@ -24,6 +25,25 @@ type TimelineSchedule = HomeSchedule & {
   company_name?: string;
   isOrganization?: boolean;
 };
+
+type ResolvedFocusItem =
+  | {
+      item_type: "schedule" | "company_schedule";
+      id: number;
+      title: string;
+      meta: string;
+      href: string | null;
+      tone: "sky" | "teal";
+    }
+  | {
+      item_type: "task";
+      id: number;
+      title: string;
+      meta: string;
+      href: string;
+      tone: "emerald";
+      priority: TaskPriority;
+    };
 
 const priorityStyles: Record<TaskPriority, string> = {
   urgent: "border-red-200 bg-red-50 text-red-700",
@@ -235,6 +255,55 @@ function TaskItem({ task }: { task: HomeTask }) {
   );
 }
 
+function FocusItem({ item, index }: { item: ResolvedFocusItem; index: number }) {
+  const iconClass = {
+    sky: "border-sky-200 bg-sky-50 text-sky-700",
+    teal: "border-teal-200 bg-teal-50 text-teal-700",
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  }[item.tone];
+
+  const content = (
+    <>
+      <div
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border text-xs font-semibold ${iconClass}`}
+      >
+        {index + 1}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="truncate text-sm font-semibold text-slate-950">
+            {item.title}
+          </p>
+          {item.item_type === "task" && (
+            <span
+              className={`rounded-md border px-2 py-0.5 text-[11px] font-medium ${
+                priorityStyles[item.priority] ?? priorityStyles.medium
+              }`}
+            >
+              {priorityLabels[item.priority] ?? item.priority}
+            </span>
+          )}
+        </div>
+        <p className="mt-1 text-xs text-slate-500">{item.meta}</p>
+      </div>
+      {item.href && (
+        <ArrowRight className="h-4 w-4 text-slate-300 transition group-hover:text-emerald-600" />
+      )}
+    </>
+  );
+
+  const className =
+    "group flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-3 transition hover:border-emerald-200 hover:bg-emerald-50/40";
+
+  return item.href ? (
+    <Link to={item.href} className={className}>
+      {content}
+    </Link>
+  ) : (
+    <div className={className}>{content}</div>
+  );
+}
+
 function sortPriorityTasks(tasks: HomeTask[] = []) {
   return [...tasks].sort((a, b) => {
     const priorityDiff = priorityRank[a.priority] - priorityRank[b.priority];
@@ -263,6 +332,82 @@ function organizationToTimeline(
   };
 }
 
+function resolveFocusItems({
+  focusItems,
+  schedules,
+  tasks,
+}: {
+  focusItems?: HomeFocusItem[];
+  schedules: TimelineSchedule[];
+  tasks: HomeTask[];
+}): ResolvedFocusItem[] {
+  const resolved: ResolvedFocusItem[] = [];
+
+  for (const focus of focusItems ?? []) {
+    if (focus.item_type === "task") {
+      const task = tasks.find((item) => item.id === focus.id);
+      if (!task) continue;
+      resolved.push({
+        item_type: "task",
+        id: task.id,
+        title: task.title,
+        meta: `마감 ${formatDue(task.due_datetime)}`,
+        href: taskLink(task),
+        tone: "emerald",
+        priority: task.priority,
+      });
+      continue;
+    }
+
+    const schedule = schedules.find(
+      (item) =>
+        item.id === focus.id &&
+        (focus.item_type === "company_schedule"
+          ? item.isOrganization
+          : !item.isOrganization),
+    );
+    if (!schedule) continue;
+
+    const link = scheduleLink(schedule);
+    resolved.push({
+      item_type: focus.item_type,
+      id: schedule.id,
+      title: schedule.title,
+      meta: schedule.all_day
+        ? "종일 일정"
+        : `${formatTime(schedule.start_datetime)}${schedule.end_datetime ? ` - ${formatTime(schedule.end_datetime)}` : ""}`,
+      href: link,
+      tone: schedule.isOrganization ? "teal" : "sky",
+    });
+  }
+
+  if (resolved.length > 0) return resolved.slice(0, 3);
+
+  const fallbackTasks = tasks.slice(0, 2).map<ResolvedFocusItem>((task) => ({
+    item_type: "task",
+    id: task.id,
+    title: task.title,
+    meta: `마감 ${formatDue(task.due_datetime)}`,
+    href: taskLink(task),
+    tone: "emerald",
+    priority: task.priority,
+  }));
+  const fallbackSchedules = schedules
+    .slice(0, Math.max(0, 3 - fallbackTasks.length))
+    .map<ResolvedFocusItem>((schedule) => ({
+      item_type: schedule.isOrganization ? "company_schedule" : "schedule",
+      id: schedule.id,
+      title: schedule.title,
+      meta: schedule.all_day
+        ? "종일 일정"
+        : `${formatTime(schedule.start_datetime)}${schedule.end_datetime ? ` - ${formatTime(schedule.end_datetime)}` : ""}`,
+      href: scheduleLink(schedule),
+      tone: schedule.isOrganization ? "teal" : "sky",
+    }));
+
+  return [...fallbackTasks, ...fallbackSchedules].slice(0, 3);
+}
+
 export default function Home() {
   const { user: cachedUser } = useAuth();
   const meQuery = useMe();
@@ -278,6 +423,11 @@ export default function Home() {
       new Date(b.start_datetime).getTime(),
   );
   const priorityTasks = sortPriorityTasks(homeQuery.data?.due_today_tasks);
+  const focusItems = resolveFocusItems({
+    focusItems: homeQuery.data?.focus_items,
+    schedules,
+    tasks: priorityTasks,
+  });
   const summary = homeQuery.data?.summary;
   const briefingText = homeQuery.data?.briefing_text;
   const todayLabel = new Date().toLocaleDateString("ko-KR", {
@@ -365,6 +515,42 @@ export default function Home() {
             icon={BrainCircuit}
           />
         </section>
+
+        <Panel
+          title="오늘의 집중 항목"
+          meta={homeQuery.data ? `${focusItems.length}개` : undefined}
+        >
+          {homeQuery.isLoading ? (
+            <LoadingRows />
+          ) : homeQuery.isError ? (
+            <ErrorState
+              compact
+              title="집중 항목을 불러오지 못했습니다"
+              message={(homeQuery.error as Error).message}
+              onRetry={() => homeQuery.refetch()}
+              retrying={homeQuery.isFetching}
+            />
+          ) : focusItems.length > 0 ? (
+            <div className="grid gap-2 lg:grid-cols-3">
+              {focusItems.map((item, index) => (
+                <FocusItem
+                  key={`${item.item_type}-${item.id}`}
+                  item={item}
+                  index={index}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-7 text-center">
+              <p className="text-sm font-medium text-slate-700">
+                지금 바로 집중할 항목이 없습니다.
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                메모나 할 일을 추가하면 여기에서 먼저 볼 수 있습니다.
+              </p>
+            </div>
+          )}
+        </Panel>
 
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
           <Panel
@@ -458,9 +644,33 @@ export default function Home() {
               retrying={homeQuery.isFetching}
             />
           ) : (
-            <p className="text-sm leading-7 text-slate-700">
-              {briefingText || "오늘의 요약이 없습니다."}
-            </p>
+            <div className="space-y-4">
+              <p className="text-sm leading-7 text-slate-700">
+                {briefingText || "오늘의 요약이 없습니다."}
+              </p>
+              {homeQuery.data?.slot_counts && (
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries({
+                    meeting: "회의",
+                    fieldwork: "외근",
+                    deadline: "마감",
+                    other: "기타",
+                  }).map(([key, label]) => (
+                    <span
+                      key={key}
+                      className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600"
+                    >
+                      {label}{" "}
+                      {
+                        homeQuery.data?.slot_counts[
+                          key as keyof typeof homeQuery.data.slot_counts
+                        ]
+                      }
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </Panel>
       </div>

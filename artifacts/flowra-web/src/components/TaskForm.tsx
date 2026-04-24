@@ -2,7 +2,10 @@ import { useCallback } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useCreateTask } from "@/hooks/useTasks";
-import { TASK_PRIORITIES, TASK_PRIORITY_LABELS } from "@/types";
+import {
+  getClassificationOptions,
+  useClassificationSettings,
+} from "@/lib/classificationSettings";
 import { taskSchema, type TaskFormValues } from "@/lib/schemas";
 import CategorySelect from "@/components/CategorySelect";
 import { Plus } from "lucide-react";
@@ -16,8 +19,18 @@ const defaults: TaskFormValues = {
   due_datetime: "",
 };
 
-export default function TaskForm() {
+export default function TaskForm({
+  defaultScheduleId,
+}: {
+  defaultScheduleId?: number;
+}) {
   const createMutation = useCreateTask();
+  const classificationSettings = useClassificationSettings();
+  const priorityOptions = getClassificationOptions(
+    classificationSettings,
+    "taskPriorities",
+    { enabledOnly: true, include: "medium", defaultOnly: true },
+  );
   const {
     register,
     handleSubmit,
@@ -40,6 +53,7 @@ export default function TaskForm() {
             typeof values.category_id === "number"
               ? String(values.category_id)
               : undefined,
+          schedule_id: defaultScheduleId ? String(defaultScheduleId) : undefined,
           due_datetime: values.due_datetime
             ? localInputToOffsetISOString(values.due_datetime)
             : undefined,
@@ -80,9 +94,9 @@ export default function TaskForm() {
           aria-label="우선순위"
           className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
         >
-          {TASK_PRIORITIES.map((p) => (
-            <option key={p} value={p}>
-              {TASK_PRIORITY_LABELS[p]}
+          {priorityOptions.map((option) => (
+            <option key={option.key} value={option.key}>
+              {option.label}
             </option>
           ))}
         </select>

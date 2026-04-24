@@ -4,6 +4,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/contexts/AuthContext";
 import { loginSchema, type LoginFormValues } from "@/lib/schemas";
+import { getErrorMessage } from "@/lib/error";
+import { toast } from "@/lib/toast";
 import { Sparkles } from "lucide-react";
 
 interface LocationState {
@@ -30,8 +32,8 @@ export default function Login() {
       try {
         await login(values);
         navigate(from, { replace: true });
-      } catch {
-        /* toast handled globally */
+      } catch (err) {
+        toast.error(getErrorMessage(err, "로그인에 실패했습니다."));
       }
     },
     [login, navigate, from],

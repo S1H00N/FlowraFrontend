@@ -97,3 +97,33 @@ export function useDeleteSchedule() {
     },
   });
 }
+
+export function useDeleteSchedules() {
+  const invalidate = useInvalidateSchedules();
+  return useMutation({
+    mutationFn: async (scheduleIds: number[]) => {
+      const results: Array<Record<string, never>> = [];
+      const chunkSize = 10;
+
+      for (let i = 0; i < scheduleIds.length; i += chunkSize) {
+        const chunk = scheduleIds.slice(i, i + chunkSize);
+        const chunkResults = await Promise.all(
+          chunk.map(async (scheduleId) => {
+            const res = await deleteSchedule(scheduleId);
+            if (!res.success) {
+              throw new Error(res.message || "삭제에 실패했습니다.");
+            }
+            return res.data;
+          }),
+        );
+        results.push(...chunkResults);
+      }
+
+      return { count: results.length };
+    },
+    onSuccess: () => invalidate(),
+    meta: {
+      errorMessage: "일정 삭제에 실패했습니다.",
+    },
+  });
+}

@@ -47,11 +47,11 @@ export interface CreateMemoRequest {
   memo_type?: MemoType;
   source_type?: MemoSourceType;
   auto_parse?: boolean;
-  category_id?: string;
+  category_id?: string | number | null;
 }
 
 export interface UpdateMemoRequest {
-  category_id?: string | null;
+  category_id?: string | number | null;
   raw_text?: string;
   memo_type?: MemoType;
   source_type?: MemoSourceType;
@@ -61,7 +61,9 @@ export interface UpdateMemoRequest {
 export interface MemoListQuery {
   parse_status?: ParseStatus;
   memo_type?: MemoType;
-  category_id?: string;
+  category_id?: string | number;
+  page?: number;
+  size?: number;
 }
 
 export interface AiSuggestedSchedule {
@@ -107,10 +109,14 @@ export interface MemoParseResult {
 }
 
 export interface ApplyMemoRequest {
-  ai_result_id?: string;
   apply_type: "schedule" | "task";
-  category_id?: string;
-  schedule_id?: string;
+  override_title?: string;
+  override_start_datetime?: string;
+  override_end_datetime?: string;
+  override_location?: string;
+  override_priority?: string;
+  override_due_datetime?: string;
+  override_category_id?: string | number;
 }
 
 export interface ApplyMemoResponse {

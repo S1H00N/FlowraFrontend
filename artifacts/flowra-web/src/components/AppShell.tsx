@@ -40,8 +40,8 @@ const navigation = [
   },
   {
     to: "/categories",
-    label: "카테고리",
-    description: "업무 분류 체계를 정돈합니다.",
+    label: "분류 관리",
+    description: "카테고리와 기본 분류값을 관리합니다.",
     icon: Tag,
   },
 ];

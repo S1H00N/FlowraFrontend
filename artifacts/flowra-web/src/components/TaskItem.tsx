@@ -7,14 +7,15 @@ import {
   useUpdateTask,
 } from "@/hooks/useTasks";
 import {
-  TASK_PRIORITIES,
-  TASK_PRIORITY_LABELS,
-  TASK_STATUSES,
-  TASK_STATUS_LABELS,
+  type Schedule,
   type Task,
   type TaskPriority,
-  type TaskStatus,
 } from "@/types";
+import {
+  getClassificationLabel,
+  getClassificationOptions,
+  useClassificationSettings,
+} from "@/lib/classificationSettings";
 import { taskSchema, type TaskFormValues } from "@/lib/schemas";
 import CategorySelect, { CategoryDot } from "@/components/CategorySelect";
 import { useCategories } from "@/hooks/useCategories";
@@ -50,9 +51,11 @@ function toLocalDateTimeInput(iso?: string | null) {
 function TaskItemBase({
   task,
   highlighted,
+  schedule,
 }: {
   task: Task;
   highlighted?: boolean;
+  schedule?: Schedule;
 }) {
   const [isEditing, setIsEditing] = useState(false);
 
@@ -60,6 +63,17 @@ function TaskItemBase({
   const deleteMutation = useDeleteTask();
   const completeMutation = useCompleteTask();
   const { data: categories = [] } = useCategories("task");
+  const classificationSettings = useClassificationSettings();
+  const priorityOptions = getClassificationOptions(
+    classificationSettings,
+    "taskPriorities",
+    { enabledOnly: true, include: task.priority, defaultOnly: true },
+  );
+  const statusOptions = getClassificationOptions(
+    classificationSettings,
+    "taskStatuses",
+    { enabledOnly: true, include: task.status, defaultOnly: true },
+  );
   const taskCategory = categories.find(
     (c) => c.category_id === task.category_id,
   );
@@ -173,9 +187,9 @@ function TaskItemBase({
               {...register("priority")}
               className="rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm outline-none"
             >
-              {TASK_PRIORITIES.map((p) => (
-                <option key={p} value={p}>
-                  {TASK_PRIORITY_LABELS[p]}
+              {priorityOptions.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
                 </option>
               ))}
             </select>
@@ -183,9 +197,9 @@ function TaskItemBase({
               {...register("status")}
               className="rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm outline-none"
             >
-              {TASK_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {TASK_STATUS_LABELS[s]}
+              {statusOptions.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
                 </option>
               ))}
             </select>
@@ -277,12 +291,29 @@ function TaskItemBase({
             <span
               className={`rounded-md border px-2 py-0.5 text-[11px] font-medium ${priorityBadge[task.priority]}`}
             >
-              {TASK_PRIORITY_LABELS[task.priority]}
+              {getClassificationLabel(
+                classificationSettings,
+                "taskPriorities",
+                task.priority,
+              )}
             </span>
             {taskCategory && (
               <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
                 <CategoryDot color={taskCategory.color} />
                 {taskCategory.name}
+              </span>
+            )}
+            {schedule && (
+              <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700">
+                <CalendarClock className="h-3 w-3" />
+                <span className="truncate">{schedule.title}</span>
+                <span className="text-sky-500">
+                  {getClassificationLabel(
+                    classificationSettings,
+                    "scheduleTypes",
+                    schedule.schedule_type,
+                  )}
+                </span>
               </span>
             )}
           </div>

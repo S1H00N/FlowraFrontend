@@ -12,7 +12,7 @@ export function useMe() {
       if (!res.success) {
         throw new Error(res.message || "사용자 정보를 가져오지 못했습니다.");
       }
-      return res.data.user;
+      return res.data;
     },
     staleTime: 1000 * 60,
   });
