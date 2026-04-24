@@ -32,8 +32,7 @@ export function useCategories(type?: CategoryType) {
       const res = await listCategories(type);
       if (!res.success)
         throw new Error(res.message || "카테고리를 불러오지 못했습니다.");
-      const data = res.data ?? {};
-      return data.categories ?? data.items ?? [];
+      return res.data.categories ?? [];
     },
   });
 }
@@ -50,7 +49,7 @@ export function useCreateCategory() {
       const res = await createCategory(payload);
       if (!res.success)
         throw new Error(res.message || "카테고리 생성에 실패했습니다.");
-      return res.data;
+      return res.data.category;
     },
     onSuccess: () => invalidate(),
     meta: {
@@ -73,7 +72,7 @@ export function useUpdateCategory() {
       const res = await updateCategory(categoryId, payload);
       if (!res.success)
         throw new Error(res.message || "카테고리 수정에 실패했습니다.");
-      return res.data;
+      return res.data.category;
     },
     onSuccess: () => invalidate(),
     meta: {

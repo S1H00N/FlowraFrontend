@@ -10,9 +10,9 @@ import {
   listTasks,
   updateTask,
 } from "@/api/tasks";
+import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
 import type {
   CreateTaskRequest,
-  PaginatedData,
   Task,
   TaskListQuery,
   UpdateTaskRequest,
@@ -25,21 +25,24 @@ export function tasksListKey(query: TaskListQuery = {}) {
 }
 
 export function useTasks(query: TaskListQuery = {}) {
-  return useQuery<PaginatedData<Task>>({
+  return useQuery<Task[]>({
     queryKey: tasksListKey(query),
     queryFn: async () => {
       const res = await listTasks(query);
       if (!res.success) {
         throw new Error(res.message || "할 일을 불러오지 못했습니다.");
       }
-      return res.data;
+      return res.data.tasks ?? [];
     },
   });
 }
 
 function useInvalidateTasks() {
   const qc = useQueryClient();
-  return () => qc.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
+  return () => {
+    qc.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
+    qc.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
+  };
 }
 
 export function useCreateTask() {
@@ -48,7 +51,7 @@ export function useCreateTask() {
     mutationFn: async (payload: CreateTaskRequest) => {
       const res = await createTask(payload);
       if (!res.success) throw new Error(res.message || "생성에 실패했습니다.");
-      return res.data;
+      return res.data.task;
     },
     onSuccess: () => invalidate(),
     meta: {
@@ -70,7 +73,7 @@ export function useUpdateTask() {
     }) => {
       const res = await updateTask(taskId, payload);
       if (!res.success) throw new Error(res.message || "수정에 실패했습니다.");
-      return res.data;
+      return res.data.task;
     },
     onSuccess: () => invalidate(),
     meta: {
@@ -103,7 +106,7 @@ export function useCompleteTask() {
       const res = await completeTask(taskId);
       if (!res.success)
         throw new Error(res.message || "완료 처리에 실패했습니다.");
-      return res.data;
+      return res.data.task;
     },
     onSuccess: () => invalidate(),
     meta: {

@@ -48,7 +48,7 @@ export default function CategorySelect({
 
   return (
     <div
-      className={`relative flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm ${className}`}
+      className={`relative flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm shadow-sm focus-within:border-emerald-500 focus-within:ring-2 focus-within:ring-emerald-100 ${className}`}
     >
       {selected ? (
         <CategoryDot color={selected.color} />

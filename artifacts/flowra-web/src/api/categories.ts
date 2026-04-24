@@ -8,8 +8,7 @@ import type {
 } from "@/types";
 
 interface CategoriesData {
-  categories?: Category[];
-  items?: Category[];
+  categories: Category[];
 }
 
 export async function listCategories(type?: CategoryType) {
@@ -20,7 +19,7 @@ export async function listCategories(type?: CategoryType) {
 }
 
 export async function createCategory(payload: CreateCategoryRequest) {
-  const res = await apiClient.post<ApiResponse<Category>>(
+  const res = await apiClient.post<ApiResponse<{ category: Category }>>(
     "/categories",
     payload,
   );
@@ -31,7 +30,7 @@ export async function updateCategory(
   categoryId: number,
   payload: UpdateCategoryRequest,
 ) {
-  const res = await apiClient.patch<ApiResponse<Category>>(
+  const res = await apiClient.patch<ApiResponse<{ category: Category }>>(
     `/categories/${categoryId}`,
     payload,
   );
@@ -39,7 +38,7 @@ export async function updateCategory(
 }
 
 export async function deleteCategory(categoryId: number) {
-  const res = await apiClient.delete<ApiResponse<unknown>>(
+  const res = await apiClient.delete<ApiResponse<Record<string, never>>>(
     `/categories/${categoryId}`,
   );
   return res.data;

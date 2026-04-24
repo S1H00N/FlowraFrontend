@@ -31,6 +31,7 @@ export const TASK_PRIORITY_LABELS: Record<TaskPriority, string> = {
 
 export interface Task {
   task_id: number;
+  user_id?: number;
   title: string;
   description?: string | null;
   priority: TaskPriority;
@@ -39,28 +40,42 @@ export interface Task {
   category_id?: number | null;
   schedule_id?: number | null;
   location?: string | null;
+  source_memo_id?: number | null;
+  source_ai_result_id?: number | null;
   created_at: string;
+  updated_at?: string;
   completed_at?: string | null;
 }
 
 export interface CreateTaskRequest {
   title: string;
-  description?: string;
-  priority: TaskPriority;
-  status: TaskStatus;
-  due_datetime?: string;
-  category_id?: number;
-  schedule_id?: number;
-  location?: string;
+  description?: string | null;
+  priority?: TaskPriority;
+  status?: TaskStatus;
+  due_datetime?: string | null;
+  completed_at?: string | null;
+  category_id?: string;
+  schedule_id?: string;
+  location?: string | null;
 }
 
-export type UpdateTaskRequest = Partial<CreateTaskRequest>;
+export interface UpdateTaskRequest {
+  title?: string;
+  description?: string | null;
+  priority?: TaskPriority;
+  status?: TaskStatus;
+  due_datetime?: string | null;
+  completed_at?: string | null;
+  category_id?: string | null;
+  schedule_id?: string | null;
+  location?: string | null;
+}
 
 export interface TaskListQuery {
   status?: TaskStatus;
   priority?: TaskPriority;
-  page?: number;
-  size?: number;
-  sort_by?: "created_at" | "due_datetime" | "priority";
-  sort_order?: "asc" | "desc";
+  category_id?: string;
+  schedule_id?: string;
+  due_from?: string;
+  due_to?: string;
 }

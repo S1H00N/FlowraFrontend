@@ -20,6 +20,8 @@ export interface BriefingTask {
 
 export interface BriefingSummary {
   schedule_count: number;
+  company_schedule_count?: number;
+  total_schedule_count?: number;
   task_count: number;
   overdue_task_count: number;
   reminder_count: number;
@@ -29,10 +31,10 @@ export interface TodayBriefing {
   date: string;
   summary: BriefingSummary;
   schedules: BriefingSchedule[];
+  company_schedules?: BriefingSchedule[];
   tasks: BriefingTask[];
   overdue_tasks: BriefingTask[];
   reminders: unknown[];
-  ai_summary?: string | null;
 }
 
 export type BriefingPriorityTask = BriefingTask;

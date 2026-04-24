@@ -12,9 +12,7 @@ export function useMe() {
       if (!res.success) {
         throw new Error(res.message || "사용자 정보를 가져오지 못했습니다.");
       }
-      // API returns { data: { user: {...} } }; tolerate both shapes.
-      const data = res.data as User | { user: User };
-      return "user" in data ? data.user : data;
+      return res.data.user;
     },
     staleTime: 1000 * 60,
   });

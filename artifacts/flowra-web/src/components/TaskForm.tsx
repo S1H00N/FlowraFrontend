@@ -2,14 +2,11 @@ import { useCallback } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useCreateTask } from "@/hooks/useTasks";
-import {
-  TASK_PRIORITIES,
-  TASK_PRIORITY_LABELS,
-  TASK_STATUSES,
-  TASK_STATUS_LABELS,
-} from "@/types";
+import { TASK_PRIORITIES, TASK_PRIORITY_LABELS } from "@/types";
 import { taskSchema, type TaskFormValues } from "@/lib/schemas";
 import CategorySelect from "@/components/CategorySelect";
+import { Plus } from "lucide-react";
+import { localInputToOffsetISOString } from "@/utils/dateUtils";
 
 const defaults: TaskFormValues = {
   title: "",
@@ -41,10 +38,10 @@ export default function TaskForm() {
           status: values.status,
           category_id:
             typeof values.category_id === "number"
-              ? values.category_id
+              ? String(values.category_id)
               : undefined,
           due_datetime: values.due_datetime
-            ? new Date(values.due_datetime).toISOString()
+            ? localInputToOffsetISOString(values.due_datetime)
             : undefined,
         });
         reset(defaults);
@@ -59,19 +56,19 @@ export default function TaskForm() {
     <form
       onSubmit={handleSubmit(onSubmit)}
       noValidate
-      className="space-y-3 rounded-[28px] border border-white/70 bg-white/85 p-5 shadow-[0_20px_70px_rgba(15,23,42,0.08)] backdrop-blur"
+      className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
     >
-      <div className="flex flex-col gap-2 sm:flex-row">
+      <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_150px_180px_180px_auto]">
         <div className="flex-1">
           <input
             type="text"
-            placeholder="할 일을 입력하세요"
+            placeholder="해야 할 일을 빠르게 입력하세요"
             {...register("title")}
             aria-invalid={!!errors.title}
-            className={`w-full rounded-2xl border px-3 py-3 text-sm shadow-sm outline-none transition focus:ring-2 ${
+            className={`h-11 w-full rounded-lg border px-3 text-sm shadow-sm outline-none transition focus:ring-2 ${
               errors.title
                 ? "border-red-400 focus:border-red-500 focus:ring-red-200"
-                : "border-slate-200 bg-white focus:border-slate-900 focus:ring-slate-900/10"
+                : "border-slate-200 bg-white focus:border-emerald-500 focus:ring-emerald-100"
             }`}
           />
           {errors.title && (
@@ -80,7 +77,8 @@ export default function TaskForm() {
         </div>
         <select
           {...register("priority")}
-          className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm outline-none"
+          aria-label="우선순위"
+          className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
         >
           {TASK_PRIORITIES.map((p) => (
             <option key={p} value={p}>
@@ -88,18 +86,6 @@ export default function TaskForm() {
             </option>
           ))}
         </select>
-        <select
-          {...register("status")}
-          className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm outline-none"
-        >
-          {TASK_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {TASK_STATUS_LABELS[s]}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <Controller
           control={control}
           name="category_id"
@@ -108,26 +94,28 @@ export default function TaskForm() {
               type="task"
               value={field.value as number | "" | undefined}
               onChange={field.onChange}
-              className="sm:min-w-44"
+              className="h-11 min-w-0"
             />
           )}
         />
-        <label className="flex flex-1 items-center gap-2 text-xs font-medium text-slate-600">
-          마감
+        <label className="min-w-0">
+          <span className="sr-only">마감</span>
           <input
             type="datetime-local"
             {...register("due_datetime")}
-            className="flex-1 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm outline-none"
+            className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
           />
         </label>
         <button
           type="submit"
           disabled={createMutation.isPending}
-          className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white shadow-lg shadow-slate-900/15 transition hover:-translate-y-0.5 hover:bg-slate-800 disabled:translate-y-0 disabled:opacity-60"
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60"
         >
+          <Plus className="h-4 w-4" />
           {createMutation.isPending ? "추가 중..." : "추가"}
         </button>
       </div>
+      <input type="hidden" {...register("status")} value="todo" />
     </form>
   );
 }

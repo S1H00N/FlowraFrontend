@@ -16,17 +16,31 @@ export interface Reminder {
   remind_at: string;
   reminder_type: ReminderType;
   is_sent?: boolean;
+  sent_at?: string | null;
   created_at?: string;
+  updated_at?: string;
 }
 
 export interface CreateReminderRequest {
   target_type: ReminderTargetType;
-  target_id: number;
+  target_id: string;
   remind_at: string;
   reminder_type: ReminderType;
 }
 
 export interface ReminderListQuery {
   target_type?: ReminderTargetType;
-  target_id?: number;
+  target_id?: string;
+  is_sent?: boolean;
+  remind_from?: string;
+  remind_to?: string;
+}
+
+export interface UpdateReminderRequest {
+  target_type?: ReminderTargetType;
+  target_id?: string;
+  remind_at?: string;
+  reminder_type?: ReminderType;
+  is_sent?: boolean;
+  sent_at?: string | null;
 }

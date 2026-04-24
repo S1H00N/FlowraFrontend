@@ -21,6 +21,7 @@ export const DEFAULT_CATEGORY_COLORS = [
 
 export interface Category {
   category_id: number;
+  user_id?: number;
   name: string;
   color: string;
   type: CategoryType;
@@ -33,8 +34,11 @@ export interface CreateCategoryRequest {
   name: string;
   color: string;
   type: CategoryType;
+  is_default?: boolean;
 }
 
-export type UpdateCategoryRequest = Partial<
-  Pick<CreateCategoryRequest, "name" | "color">
->;
+export interface UpdateCategoryRequest {
+  name?: string;
+  color?: string;
+  is_default?: boolean;
+}

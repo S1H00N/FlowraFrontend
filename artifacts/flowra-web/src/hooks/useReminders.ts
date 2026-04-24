@@ -7,11 +7,14 @@ import {
   createReminder,
   deleteReminder,
   listReminders,
+  updateReminder,
 } from "@/api/reminders";
+import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
 import type {
   CreateReminderRequest,
   Reminder,
   ReminderListQuery,
+  UpdateReminderRequest,
 } from "@/types";
 
 export const REMINDERS_QUERY_KEY = ["reminders"] as const;
@@ -28,15 +31,17 @@ export function useReminders(query: ReminderListQuery = {}) {
       const res = await listReminders(query);
       if (!res.success)
         throw new Error(res.message || "알림을 불러오지 못했습니다.");
-      const data = res.data ?? {};
-      return data.reminders ?? data.items ?? [];
+      return res.data.reminders ?? [];
     },
   });
 }
 
 function useInvalidateReminders() {
   const qc = useQueryClient();
-  return () => qc.invalidateQueries({ queryKey: REMINDERS_QUERY_KEY });
+  return () => {
+    qc.invalidateQueries({ queryKey: REMINDERS_QUERY_KEY });
+    qc.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
+  };
 }
 
 export function useCreateReminder() {
@@ -46,7 +51,7 @@ export function useCreateReminder() {
       const res = await createReminder(payload);
       if (!res.success)
         throw new Error(res.message || "알림 생성에 실패했습니다.");
-      return res.data;
+      return res.data.reminder;
     },
     onSuccess: () => invalidate(),
     meta: {
@@ -69,6 +74,29 @@ export function useDeleteReminder() {
     meta: {
       successMessage: "알림을 삭제했습니다.",
       errorMessage: "알림 삭제에 실패했습니다.",
+    },
+  });
+}
+
+export function useUpdateReminder() {
+  const invalidate = useInvalidateReminders();
+  return useMutation({
+    mutationFn: async ({
+      reminderId,
+      payload,
+    }: {
+      reminderId: number;
+      payload: UpdateReminderRequest;
+    }) => {
+      const res = await updateReminder(reminderId, payload);
+      if (!res.success)
+        throw new Error(res.message || "알림 수정에 실패했습니다.");
+      return res.data.reminder;
+    },
+    onSuccess: () => invalidate(),
+    meta: {
+      successMessage: "알림을 수정했습니다.",
+      errorMessage: "알림 수정에 실패했습니다.",
     },
   });
 }

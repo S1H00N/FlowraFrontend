@@ -4,11 +4,11 @@ import type {
   CreateReminderRequest,
   Reminder,
   ReminderListQuery,
+  UpdateReminderRequest,
 } from "@/types";
 
 interface RemindersData {
-  reminders?: Reminder[];
-  items?: Reminder[];
+  reminders: Reminder[];
 }
 
 export async function listReminders(query: ReminderListQuery = {}) {
@@ -19,7 +19,7 @@ export async function listReminders(query: ReminderListQuery = {}) {
 }
 
 export async function createReminder(payload: CreateReminderRequest) {
-  const res = await apiClient.post<ApiResponse<Reminder>>(
+  const res = await apiClient.post<ApiResponse<{ reminder: Reminder }>>(
     "/reminders",
     payload,
   );
@@ -27,8 +27,19 @@ export async function createReminder(payload: CreateReminderRequest) {
 }
 
 export async function deleteReminder(reminderId: number) {
-  const res = await apiClient.delete<ApiResponse<unknown>>(
+  const res = await apiClient.delete<ApiResponse<Record<string, never>>>(
     `/reminders/${reminderId}`,
+  );
+  return res.data;
+}
+
+export async function updateReminder(
+  reminderId: number,
+  payload: UpdateReminderRequest,
+) {
+  const res = await apiClient.patch<ApiResponse<{ reminder: Reminder }>>(
+    `/reminders/${reminderId}`,
+    payload,
   );
   return res.data;
 }

@@ -9,9 +9,9 @@ import {
   listSchedules,
   updateSchedule,
 } from "@/api/schedules";
+import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
 import type {
   CreateScheduleRequest,
-  PaginatedData,
   Schedule,
   ScheduleListQuery,
   UpdateScheduleRequest,
@@ -24,21 +24,24 @@ export function schedulesListKey(query: ScheduleListQuery = {}) {
 }
 
 export function useSchedules(query: ScheduleListQuery = {}) {
-  return useQuery<PaginatedData<Schedule>>({
+  return useQuery<Schedule[]>({
     queryKey: schedulesListKey(query),
     queryFn: async () => {
       const res = await listSchedules(query);
       if (!res.success) {
         throw new Error(res.message || "일정을 불러오지 못했습니다.");
       }
-      return res.data;
+      return res.data.schedules ?? [];
     },
   });
 }
 
 function useInvalidateSchedules() {
   const qc = useQueryClient();
-  return () => qc.invalidateQueries({ queryKey: SCHEDULES_QUERY_KEY });
+  return () => {
+    qc.invalidateQueries({ queryKey: SCHEDULES_QUERY_KEY });
+    qc.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
+  };
 }
 
 export function useCreateSchedule() {
@@ -47,7 +50,7 @@ export function useCreateSchedule() {
     mutationFn: async (payload: CreateScheduleRequest) => {
       const res = await createSchedule(payload);
       if (!res.success) throw new Error(res.message || "생성에 실패했습니다.");
-      return res.data;
+      return res.data.schedule;
     },
     onSuccess: () => invalidate(),
     meta: {
@@ -69,7 +72,7 @@ export function useUpdateSchedule() {
     }) => {
       const res = await updateSchedule(scheduleId, payload);
       if (!res.success) throw new Error(res.message || "수정에 실패했습니다.");
-      return res.data;
+      return res.data.schedule;
     },
     onSuccess: () => invalidate(),
     meta: {

@@ -31,12 +31,12 @@ export default function EmptyState({
   action,
 }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-[28px] border border-dashed border-slate-300 bg-white/80 px-6 py-14 text-center shadow-[0_18px_60px_rgba(15,23,42,0.06)] backdrop-blur">
-      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-white shadow-lg shadow-slate-900/15">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-300 bg-white px-6 py-12 text-center shadow-sm">
+      <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
         {icon ?? DefaultIcon}
       </div>
       <div>
-        <p className="text-sm font-semibold text-slate-800">{title}</p>
+        <p className="text-sm font-semibold text-slate-900">{title}</p>
         {description && (
           <p className="mt-1 text-xs leading-6 text-slate-500">{description}</p>
         )}

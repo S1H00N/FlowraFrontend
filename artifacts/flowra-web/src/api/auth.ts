@@ -5,6 +5,7 @@ import type {
   LoginResponseData,
   SignupRequest,
   SignupResponseData,
+  UpdateUserRequest,
   User,
 } from "@/types";
 
@@ -25,8 +26,28 @@ export async function signup(payload: SignupRequest) {
 }
 
 export async function getMe() {
-  const res = await apiClient.get<ApiResponse<User | { user: User }>>(
+  const res = await apiClient.get<ApiResponse<{ user: User }>>("/users/me");
+  return res.data;
+}
+
+export async function updateMe(payload: UpdateUserRequest) {
+  const res = await apiClient.patch<ApiResponse<{ user: User }>>(
     "/users/me",
+    payload,
+  );
+  return res.data;
+}
+
+export async function deleteMe() {
+  const res =
+    await apiClient.delete<ApiResponse<Record<string, never>>>("/users/me");
+  return res.data;
+}
+
+export async function logout(refreshToken: string) {
+  const res = await apiClient.post<ApiResponse<Record<string, never>>>(
+    "/auth/logout",
+    { refresh_token: refreshToken },
   );
   return res.data;
 }

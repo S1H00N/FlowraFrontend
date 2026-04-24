@@ -39,6 +39,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    const refreshToken = authStorage.getRefreshToken();
+    if (refreshToken) {
+      void authApi.logout(refreshToken).catch(() => {
+        // Local logout must still complete when the server token is already invalid.
+      });
+    }
     authStorage.clear();
     setUser(null);
     navigate("/login", { replace: true });
@@ -72,6 +78,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const res = await authApi.signup(payload);
     if (!res.success) {
       throw new Error(res.message || "회원가입에 실패했습니다.");
+    }
+    const { user: u, tokens } = res.data;
+    if (tokens?.access_token && tokens?.refresh_token) {
+      authStorage.setTokens(tokens.access_token, tokens.refresh_token);
+      authStorage.setUser(u);
+      setUser(u);
     }
   }, []);
 

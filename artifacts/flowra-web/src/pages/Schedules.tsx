@@ -1,14 +1,22 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import {
-  SCHEDULES_QUERY_KEY,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  MapPin,
+  Pencil,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
+import {
+  useCreateSchedule,
   useDeleteSchedule,
   useSchedules,
   useUpdateSchedule,
 } from "@/hooks/useSchedules";
-import { createSchedule } from "@/api/schedules";
 import { useCategories } from "@/hooks/useCategories";
 import {
   SCHEDULE_TYPES,
@@ -23,33 +31,56 @@ import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import CategorySelect, { CategoryDot } from "@/components/CategorySelect";
-import ReminderControl from "@/components/ReminderControl";
 import AppShell from "@/components/AppShell";
-import { toast } from "@/lib/toast";
-import {
-  applyDateWithTime,
-  buildWeeklyRepeatDates,
-  parseDateInput,
-} from "@/utils/dateUtils";
+import { localInputToOffsetISOString, toOffsetISOString } from "@/utils/dateUtils";
 
-function toLocalInputValue(iso?: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const weekdayLabels = ["일", "월", "화", "수", "목", "금", "토"];
+
+interface DayMeta {
+  count: number;
+  hasDeadline: boolean;
 }
 
-function fromLocalInputValue(local: string): string {
-  if (!local) return "";
-  return new Date(local).toISOString();
+interface ScheduleFormState {
+  title: string;
+  description: string;
+  schedule_type: ScheduleType;
+  start_local: string;
+  end_local: string;
+  all_day: boolean;
+  location: string;
+  visibility: ScheduleVisibility;
+  category_id: number | "";
+}
+
+function pad(n: number) {
+  return String(n).padStart(2, "0");
 }
 
 function toDateKey(input: Date | string): string {
   const d = typeof input === "string" ? new Date(input) : input;
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function toLocalInputValue(iso?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function fromLocalInputValue(local: string): string {
+  return localInputToOffsetISOString(local);
+}
+
+function dateAtLocalTime(date: Date, hour: number, minute = 0) {
+  const d = new Date(date);
+  d.setHours(hour, minute, 0, 0);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function formatMonthTitle(date: Date): string {
+  return `${date.getFullYear()}년 ${date.getMonth() + 1}월`;
 }
 
 function formatSelectedDate(date?: Date): string {
@@ -61,8 +92,14 @@ function formatSelectedDate(date?: Date): string {
   });
 }
 
-function formatMonthTitle(date: Date): string {
-  return `${date.getFullYear()}년 ${date.getMonth() + 1}월`;
+function formatTime(iso?: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleTimeString("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function startOfWeek(date: Date): Date {
@@ -81,530 +118,608 @@ function buildWeekDates(date: Date): Date[] {
   });
 }
 
-const weekdayLabels = ["일", "월", "화", "수", "목", "금", "토"];
-
-const weeklyOptions = [
-  { label: "월", value: 1 },
-  { label: "화", value: 2 },
-  { label: "수", value: 3 },
-  { label: "목", value: 4 },
-  { label: "금", value: 5 },
-  { label: "토", value: 6 },
-  { label: "일", value: 0 },
-] as const;
-
-interface DayMeta {
-  count: number;
-  hasDeadline: boolean;
+function formFromSchedule(schedule: Schedule): ScheduleFormState {
+  return {
+    title: schedule.title,
+    description: schedule.description ?? "",
+    schedule_type: schedule.schedule_type,
+    start_local: toLocalInputValue(schedule.start_datetime),
+    end_local: toLocalInputValue(schedule.end_datetime),
+    all_day: schedule.all_day,
+    location: schedule.location ?? "",
+    visibility: schedule.visibility,
+    category_id: schedule.category_id ?? "",
+  };
 }
 
-interface ScheduleFormState {
-  title: string;
-  description: string;
-  schedule_type: ScheduleType;
-  start_local: string;
-  end_local: string;
-  all_day: boolean;
-  location: string;
-  visibility: ScheduleVisibility;
-  category_id: number | "";
-  repeat_mode: "none" | "weekly";
-  repeat_weekdays: number[];
-  repeat_end_date: string;
+function emptyFormForDate(date: Date): ScheduleFormState {
+  return {
+    title: "",
+    description: "",
+    schedule_type: "personal",
+    start_local: dateAtLocalTime(date, 9),
+    end_local: dateAtLocalTime(date, 10),
+    all_day: false,
+    location: "",
+    visibility: "private",
+    category_id: "",
+  };
 }
 
-const emptyForm: ScheduleFormState = {
-  title: "",
-  description: "",
-  schedule_type: "personal",
-  start_local: "",
-  end_local: "",
-  all_day: false,
-  location: "",
-  visibility: "private",
-  category_id: "",
-  repeat_mode: "none",
-  repeat_weekdays: [],
-  repeat_end_date: "",
-};
+function toPayload(form: ScheduleFormState) {
+  return {
+    title: form.title.trim(),
+    description: form.description.trim() || undefined,
+    schedule_type: form.schedule_type,
+    start_datetime: fromLocalInputValue(form.start_local),
+    end_datetime: form.end_local
+      ? fromLocalInputValue(form.end_local)
+      : undefined,
+    all_day: form.all_day,
+    location: form.location.trim() || undefined,
+    visibility: form.visibility,
+    category_id: form.category_id === "" ? undefined : String(form.category_id),
+  };
+}
 
-function ScheduleForm({
+function validateForm(form: ScheduleFormState): string | null {
+  if (!form.title.trim()) return "일정 제목을 입력해 주세요.";
+  if (!form.start_local) return "시작 일시를 선택해 주세요.";
+
+  const start = new Date(form.start_local).getTime();
+  if (Number.isNaN(start)) return "시작 일시가 올바르지 않습니다.";
+
+  if (form.end_local) {
+    const end = new Date(form.end_local).getTime();
+    if (Number.isNaN(end)) return "종료 일시가 올바르지 않습니다.";
+    if (end <= start) return "종료 일시는 시작 일시보다 늦어야 합니다.";
+  }
+
+  return null;
+}
+
+function ScheduleFormPanel({
+  mode,
   initial,
-  submitLabel,
-  onSubmit,
-  onCancel,
   isPending,
-  allowBatch,
+  onClose,
+  onSubmit,
 }: {
-  initial?: ScheduleFormState;
-  submitLabel: string;
-  onSubmit: (s: ScheduleFormState, previewDates: Date[]) => Promise<void> | void;
-  onCancel?: () => void;
+  mode: "create" | "edit";
+  initial: ScheduleFormState;
   isPending?: boolean;
-  allowBatch?: boolean;
+  onClose: () => void;
+  onSubmit: (form: ScheduleFormState) => Promise<void> | void;
 }) {
-  const [form, setForm] = useState<ScheduleFormState>(initial ?? emptyForm);
+  const [form, setForm] = useState(initial);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const previewDates = useMemo(() => {
-    if (!form.start_local) return [];
-
-    const start = new Date(form.start_local);
-    if (Number.isNaN(start.getTime())) return [];
-
-    if (form.repeat_mode === "none") return [start];
-
-    const endDate = parseDateInput(form.repeat_end_date);
-    if (!endDate) return [];
-
-    const weekdays =
-      form.repeat_weekdays.length > 0
-        ? form.repeat_weekdays
-        : [start.getDay()];
-
-    return buildWeeklyRepeatDates({
-      startDate: start,
-      endDate,
-      weekdays,
-    }).map((date) => applyDateWithTime(date, start));
-  }, [
-    form.start_local,
-    form.repeat_mode,
-    form.repeat_end_date,
-    form.repeat_weekdays,
-  ]);
-
-  const handle = async (e: FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
     setError(null);
-    if (!form.title.trim() || !form.start_local) {
-      setError("제목과 시작 일시는 필수입니다.");
+
+    const validationError = validateForm(form);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
-    if (form.repeat_mode === "weekly") {
-      if (form.repeat_weekdays.length === 0) {
-        setError("반복 요일을 1개 이상 선택해 주세요.");
-        return;
-      }
-      if (!form.repeat_end_date) {
-        setError("반복 종료일을 선택해 주세요.");
-        return;
-      }
-      if (previewDates.length === 0) {
-        setError("반복 조건에 해당하는 날짜가 없습니다.");
-        return;
-      }
-    }
-
     try {
-      await onSubmit(form, previewDates);
-      if (!initial) setForm(emptyForm);
+      await onSubmit(form);
     } catch (err) {
       setError(getErrorMessage(err, "저장에 실패했습니다."));
     }
   };
 
-  const toggleWeekday = (weekday: number) => {
-    setForm((prev: ScheduleFormState) => {
-      const exists = prev.repeat_weekdays.includes(weekday);
-      return {
-        ...prev,
-        repeat_weekdays: exists
-          ? prev.repeat_weekdays.filter((d: number) => d !== weekday)
-          : [...prev.repeat_weekdays, weekday].sort((a, b) => a - b),
-      };
-    });
-  };
-
   return (
-    <form
-      onSubmit={handle}
-      className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
-    >
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <input
-          type="text"
-          required
-          placeholder="일정 제목"
-          value={form.title}
-          onChange={(e) => setForm({ ...form, title: e.target.value })}
-          className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
-        />
-        <select
-          value={form.schedule_type}
-          onChange={(e) =>
-            setForm({ ...form, schedule_type: e.target.value as ScheduleType })
-          }
-          className="rounded-md border border-slate-300 bg-white px-2 py-2 text-sm"
-        >
-          {SCHEDULE_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {SCHEDULE_TYPE_LABELS[t]}
-            </option>
-          ))}
-        </select>
-        <select
-          value={form.visibility}
-          onChange={(e) =>
-            setForm({
-              ...form,
-              visibility: e.target.value as ScheduleVisibility,
-            })
-          }
-          className="rounded-md border border-slate-300 bg-white px-2 py-2 text-sm"
-        >
-          {Object.entries(SCHEDULE_VISIBILITY_LABELS).map(([v, label]) => (
-            <option key={v} value={v}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <label className="flex flex-1 flex-col text-xs text-slate-600">
-          시작
-          <input
-            type="datetime-local"
-            value={form.start_local}
-            onChange={(e) => setForm({ ...form, start_local: e.target.value })}
-            className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-          />
-        </label>
-        <label className="flex flex-1 flex-col text-xs text-slate-600">
-          종료
-          <input
-            type="datetime-local"
-            value={form.end_local}
-            onChange={(e) => setForm({ ...form, end_local: e.target.value })}
-            className="mt-1 rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-          />
-        </label>
-        <label className="flex items-center gap-2 self-end text-sm">
-          <input
-            type="checkbox"
-            checked={form.all_day}
-            onChange={(e) => setForm({ ...form, all_day: e.target.checked })}
-          />
-          종일
-        </label>
-      </div>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <input
-          type="text"
-          placeholder="장소"
-          value={form.location}
-          onChange={(e) => setForm({ ...form, location: e.target.value })}
-          className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
-        />
-        <CategorySelect
-          type="schedule"
-          value={form.category_id}
-          onChange={(v) => setForm({ ...form, category_id: v })}
-          className="sm:min-w-44"
-        />
-      </div>
-
-      {allowBatch && (
-        <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-          <p className="text-xs font-semibold text-slate-700">반복 옵션</p>
-
-          <div className="mt-2 flex gap-2">
-            <button
-              type="button"
-              onClick={() =>
-                setForm((prev: ScheduleFormState) => ({
-                  ...prev,
-                  repeat_mode: "none",
-                  repeat_weekdays: [],
-                  repeat_end_date: "",
-                }))
-              }
-              className={`rounded-md border px-3 py-1.5 text-xs font-medium ${
-                form.repeat_mode === "none"
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-              }`}
-            >
-              반복 없음
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                setForm((prev: ScheduleFormState) => {
-                  const start = prev.start_local ? new Date(prev.start_local) : new Date();
-                  const fallbackEnd = new Date(start);
-                  fallbackEnd.setDate(fallbackEnd.getDate() + 28);
-                  return {
-                    ...prev,
-                    repeat_mode: "weekly",
-                    repeat_weekdays:
-                      prev.repeat_weekdays.length > 0
-                        ? prev.repeat_weekdays
-                        : [start.getDay()],
-                    repeat_end_date:
-                      prev.repeat_end_date || toDateKey(fallbackEnd),
-                  };
-                })
-              }
-              className={`rounded-md border px-3 py-1.5 text-xs font-medium ${
-                form.repeat_mode === "weekly"
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-              }`}
-            >
-              매주 반복
-            </button>
+    <>
+      <div
+        className="fixed inset-0 z-40 bg-zinc-950/20 xl:hidden"
+        onClick={onClose}
+        aria-hidden
+      />
+      <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-xl xl:sticky xl:top-20 xl:z-0 xl:max-h-[calc(100vh-6rem)] xl:shadow-sm">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+          <div>
+            <p className="text-xs font-medium text-emerald-700">
+              {mode === "create" ? "New schedule" : "Edit schedule"}
+            </p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-950">
+              {mode === "create" ? "일정 추가" : "일정 수정"}
+            </h2>
           </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="닫기"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
 
-          {form.repeat_mode === "weekly" && (
-            <div className="mt-3 space-y-3">
-              <div>
-                <p className="text-xs font-medium text-slate-600">반복 요일</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {weeklyOptions.map((option) => {
-                    const checked = form.repeat_weekdays.includes(option.value);
-                    return (
-                      <label
-                        key={option.value}
-                        className={`inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs ${
-                          checked
-                            ? "border-slate-900 bg-slate-900 text-white"
-                            : "border-slate-300 bg-white text-slate-700"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleWeekday(option.value)}
-                          className="sr-only"
-                        />
-                        {option.label}
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5">
+          <div className="space-y-4">
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600">제목</span>
+              <input
+                type="text"
+                required
+                value={form.title}
+                onChange={(event) =>
+                  setForm({ ...form, title: event.target.value })
+                }
+                placeholder="일정 제목"
+                className="mt-1 h-11 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+              />
+            </label>
 
-              <label className="flex flex-col text-xs text-slate-600">
-                반복 종료일
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="text-xs font-medium text-slate-600">
+                  시작 일시
+                </span>
                 <input
-                  type="date"
-                  value={form.repeat_end_date}
-                  min={toDateKey(new Date(form.start_local || new Date()))}
-                  onChange={(e) =>
-                    setForm((prev: ScheduleFormState) => ({
-                      ...prev,
-                      repeat_end_date: e.target.value,
-                    }))
+                  type="datetime-local"
+                  required
+                  value={form.start_local}
+                  onChange={(event) =>
+                    setForm({ ...form, start_local: event.target.value })
                   }
-                  className="mt-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm"
+                  className="mt-1 h-11 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium text-slate-600">
+                  종료 일시
+                </span>
+                <input
+                  type="datetime-local"
+                  value={form.end_local}
+                  onChange={(event) =>
+                    setForm({ ...form, end_local: event.target.value })
+                  }
+                  className="mt-1 h-11 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                 />
               </label>
             </div>
-          )}
 
-          <div className="mt-3 rounded-md border border-slate-200 bg-white p-3">
-            <p className="text-xs font-semibold text-slate-700">
-              일괄 추가 미리보기 ({previewDates.length}건)
-            </p>
-            {previewDates.length === 0 ? (
-              <p className="mt-2 text-[11px] text-slate-500">
-                반복 조건을 설정하면 생성될 날짜 목록이 여기에 표시됩니다.
-              </p>
-            ) : (
-              <ul className="mt-2 max-h-36 space-y-1 overflow-y-auto text-xs text-slate-600">
-                {previewDates.map((d) => (
-                  <li key={d.toISOString()} className="flex items-center justify-between">
-                    <span>
-                      {d.toLocaleDateString("ko-KR", {
-                        year: "numeric",
-                        month: "2-digit",
-                        day: "2-digit",
-                      })}
+            <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+              <label className="block">
+                <span className="text-xs font-medium text-slate-600">
+                  일정 유형
+                </span>
+                <select
+                  value={form.schedule_type}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      schedule_type: event.target.value as ScheduleType,
+                    })
+                  }
+                  className="mt-1 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                >
+                  {SCHEDULE_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {SCHEDULE_TYPE_LABELS[type]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="inline-flex h-11 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={form.all_day}
+                  onChange={(event) =>
+                    setForm({ ...form, all_day: event.target.checked })
+                  }
+                  className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                />
+                종일
+              </label>
+            </div>
+
+            <div className="rounded-lg border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setDetailsOpen((open) => !open)}
+                className="flex w-full items-center justify-between px-3 py-3 text-left text-sm font-medium text-slate-800 hover:bg-slate-50"
+              >
+                상세 설정
+                <span className="text-xs text-slate-400">
+                  {detailsOpen ? "접기" : "열기"}
+                </span>
+              </button>
+
+              {detailsOpen && (
+                <div className="space-y-4 border-t border-slate-200 p-3">
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-600">
+                      설명
                     </span>
-                    <span className="text-slate-400">{weekdayLabels[d.getDay()]}요일</span>
-                  </li>
-                ))}
-              </ul>
+                    <textarea
+                      rows={3}
+                      value={form.description}
+                      onChange={(event) =>
+                        setForm({ ...form, description: event.target.value })
+                      }
+                      placeholder="상세 설명"
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm leading-6 shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-600">
+                      장소
+                    </span>
+                    <input
+                      type="text"
+                      value={form.location}
+                      onChange={(event) =>
+                        setForm({ ...form, location: event.target.value })
+                      }
+                      placeholder="장소"
+                      className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-600">
+                      공개 여부
+                    </span>
+                    <select
+                      value={form.visibility}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          visibility: event.target.value as ScheduleVisibility,
+                        })
+                      }
+                      className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                    >
+                      {Object.entries(SCHEDULE_VISIBILITY_LABELS).map(
+                        ([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                  </label>
+
+                  <div>
+                    <span className="text-xs font-medium text-slate-600">
+                      카테고리
+                    </span>
+                    <CategorySelect
+                      type="schedule"
+                      value={form.category_id}
+                      onChange={(value) =>
+                        setForm({ ...form, category_id: value })
+                      }
+                      className="mt-1"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {error && (
+              <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {error}
+              </p>
             )}
           </div>
-        </div>
-      )}
+        </form>
 
-      <textarea
-        placeholder="설명 (선택)"
-        value={form.description}
-        onChange={(e) => setForm({ ...form, description: e.target.value })}
-        rows={2}
-        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-      />
-      <div className="flex justify-end gap-2">
-        {onCancel && (
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 p-4">
           <button
             type="button"
-            onClick={onCancel}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            onClick={onClose}
+            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             취소
           </button>
-        )}
-        <button
-          type="submit"
-          disabled={isPending}
-          className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-60"
-        >
-          {isPending ? "저장 중..." : submitLabel}
-        </button>
-      </div>
-      {error && <p className="text-sm text-red-600">{error}</p>}
-    </form>
+          <button
+            type="submit"
+            disabled={isPending}
+            onClick={(event) => {
+              const formEl = event.currentTarget
+                .closest("aside")
+                ?.querySelector("form");
+              formEl?.requestSubmit();
+            }}
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
+          >
+            {isPending ? "저장 중..." : mode === "create" ? "추가" : "저장"}
+          </button>
+        </div>
+      </aside>
+    </>
   );
 }
 
-function ScheduleRow({ schedule }: { schedule: Schedule }) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [showReminders, setShowReminders] = useState(false);
-  const updateMutation = useUpdateSchedule();
-  const deleteMutation = useDeleteSchedule();
-  const { data: categories = [] } = useCategories("schedule");
-  const cat = categories.find((c) => c.category_id === schedule.category_id);
+function MiniCalendar({
+  calendarView,
+  visibleMonth,
+  selectedKey,
+  dateMeta,
+  monthCells,
+  weekDates,
+  onMoveMonth,
+  onSelectDate,
+  onSetCalendarView,
+}: {
+  calendarView: "month" | "week";
+  visibleMonth: Date;
+  selectedKey: string;
+  dateMeta: Map<string, DayMeta>;
+  monthCells: Array<Date | null>;
+  weekDates: Date[];
+  onMoveMonth: (offset: number) => void;
+  onSelectDate: (date: Date) => void;
+  onSetCalendarView: (view: "month" | "week") => void;
+}) {
+  const renderMarker = (meta?: DayMeta, selected?: boolean) => {
+    if (!meta || meta.count === 0) return null;
+    const dotClass = selected
+      ? "bg-white"
+      : meta.hasDeadline
+        ? "bg-rose-500"
+        : "bg-emerald-500";
 
-  if (isEditing) {
     return (
-      <li className="rounded-md border border-slate-200 bg-white p-3 shadow-sm">
-        <ScheduleForm
-          submitLabel="저장"
-          isPending={updateMutation.isPending}
-          initial={{
-            title: schedule.title,
-            description: schedule.description ?? "",
-            schedule_type: schedule.schedule_type,
-            start_local: toLocalInputValue(schedule.start_datetime),
-            end_local: toLocalInputValue(schedule.end_datetime),
-            all_day: schedule.all_day,
-            location: schedule.location ?? "",
-            visibility: schedule.visibility,
-            category_id: schedule.category_id ?? "",
-            repeat_mode: "none",
-            repeat_weekdays: [],
-            repeat_end_date: "",
-          }}
-          onCancel={() => setIsEditing(false)}
-          onSubmit={async (form) => {
-            await updateMutation.mutateAsync({
-              scheduleId: schedule.schedule_id,
-              payload: {
-                title: form.title.trim(),
-                description: form.description || undefined,
-                schedule_type: form.schedule_type,
-                start_datetime: fromLocalInputValue(form.start_local),
-                end_datetime: form.end_local
-                  ? fromLocalInputValue(form.end_local)
-                  : undefined,
-                all_day: form.all_day,
-                location: form.location || undefined,
-                visibility: form.visibility,
-                category_id:
-                  form.category_id === "" ? undefined : Number(form.category_id),
-              },
-            });
-            setIsEditing(false);
-          }}
-        />
-      </li>
+      <span className="pointer-events-none absolute bottom-1.5 left-1/2 flex -translate-x-1/2 gap-1">
+        <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
+        {meta.count > 1 && (
+          <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
+        )}
+      </span>
     );
-  }
+  };
 
   return (
-    <li className="rounded-md border border-slate-200 bg-white p-3 shadow-sm">
-      <div className="flex items-start gap-3">
+    <aside className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => onMoveMonth(-1)}
+          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+          aria-label="이전 달"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <p className="text-sm font-semibold text-slate-950">
+          {formatMonthTitle(visibleMonth)}
+        </p>
+        <button
+          type="button"
+          onClick={() => onMoveMonth(1)}
+          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+          aria-label="다음 달"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 rounded-lg bg-slate-100 p-1 text-xs">
+        {(["month", "week"] as const).map((view) => (
+          <button
+            key={view}
+            type="button"
+            onClick={() => onSetCalendarView(view)}
+            className={`h-8 rounded-md font-medium transition ${
+              calendarView === view
+                ? "bg-white text-emerald-700 shadow-sm"
+                : "text-slate-500 hover:text-slate-900"
+            }`}
+          >
+            {view === "month" ? "월간" : "주간"}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4">
+        {calendarView === "month" ? (
+          <>
+            <div className="grid grid-cols-7 text-center text-xs font-medium text-slate-500">
+              {weekdayLabels.map((label, index) => (
+                <span
+                  key={label}
+                  className={
+                    index === 0
+                      ? "text-rose-500"
+                      : index === 6
+                        ? "text-sky-500"
+                        : undefined
+                  }
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+            <div className="mt-2 grid grid-cols-7 gap-1">
+              {monthCells.map((day, index) => {
+                if (!day)
+                  return <div key={`blank-${index}`} className="h-10" />;
+                const key = toDateKey(day);
+                const selected = key === selectedKey;
+                const meta = dateMeta.get(key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => onSelectDate(day)}
+                    className={`relative h-10 rounded-lg text-sm font-medium transition ${
+                      selected
+                        ? "bg-emerald-600 text-white"
+                        : meta
+                          ? "bg-slate-100 text-slate-900 hover:bg-slate-200"
+                          : "text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    {day.getDate()}
+                    {renderMarker(meta, selected)}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <div className="space-y-2">
+            {weekDates.map((day) => {
+              const key = toDateKey(day);
+              const selected = key === selectedKey;
+              const meta = dateMeta.get(key);
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => onSelectDate(day)}
+                  className={`relative flex w-full items-center justify-between rounded-lg border px-3 py-2 text-sm transition ${
+                    selected
+                      ? "border-emerald-600 bg-emerald-600 text-white"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <span>{weekdayLabels[day.getDay()]}</span>
+                  <span className="font-semibold">{day.getDate()}</span>
+                  {renderMarker(meta, selected)}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function TimelineItem({
+  schedule,
+  highlighted,
+  onEdit,
+  onDelete,
+  deleting,
+}: {
+  schedule: Schedule;
+  highlighted?: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+  deleting?: boolean;
+}) {
+  const { data: categories = [] } = useCategories("schedule");
+  const category = categories.find(
+    (c) => c.category_id === schedule.category_id,
+  );
+
+  return (
+    <li
+      id={`schedule-${schedule.schedule_id}`}
+      className={`rounded-lg border bg-white p-4 shadow-sm ${
+        highlighted
+          ? "border-emerald-300 ring-2 ring-emerald-100"
+          : "border-slate-200"
+      }`}
+    >
+      <div className="flex items-start gap-4">
+        <div className="w-20 shrink-0 text-xs font-medium text-slate-500">
+          {schedule.all_day ? (
+            <span className="rounded-md bg-emerald-50 px-2 py-1 text-emerald-700">
+              종일
+            </span>
+          ) : (
+            <>
+              <p className="text-sm text-slate-950">
+                {formatTime(schedule.start_datetime)}
+              </p>
+              {schedule.end_datetime && (
+                <p className="mt-1">{formatTime(schedule.end_datetime)}</p>
+              )}
+            </>
+          )}
+        </div>
+
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-slate-900">
+            <h3 className="truncate text-sm font-semibold text-slate-950">
               {schedule.title}
-            </span>
-            <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-600">
+            </h3>
+            <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
               {SCHEDULE_TYPE_LABELS[schedule.schedule_type]}
             </span>
-            <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-600">
-              {SCHEDULE_VISIBILITY_LABELS[schedule.visibility]}
-            </span>
-            {cat && (
-              <span className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-600">
-                <CategoryDot color={cat.color} />
-                {cat.name}
+            {category && (
+              <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
+                <CategoryDot color={category.color} />
+                {category.name}
               </span>
             )}
           </div>
-          <div className="mt-1 text-xs text-slate-500">
-            {schedule.all_day
-              ? "종일"
-              : `${new Date(schedule.start_datetime).toLocaleString("ko-KR")}${
-                  schedule.end_datetime
-                    ? ` ~ ${new Date(schedule.end_datetime).toLocaleString("ko-KR")}`
-                    : ""
-                }`}
-            {schedule.location ? ` · ${schedule.location}` : ""}
-          </div>
-          {schedule.description && (
-            <p className="mt-1 text-xs text-slate-600 whitespace-pre-wrap">
-              {schedule.description}
-            </p>
+
+          {(schedule.location || schedule.description) && (
+            <div className="mt-2 space-y-1 text-xs text-slate-500">
+              {schedule.location && (
+                <p className="flex items-center gap-1">
+                  <MapPin className="h-3.5 w-3.5" />
+                  {schedule.location}
+                </p>
+              )}
+              {schedule.description && (
+                <p className="whitespace-pre-wrap leading-5">
+                  {schedule.description}
+                </p>
+              )}
+            </div>
           )}
         </div>
+
         <div className="flex shrink-0 gap-1">
           <button
             type="button"
-            onClick={() => setShowReminders((v) => !v)}
-            className={`rounded-md border px-2 py-1 text-xs font-medium hover:bg-slate-100 ${
-              showReminders
-                ? "border-slate-900 bg-slate-900 text-white hover:bg-slate-800"
-                : "border-slate-300 bg-white text-slate-700"
-            }`}
+            onClick={onEdit}
+            aria-label="수정"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900"
           >
-            알림
+            <Pencil className="h-4 w-4" />
           </button>
           <button
             type="button"
-            onClick={() => setIsEditing(true)}
-            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            onClick={onDelete}
+            disabled={deleting}
+            aria-label="삭제"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-white text-red-600 hover:bg-red-50 disabled:opacity-60"
           >
-            수정
-          </button>
-          <button
-            type="button"
-            disabled={deleteMutation.isPending}
-            onClick={async () => {
-              if (!confirm("정말 삭제하시겠습니까?")) return;
-              await deleteMutation.mutateAsync(schedule.schedule_id);
-            }}
-            className="rounded-md border border-red-200 bg-white px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
-          >
-            삭제
+            <Trash2 className="h-4 w-4" />
           </button>
         </div>
       </div>
-      {showReminders && (
-        <ReminderControl
-          targetType="schedule"
-          targetId={schedule.schedule_id}
-        />
-      )}
     </li>
   );
 }
 
 export default function Schedules() {
-  const [calendarView, setCalendarView] = useState<"month" | "week">("month");
-  const [isCreateFormOpen, setIsCreateFormOpen] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
-  const [visibleMonth, setVisibleMonth] = useState(() => new Date());
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(
-    () => new Date(),
-  );
+  const [searchParams] = useSearchParams();
+  const deepLinkedScheduleId = Number(searchParams.get("schedule_id"));
+  const deepLinkedDate = searchParams.get("date");
+  const initialDate = deepLinkedDate ? new Date(deepLinkedDate) : new Date();
+  const safeInitialDate = Number.isNaN(initialDate.getTime())
+    ? new Date()
+    : initialDate;
 
-  const queryClient = useQueryClient();
+  const [calendarView, setCalendarView] = useState<"month" | "week">("month");
+  const [visibleMonth, setVisibleMonth] = useState(
+    () =>
+      new Date(safeInitialDate.getFullYear(), safeInitialDate.getMonth(), 1),
+  );
+  const [selectedDate, setSelectedDate] = useState<Date>(safeInitialDate);
+  const [panelMode, setPanelMode] = useState<"create" | "edit" | null>(null);
+  const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
+
+  const createMutation = useCreateSchedule();
+  const updateMutation = useUpdateSchedule();
+  const deleteMutation = useDeleteSchedule();
 
   const monthRange = useMemo(() => {
     const start = new Date(
@@ -612,46 +727,43 @@ export default function Schedules() {
       visibleMonth.getMonth(),
       -6,
     );
+    start.setHours(0, 0, 0, 0);
     const end = new Date(
       visibleMonth.getFullYear(),
       visibleMonth.getMonth() + 1,
       7,
     );
+    end.setHours(23, 59, 59, 999);
     return {
-      startDate: toDateKey(start),
-      endDate: toDateKey(end),
+      startFrom: toOffsetISOString(start),
+      startTo: toOffsetISOString(end),
     };
   }, [visibleMonth]);
 
   const { data, isLoading, isError, error, isFetching, refetch } = useSchedules(
     {
-      view: "month",
-      start_date: monthRange.startDate,
-      end_date: monthRange.endDate,
-      size: 300,
+      start_from: monthRange.startFrom,
+      start_to: monthRange.startTo,
     },
   );
 
   const items = useMemo(
     () =>
-      [...(data?.items ?? [])].sort(
+      [...(data ?? [])].sort(
         (a, b) =>
           new Date(a.start_datetime).getTime() -
           new Date(b.start_datetime).getTime(),
       ),
-    [data?.items],
+    [data],
   );
 
   const schedulesByDate = useMemo(() => {
     const grouped = new Map<string, Schedule[]>();
-    for (const item of items) {
-      const key = toDateKey(item.start_datetime);
+    for (const schedule of items) {
+      const key = toDateKey(schedule.start_datetime);
       const bucket = grouped.get(key);
-      if (bucket) {
-        bucket.push(item);
-      } else {
-        grouped.set(key, [item]);
-      }
+      if (bucket) bucket.push(schedule);
+      else grouped.set(key, [schedule]);
     }
     return grouped;
   }, [items]);
@@ -661,7 +773,9 @@ export default function Schedules() {
     for (const [key, schedules] of schedulesByDate.entries()) {
       meta.set(key, {
         count: schedules.length,
-        hasDeadline: schedules.some((s) => s.schedule_type === "deadline"),
+        hasDeadline: schedules.some(
+          (schedule) => schedule.schedule_type === "deadline",
+        ),
       });
     }
     return meta;
@@ -681,15 +795,38 @@ export default function Schedules() {
     return cells;
   }, [visibleMonth]);
 
-  const selectedKey = selectedDate ? toDateKey(selectedDate) : "";
-  const selectedSchedules = selectedKey
-    ? (schedulesByDate.get(selectedKey) ?? [])
-    : [];
+  const selectedKey = toDateKey(selectedDate);
+  const selectedSchedules = schedulesByDate.get(selectedKey) ?? [];
+  const weekDates = useMemo(() => buildWeekDates(selectedDate), [selectedDate]);
 
-  const weekDates = useMemo(
-    () => buildWeekDates(selectedDate ?? new Date()),
-    [selectedDate],
-  );
+  useEffect(() => {
+    if (
+      !deepLinkedScheduleId ||
+      Number.isNaN(deepLinkedScheduleId) ||
+      items.length === 0
+    ) {
+      return;
+    }
+
+    const target = items.find(
+      (schedule) => schedule.schedule_id === deepLinkedScheduleId,
+    );
+    if (!target) return;
+
+    const targetDate = new Date(target.start_datetime);
+    if (Number.isNaN(targetDate.getTime())) return;
+
+    setSelectedDate(targetDate);
+    setVisibleMonth(
+      new Date(targetDate.getFullYear(), targetDate.getMonth(), 1),
+    );
+
+    requestAnimationFrame(() => {
+      document
+        .getElementById(`schedule-${deepLinkedScheduleId}`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  }, [deepLinkedScheduleId, items]);
 
   const moveMonth = (offset: number) => {
     setVisibleMonth((prev) => {
@@ -699,394 +836,228 @@ export default function Schedules() {
     });
   };
 
-  const renderMarker = (meta?: DayMeta, selected?: boolean) => {
-    if (!meta || meta.count === 0) return null;
-    const dotClass = selected
-      ? "bg-white/95"
-      : meta.hasDeadline
-        ? "bg-rose-400"
-        : "bg-emerald-500";
-
-    return (
-      <span className="pointer-events-none absolute bottom-1.5 left-1/2 flex -translate-x-1/2 items-center gap-1">
-        <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
-        {meta.count > 1 && (
-          <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
-        )}
-      </span>
-    );
+  const selectDate = (date: Date) => {
+    setSelectedDate(date);
+    setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
   };
+
+  const openCreatePanel = () => {
+    setEditingSchedule(null);
+    setPanelMode("create");
+  };
+
+  const openEditPanel = (schedule: Schedule) => {
+    setEditingSchedule(schedule);
+    setPanelMode("edit");
+  };
+
+  const closePanel = () => {
+    setPanelMode(null);
+    setEditingSchedule(null);
+  };
+
+  const formInitial =
+    panelMode === "edit" && editingSchedule
+      ? formFromSchedule(editingSchedule)
+      : emptyFormForDate(selectedDate);
+
+  const panelKey =
+    panelMode === "edit" && editingSchedule
+      ? `edit-${editingSchedule.schedule_id}`
+      : `create-${selectedKey}`;
+
+  const allDaySchedules = selectedSchedules.filter(
+    (schedule) => schedule.all_day,
+  );
+  const timedSchedules = selectedSchedules.filter(
+    (schedule) => !schedule.all_day,
+  );
 
   return (
     <AppShell>
       <div className="space-y-6">
-        <section className="rounded-[28px] border border-white/70 bg-white/85 p-6 shadow-[0_20px_70px_rgba(15,23,42,0.08)] backdrop-blur">
+        <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
                 Calendar board
               </p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">
-                캘린더
+                일정
               </h1>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                일정을 추가하고 관리하세요.
+                날짜를 선택하고, 하루의 일정을 타임라인으로 확인하세요.
               </p>
             </div>
-            <Link
-              to="/"
-              className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-950 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-slate-900/15 transition hover:-translate-y-0.5"
-            >
-              홈으로
-            </Link>
+            <div className="flex gap-2">
+              <Link
+                to="/"
+                className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+              >
+                홈으로
+              </Link>
+              <button
+                type="button"
+                onClick={openCreatePanel}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
+              >
+                <Plus className="h-4 w-4" />
+                일정 추가
+              </button>
+            </div>
           </div>
         </section>
 
-        <section className="mt-6 rounded-[28px] border border-white/70 bg-white/90 p-4 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur sm:p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold text-slate-900">일정 빠른 추가</h2>
-              <p className="text-xs text-slate-500">
-                필요할 때만 입력 폼을 열어서 화면을 깔끔하게 유지합니다.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsCreateFormOpen((v) => !v)}
-              className="rounded-full border border-slate-200 bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:-translate-y-0.5"
-            >
-              {isCreateFormOpen ? "입력 폼 닫기" : "일정 추가 열기"}
-            </button>
-          </div>
+        <div
+          className={`grid gap-5 ${
+            panelMode
+              ? "xl:grid-cols-[320px_minmax(0,1fr)_380px]"
+              : "xl:grid-cols-[320px_minmax(0,1fr)]"
+          }`}
+        >
+          <MiniCalendar
+            calendarView={calendarView}
+            visibleMonth={visibleMonth}
+            selectedKey={selectedKey}
+            dateMeta={dateMeta}
+            monthCells={monthCells}
+            weekDates={weekDates}
+            onMoveMonth={moveMonth}
+            onSelectDate={selectDate}
+            onSetCalendarView={setCalendarView}
+          />
 
-          {isCreateFormOpen && (
-            <div className="mt-4">
-              <ScheduleForm
-                submitLabel="일정 추가"
-                isPending={isCreating}
-                allowBatch
-                onSubmit={async (form, previewDates) => {
-                  if (previewDates.length === 0) {
-                    throw new Error("생성할 일정 날짜가 없습니다.");
-                  }
-
-                  const basePayload = {
-                    title: form.title.trim(),
-                    description: form.description || undefined,
-                    schedule_type: form.schedule_type,
-                    all_day: form.all_day,
-                    location: form.location || undefined,
-                    visibility: form.visibility,
-                    category_id:
-                      form.category_id === ""
-                        ? undefined
-                        : Number(form.category_id),
-                  };
-
-                  setIsCreating(true);
-
-                  try {
-                    const baseStart = new Date(form.start_local);
-                    const baseEnd = form.end_local ? new Date(form.end_local) : undefined;
-
-                    const endDiffMs = baseEnd
-                      ? Math.max(0, baseEnd.getTime() - baseStart.getTime())
-                      : undefined;
-
-                    const payloads = previewDates.map((date) => {
-                      const start = new Date(date);
-                      const end =
-                        typeof endDiffMs === "number"
-                          ? new Date(start.getTime() + endDiffMs)
-                          : undefined;
-
-                      return {
-                        ...basePayload,
-                        start_datetime: start.toISOString(),
-                        end_datetime: end?.toISOString(),
-                      };
-                    });
-
-                    const results = await Promise.all(
-                      payloads.map((payload) => createSchedule(payload)),
-                    );
-
-                    const failed = results.find((result) => !result.success);
-                    if (failed) {
-                      throw new Error(
-                        failed.message || "일정 일괄 추가 중 오류가 발생했습니다.",
-                      );
-                    }
-
-                    await queryClient.invalidateQueries({
-                      queryKey: SCHEDULES_QUERY_KEY,
-                    });
-                    toast.success(`${payloads.length}개의 일정을 추가했습니다.`);
-                    setIsCreateFormOpen(false);
-                  } catch (err) {
-                    const message = getErrorMessage(
-                      err,
-                      "일정 일괄 추가에 실패했습니다.",
-                    );
-                    toast.error(message);
-                    throw new Error(message);
-                  } finally {
-                    setIsCreating(false);
-                  }
-                }}
-              />
-            </div>
-          )}
-        </section>
-
-        <section className="grid gap-4 xl:grid-cols-[540px_minmax(0,1fr)]">
-          <div className="rounded-[28px] border border-slate-200 bg-slate-100/80 p-4 shadow-[0_18px_60px_rgba(15,23,42,0.08)] sm:p-5">
-            <div className="rounded-2xl bg-white p-3 shadow-sm">
-              <div className="flex items-center justify-between rounded-xl bg-slate-50 px-2 py-2">
-                <button
-                  type="button"
-                  onClick={() => moveMonth(-1)}
-                  className="rounded-lg p-2 text-slate-500 hover:bg-slate-200/70"
-                  aria-label="이전 달"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <p className="text-xl font-semibold text-slate-900">
-                  {formatMonthTitle(visibleMonth)}
+          <section className="min-w-0 rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-950">
+                  {formatSelectedDate(selectedDate)}
+                </h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  선택한 날짜의 일정 {selectedSchedules.length}건
+                  {isFetching && " · 업데이트 중"}
                 </p>
-                <button
-                  type="button"
-                  onClick={() => moveMonth(1)}
-                  className="rounded-lg p-2 text-slate-500 hover:bg-slate-200/70"
-                  aria-label="다음 달"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
               </div>
-
-              <div className="mt-3 grid grid-cols-2 rounded-xl bg-slate-200/80 p-1 text-sm">
-                <button
-                  type="button"
-                  onClick={() => setCalendarView("month")}
-                  className={`rounded-lg px-3 py-2 font-medium transition ${
-                    calendarView === "month"
-                      ? "bg-white text-slate-900 shadow-sm"
-                      : "text-slate-500"
-                  }`}
-                >
-                  월간 보기
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCalendarView("week")}
-                  className={`rounded-lg px-3 py-2 font-medium transition ${
-                    calendarView === "week"
-                      ? "bg-white text-slate-900 shadow-sm"
-                      : "text-slate-500"
-                  }`}
-                >
-                  주간 보기
-                </button>
-              </div>
-
-              <div className="mt-4 rounded-2xl bg-white p-2">
-                {isLoading ? (
-                  <div className="h-[300px] animate-pulse rounded-xl bg-slate-100" />
-                ) : isError ? (
-                  <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-8 text-sm text-red-700">
-                    캘린더를 불러오지 못했습니다.
-                  </p>
-                ) : calendarView === "month" ? (
-                  <>
-                    <div className="grid grid-cols-7 gap-2 px-1 text-center text-xs font-medium">
-                      {weekdayLabels.map((label, idx) => (
-                        <span
-                          key={label}
-                          className={
-                            idx === 0
-                              ? "text-rose-500"
-                              : idx === 6
-                                ? "text-blue-500"
-                                : "text-slate-500"
-                          }
-                        >
-                          {label}
-                        </span>
-                      ))}
-                    </div>
-
-                    <div className="mt-2 grid grid-cols-7 gap-2">
-                      {monthCells.map((day, index) => {
-                        if (!day) {
-                          return <div key={`blank-${index}`} className="h-12" />;
-                        }
-
-                        const key = toDateKey(day);
-                        const meta = dateMeta.get(key);
-                        const isSelected = key === selectedKey;
-                        const dayOfWeek = day.getDay();
-                        const baseTextClass =
-                          dayOfWeek === 0
-                            ? "text-rose-500"
-                            : dayOfWeek === 6
-                              ? "text-blue-500"
-                              : "text-slate-900";
-
-                        return (
-                          <button
-                            key={key}
-                            type="button"
-                            onClick={() => setSelectedDate(day)}
-                            className={`relative h-12 rounded-xl text-sm font-medium transition ${
-                              isSelected
-                                ? "bg-emerald-500 text-white shadow-sm"
-                                : meta
-                                  ? "bg-slate-100 hover:bg-slate-200"
-                                  : "hover:bg-slate-100"
-                            } ${isSelected ? "text-white" : baseTextClass}`}
-                          >
-                            {day.getDate()}
-                            {renderMarker(meta, isSelected)}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </>
-                ) : (
-                  <div className="space-y-2">
-                    {weekDates.map((day) => {
-                      const key = toDateKey(day);
-                      const meta = dateMeta.get(key);
-                      const isSelected = key === selectedKey;
-                      const dayOfWeek = day.getDay();
-                      const baseTextClass =
-                        dayOfWeek === 0
-                          ? "text-rose-500"
-                          : dayOfWeek === 6
-                            ? "text-blue-500"
-                            : "text-slate-900";
-
-                      return (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => {
-                            setSelectedDate(day);
-                            setVisibleMonth(
-                              new Date(day.getFullYear(), day.getMonth(), 1),
-                            );
-                          }}
-                          className={`relative flex w-full items-center justify-between rounded-xl border px-3 py-3 text-sm transition ${
-                            isSelected
-                              ? "border-emerald-500 bg-emerald-500 text-white"
-                              : "border-slate-200 bg-white hover:bg-slate-50"
-                          }`}
-                        >
-                          <span className={`font-medium ${isSelected ? "text-white" : baseTextClass}`}>
-                            {weekdayLabels[dayOfWeek]}
-                          </span>
-                          <span className="text-base font-semibold">{day.getDate()}</span>
-                          {renderMarker(meta, isSelected)}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
-                <span>점으로 일정 여부를 표시합니다.</span>
-                {isFetching && <span>업데이트 중...</span>}
-              </div>
+              <button
+                type="button"
+                onClick={openCreatePanel}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
+              >
+                <CalendarDays className="h-4 w-4" />이 날짜에 추가
+              </button>
             </div>
-          </div>
 
-          <div className="rounded-[28px] border border-white/70 bg-white/90 p-4 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur sm:p-5">
-            <h2 className="text-base font-semibold text-slate-900">
-              {formatSelectedDate(selectedDate)}
-            </h2>
-            <p className="mt-1 text-xs text-slate-500">
-              선택한 날짜의 일정 {selectedSchedules.length}건
-            </p>
-
-            <div className="mt-4">
+            <div className="p-5">
               {isLoading ? (
-                <div className="space-y-2">
-                  <div className="h-14 animate-pulse rounded-2xl bg-slate-100" />
-                  <div className="h-14 animate-pulse rounded-2xl bg-slate-100" />
-                </div>
+                <FullSpinner message="일정을 불러오는 중..." />
               ) : isError ? (
-                <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-6 text-sm text-red-700">
-                  선택 일정 정보를 불러오지 못했습니다.
-                </p>
+                <ErrorState
+                  title="일정을 불러오지 못했습니다"
+                  message={(error as Error).message}
+                  onRetry={() => refetch()}
+                  retrying={isFetching}
+                />
               ) : selectedSchedules.length === 0 ? (
-                <p className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-                  선택한 날짜에 일정이 없습니다.
-                </p>
+                <EmptyState
+                  title="선택한 날짜에 일정이 없습니다"
+                  description="오른쪽 패널에서 새 일정을 추가해 보세요."
+                />
               ) : (
-                <ul className="space-y-2">
-                  {selectedSchedules.map((schedule) => (
-                    <li
-                      key={schedule.schedule_id}
-                      className="rounded-2xl border border-slate-200 bg-white px-3 py-2"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-sm font-medium text-slate-900">
-                          {schedule.title}
-                        </p>
-                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
-                          {SCHEDULE_TYPE_LABELS[schedule.schedule_type]}
-                        </span>
+                <div className="space-y-5">
+                  {allDaySchedules.length > 0 && (
+                    <div>
+                      <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-500">
+                        <Clock3 className="h-3.5 w-3.5" />
+                        종일 일정
                       </div>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {schedule.all_day
-                          ? "종일"
-                          : new Date(schedule.start_datetime).toLocaleTimeString(
-                              "ko-KR",
-                              {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              },
-                            )}
-                        {schedule.location ? ` · ${schedule.location}` : ""}
+                      <ul className="space-y-2">
+                        {allDaySchedules.map((schedule) => (
+                          <TimelineItem
+                            key={schedule.schedule_id}
+                            schedule={schedule}
+                            highlighted={
+                              schedule.schedule_id === deepLinkedScheduleId
+                            }
+                            onEdit={() => openEditPanel(schedule)}
+                            onDelete={async () => {
+                              if (!confirm("정말 삭제하시겠습니까?")) return;
+                              await deleteMutation.mutateAsync(
+                                schedule.schedule_id,
+                              );
+                            }}
+                            deleting={deleteMutation.isPending}
+                          />
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div>
+                    <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-500">
+                      <Clock3 className="h-3.5 w-3.5" />
+                      일간 타임라인
+                    </div>
+                    {timedSchedules.length > 0 ? (
+                      <ul className="space-y-2">
+                        {timedSchedules.map((schedule) => (
+                          <TimelineItem
+                            key={schedule.schedule_id}
+                            schedule={schedule}
+                            highlighted={
+                              schedule.schedule_id === deepLinkedScheduleId
+                            }
+                            onEdit={() => openEditPanel(schedule)}
+                            onDelete={async () => {
+                              if (!confirm("정말 삭제하시겠습니까?")) return;
+                              await deleteMutation.mutateAsync(
+                                schedule.schedule_id,
+                              );
+                            }}
+                            deleting={deleteMutation.isPending}
+                          />
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                        시간 지정 일정이 없습니다.
                       </p>
-                    </li>
-                  ))}
-                </ul>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
-          </div>
-        </section>
+          </section>
 
-        <div className="mt-6">
-          {isLoading ? (
-            <FullSpinner message="일정을 불러오는 중..." />
-          ) : isError ? (
-            <ErrorState
-              title="일정을 불러오지 못했습니다"
-              message={(error as Error).message}
-              onRetry={() => refetch()}
-              retrying={isFetching}
+          {panelMode && (
+            <ScheduleFormPanel
+              key={panelKey}
+              mode={panelMode}
+              initial={formInitial}
+              isPending={
+                panelMode === "create"
+                  ? createMutation.isPending
+                  : updateMutation.isPending
+              }
+              onClose={closePanel}
+              onSubmit={async (form) => {
+                const payload = toPayload(form);
+                if (panelMode === "create") {
+                  const created = await createMutation.mutateAsync(payload);
+                  const start = new Date(
+                    created.start_datetime ?? payload.start_datetime,
+                  );
+                  if (!Number.isNaN(start.getTime())) {
+                    selectDate(start);
+                  }
+                } else if (editingSchedule) {
+                  await updateMutation.mutateAsync({
+                    scheduleId: editingSchedule.schedule_id,
+                    payload,
+                  });
+                }
+                closePanel();
+              }}
             />
-          ) : items.length === 0 ? (
-            <EmptyState
-              title="이번 달 일정이 없습니다"
-              description="위 폼에서 새 일정을 등록해 보세요."
-            />
-          ) : (
-            <>
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-base font-semibold text-slate-900">
-                  이번 달 전체 일정
-                </h2>
-                <span className="text-xs text-slate-500">총 {items.length}건</span>
-              </div>
-              <ul className="space-y-2">
-              {items.map((s) => (
-                <ScheduleRow key={s.schedule_id} schedule={s} />
-              ))}
-              </ul>
-            </>
           )}
         </div>
       </div>

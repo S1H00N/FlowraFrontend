@@ -2,14 +2,13 @@ import apiClient from "./client";
 import type {
   ApiResponse,
   CreateScheduleRequest,
-  PaginatedData,
   Schedule,
   ScheduleListQuery,
   UpdateScheduleRequest,
 } from "@/types";
 
 export async function listSchedules(query: ScheduleListQuery = {}) {
-  const res = await apiClient.get<ApiResponse<PaginatedData<Schedule>>>(
+  const res = await apiClient.get<ApiResponse<{ schedules: Schedule[] }>>(
     "/schedules",
     { params: query },
   );
@@ -17,7 +16,7 @@ export async function listSchedules(query: ScheduleListQuery = {}) {
 }
 
 export async function createSchedule(payload: CreateScheduleRequest) {
-  const res = await apiClient.post<ApiResponse<Schedule>>(
+  const res = await apiClient.post<ApiResponse<{ schedule: Schedule }>>(
     "/schedules",
     payload,
   );
@@ -28,7 +27,7 @@ export async function updateSchedule(
   scheduleId: number,
   payload: UpdateScheduleRequest,
 ) {
-  const res = await apiClient.patch<ApiResponse<Schedule>>(
+  const res = await apiClient.patch<ApiResponse<{ schedule: Schedule }>>(
     `/schedules/${scheduleId}`,
     payload,
   );
@@ -36,7 +35,7 @@ export async function updateSchedule(
 }
 
 export async function deleteSchedule(scheduleId: number) {
-  const res = await apiClient.delete<ApiResponse<null>>(
+  const res = await apiClient.delete<ApiResponse<Record<string, never>>>(
     `/schedules/${scheduleId}`,
   );
   return res.data;

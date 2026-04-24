@@ -17,8 +17,9 @@ import {
 } from "@/types";
 import { taskSchema, type TaskFormValues } from "@/lib/schemas";
 import CategorySelect, { CategoryDot } from "@/components/CategorySelect";
-import ReminderControl from "@/components/ReminderControl";
 import { useCategories } from "@/hooks/useCategories";
+import { CalendarClock } from "lucide-react";
+import { localInputToOffsetISOString } from "@/utils/dateUtils";
 
 const priorityBadge: Record<TaskPriority, string> = {
   urgent: "bg-red-100 text-red-700 border-red-200",
@@ -27,12 +28,17 @@ const priorityBadge: Record<TaskPriority, string> = {
   low: "bg-slate-100 text-slate-600 border-slate-200",
 };
 
-const statusBadge: Record<TaskStatus, string> = {
-  todo: "bg-blue-100 text-blue-700 border-blue-200",
-  in_progress: "bg-indigo-100 text-indigo-700 border-indigo-200",
-  done: "bg-green-100 text-green-700 border-green-200",
-  postponed: "bg-slate-100 text-slate-600 border-slate-200",
-};
+function formatDue(iso?: string | null) {
+  if (!iso) return "마감 없음";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("ko-KR", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 function toLocalDateTimeInput(iso?: string | null) {
   if (!iso) return "";
@@ -41,9 +47,14 @@ function toLocalDateTimeInput(iso?: string | null) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function TaskItemBase({ task }: { task: Task }) {
+function TaskItemBase({
+  task,
+  highlighted,
+}: {
+  task: Task;
+  highlighted?: boolean;
+}) {
   const [isEditing, setIsEditing] = useState(false);
-  const [showReminders, setShowReminders] = useState(false);
 
   const updateMutation = useUpdateTask();
   const deleteMutation = useDeleteTask();
@@ -83,11 +94,11 @@ function TaskItemBase({ task }: { task: Task }) {
             status: values.status,
             category_id:
               typeof values.category_id === "number"
-                ? values.category_id
-                : undefined,
+                ? String(values.category_id)
+                : null,
             due_datetime: values.due_datetime
-              ? new Date(values.due_datetime).toISOString()
-              : undefined,
+              ? localInputToOffsetISOString(values.due_datetime)
+              : null,
           },
         });
         setIsEditing(false);
@@ -128,17 +139,28 @@ function TaskItemBase({ task }: { task: Task }) {
 
   if (isEditing) {
     return (
-      <li className="rounded-[28px] border border-white/70 bg-white/90 p-4 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur">
-        <form onSubmit={handleSubmit(handleSave)} noValidate className="space-y-2">
+      <li
+        id={`task-${task.task_id}`}
+        className={`rounded-lg border bg-white p-4 shadow-sm ${
+          highlighted
+            ? "border-emerald-300 ring-2 ring-emerald-100"
+            : "border-slate-200"
+        }`}
+      >
+        <form
+          onSubmit={handleSubmit(handleSave)}
+          noValidate
+          className="space-y-2"
+        >
           <div className="flex flex-col gap-2 sm:flex-row">
             <div className="flex-1">
               <input
                 type="text"
                 {...register("title")}
-                className={`w-full rounded-2xl border px-3 py-3 text-sm shadow-sm outline-none transition focus:ring-2 ${
+                className={`w-full rounded-lg border px-3 py-3 text-sm shadow-sm outline-none transition focus:ring-2 ${
                   errors.title
                     ? "border-red-400 focus:border-red-500 focus:ring-red-200"
-                    : "border-slate-200 bg-white focus:border-slate-900 focus:ring-slate-900/10"
+                    : "border-slate-200 bg-white focus:border-emerald-500 focus:ring-emerald-100"
                 }`}
               />
               {errors.title && (
@@ -149,7 +171,7 @@ function TaskItemBase({ task }: { task: Task }) {
             </div>
             <select
               {...register("priority")}
-              className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm outline-none"
+              className="rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm outline-none"
             >
               {TASK_PRIORITIES.map((p) => (
                 <option key={p} value={p}>
@@ -159,7 +181,7 @@ function TaskItemBase({ task }: { task: Task }) {
             </select>
             <select
               {...register("status")}
-              className="rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm outline-none"
+              className="rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm outline-none"
             >
               {TASK_STATUSES.map((s) => (
                 <option key={s} value={s}>
@@ -181,12 +203,12 @@ function TaskItemBase({ task }: { task: Task }) {
                 />
               )}
             />
-                <label className="flex flex-1 items-center gap-2 text-xs font-medium text-slate-600">
+            <label className="flex flex-1 items-center gap-2 text-xs font-medium text-slate-600">
               마감
               <input
                 type="datetime-local"
                 {...register("due_datetime")}
-                    className="flex-1 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm outline-none"
+                className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm shadow-sm outline-none"
               />
             </label>
           </div>
@@ -194,14 +216,14 @@ function TaskItemBase({ task }: { task: Task }) {
             <button
               type="button"
               onClick={handleCancel}
-              className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
             >
               취소
             </button>
             <button
               type="submit"
               disabled={updateMutation.isPending}
-              className="rounded-2xl bg-slate-900 px-3 py-2 text-xs font-medium text-white shadow-sm hover:bg-slate-800 disabled:opacity-60"
+              className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
             >
               저장
             </button>
@@ -212,87 +234,72 @@ function TaskItemBase({ task }: { task: Task }) {
   }
 
   return (
-    <li className="rounded-[28px] border border-white/70 bg-white/90 p-4 shadow-[0_18px_60px_rgba(15,23,42,0.08)] backdrop-blur">
+    <li
+      id={`task-${task.task_id}`}
+      className={`group rounded-lg border bg-white p-4 shadow-sm ${
+        highlighted
+          ? "border-emerald-300 ring-2 ring-emerald-100"
+          : "border-slate-200"
+      }`}
+    >
       <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={handleComplete}
           disabled={isDone || completeMutation.isPending}
-          aria-label="완료"
-          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
+          aria-label={isDone ? "완료됨" : "완료로 표시"}
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition ${
             isDone
-              ? "border-green-500 bg-green-500 text-white"
-              : "border-slate-300 bg-white hover:border-slate-500"
+              ? "border-emerald-500 bg-emerald-500 text-white"
+              : "border-slate-300 bg-white hover:border-emerald-500"
           }`}
         >
           {isDone ? "✓" : null}
         </button>
 
-        <div className="min-w-0 flex-1">
-          <div
+        <button
+          type="button"
+          onClick={() => setIsEditing(true)}
+          className="min-w-0 flex-1 text-left"
+        >
+          <p
             className={`truncate text-sm font-medium ${
               isDone ? "text-slate-400 line-through" : "text-slate-900"
             }`}
           >
             {task.title}
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1 text-xs text-slate-500">
+              <CalendarClock className="h-3.5 w-3.5" />
+              {formatDue(task.due_datetime)}
+            </span>
             <span
-              className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${priorityBadge[task.priority]}`}
+              className={`rounded-md border px-2 py-0.5 text-[11px] font-medium ${priorityBadge[task.priority]}`}
             >
               {TASK_PRIORITY_LABELS[task.priority]}
             </span>
-            <span
-              className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusBadge[task.status]}`}
-            >
-              {TASK_STATUS_LABELS[task.status]}
-            </span>
             {taskCategory && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
+              <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
                 <CategoryDot color={taskCategory.color} />
                 {taskCategory.name}
               </span>
             )}
-            {task.due_datetime && (
-              <span className="text-[11px] text-slate-500">
-                마감 {new Date(task.due_datetime).toLocaleString("ko-KR")}
-              </span>
-            )}
           </div>
-        </div>
+        </button>
 
-        <div className="flex shrink-0 gap-1">
-          <button
-            type="button"
-            onClick={() => setShowReminders((v) => !v)}
-            className={`rounded-2xl border px-2.5 py-1.5 text-xs font-medium hover:bg-slate-100 ${
-              showReminders
-                ? "border-slate-900 bg-slate-900 text-white hover:bg-slate-800"
-                : "border-slate-300 bg-white text-slate-700"
-            }`}
-          >
-            알림
-          </button>
-          <button
-            type="button"
-            onClick={() => setIsEditing(true)}
-            className="rounded-2xl border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-          >
-            수정
-          </button>
+        <div className="flex shrink-0 opacity-0 transition group-hover:opacity-100">
           <button
             type="button"
             onClick={handleDelete}
             disabled={deleteMutation.isPending}
-            className="rounded-2xl border border-red-200 bg-white px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
+            aria-label="삭제"
+            className="rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-60"
           >
             삭제
           </button>
         </div>
       </div>
-      {showReminders && (
-        <ReminderControl targetType="task" targetId={task.task_id} />
-      )}
     </li>
   );
 }

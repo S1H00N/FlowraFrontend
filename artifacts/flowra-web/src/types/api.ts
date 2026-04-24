@@ -12,16 +12,3 @@ export interface ApiErrorResponse {
     details?: Record<string, unknown>;
   };
 }
-
-export interface Pagination {
-  page: number;
-  size: number;
-  total_items: number;
-  total_pages: number;
-  has_next: boolean;
-}
-
-export interface PaginatedData<T> {
-  items: T[];
-  pagination: Pagination;
-}

@@ -11,6 +11,7 @@ import {
   type ReminderType,
 } from "@/types";
 import Spinner from "@/components/ui/Spinner";
+import { localInputToOffsetISOString } from "@/utils/dateUtils";
 
 interface ReminderControlProps {
   targetType: ReminderTargetType;
@@ -34,15 +35,12 @@ export default function ReminderControl({
 
   const remindersQuery = useReminders({
     target_type: targetType,
-    target_id: targetId,
+    target_id: String(targetId),
   });
   const createMutation = useCreateReminder();
   const deleteMutation = useDeleteReminder();
 
-  const items = useMemo(
-    () => remindersQuery.data ?? [],
-    [remindersQuery.data],
-  );
+  const items = useMemo(() => remindersQuery.data ?? [], [remindersQuery.data]);
 
   const handleAdd = useCallback(async () => {
     setValidationError(null);
@@ -50,7 +48,7 @@ export default function ReminderControl({
       setValidationError("알림 시각을 선택하세요.");
       return;
     }
-    const isoRemindAt = new Date(remindAt).toISOString();
+    const isoRemindAt = localInputToOffsetISOString(remindAt);
     if (new Date(isoRemindAt).getTime() < Date.now() - 60_000) {
       setValidationError("미래 시각을 선택하세요.");
       return;
@@ -58,7 +56,7 @@ export default function ReminderControl({
     try {
       await createMutation.mutateAsync({
         target_type: targetType,
-        target_id: targetId,
+        target_id: String(targetId),
         remind_at: isoRemindAt,
         reminder_type: reminderType,
       });
@@ -81,7 +79,7 @@ export default function ReminderControl({
   );
 
   return (
-    <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+    <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -107,7 +105,7 @@ export default function ReminderControl({
               {items.map((r) => (
                 <li
                   key={r.reminder_id}
-                  className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-white px-2 py-1 text-xs"
+                  className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="font-medium text-slate-700">
@@ -121,7 +119,7 @@ export default function ReminderControl({
                     type="button"
                     disabled={deleteMutation.isPending}
                     onClick={() => handleDelete(r.reminder_id)}
-                    className="rounded border border-red-200 bg-white px-1.5 py-0.5 text-[11px] text-red-600 hover:bg-red-50 disabled:opacity-60"
+                    className="rounded-md border border-red-200 bg-white px-1.5 py-0.5 text-[11px] text-red-600 hover:bg-red-50 disabled:opacity-60"
                   >
                     삭제
                   </button>
@@ -130,14 +128,14 @@ export default function ReminderControl({
             </ul>
           )}
 
-          <div className="flex flex-col gap-1.5 rounded border border-dashed border-slate-300 bg-white p-2 sm:flex-row sm:items-end">
+          <div className="flex flex-col gap-1.5 rounded-lg border border-dashed border-slate-300 bg-white p-2 sm:flex-row sm:items-end">
             <label className="flex flex-1 flex-col text-[11px] text-slate-600">
               알림 시각
               <input
                 type="datetime-local"
                 value={remindAt}
                 onChange={(e) => setRemindAt(e.target.value)}
-                className="mt-0.5 rounded border border-slate-300 px-2 py-1 text-xs"
+                className="mt-0.5 rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
               />
             </label>
             <label className="flex flex-col text-[11px] text-slate-600">
@@ -147,7 +145,7 @@ export default function ReminderControl({
                 onChange={(e) =>
                   setReminderType(e.target.value as ReminderType)
                 }
-                className="mt-0.5 rounded border border-slate-300 bg-white px-2 py-1 text-xs"
+                className="mt-0.5 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
               >
                 {REMINDER_TYPES.map((t) => (
                   <option key={t} value={t}>
@@ -160,7 +158,7 @@ export default function ReminderControl({
               type="button"
               onClick={handleAdd}
               disabled={createMutation.isPending}
-              className="self-end rounded border border-slate-300 bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-60"
+              className="self-end rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
             >
               {createMutation.isPending ? "추가 중..." : "알림 추가"}
             </button>

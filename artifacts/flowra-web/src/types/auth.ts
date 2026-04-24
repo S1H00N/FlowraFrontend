@@ -7,8 +7,12 @@ export interface User {
   login_type: LoginType;
   profile_image_url?: string | null;
   public_uid?: string;
-  timezone?: string;
+  timezone?: string | null;
   status?: string;
+  banned_until?: string | null;
+  ban_reason?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface AuthTokens {
@@ -36,10 +40,16 @@ export interface LoginResponseData {
 
 export interface SignupResponseData {
   user: User;
-  tokens?: AuthTokens;
+  tokens: AuthTokens;
 }
 
 export interface RefreshResponseData {
   user?: User;
   tokens: AuthTokens;
+}
+
+export interface UpdateUserRequest {
+  name?: string;
+  profile_image_url?: string | null;
+  timezone?: string;
 }

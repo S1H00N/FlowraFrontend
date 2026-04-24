@@ -15,19 +15,17 @@ export default function ErrorState({
 }: ErrorStateProps) {
   if (compact) {
     return (
-      <div className="flex items-start justify-between gap-3 rounded-2xl border border-red-200 bg-red-50/90 px-4 py-3 text-sm text-red-700 shadow-sm">
+      <div className="flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">
         <div className="min-w-0">
           <span className="font-medium">{title}</span>
-          {message && (
-            <span className="ml-1 text-red-600/90">· {message}</span>
-          )}
+          {message && <span className="ml-1 text-red-600/90">· {message}</span>}
         </div>
         {onRetry && (
           <button
             type="button"
             onClick={onRetry}
             disabled={retrying}
-            className="shrink-0 rounded-2xl border border-red-300 bg-white px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-60"
+            className="shrink-0 rounded-lg border border-red-300 bg-white px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-60"
           >
             {retrying ? "재시도 중..." : "재시도"}
           </button>
@@ -37,10 +35,10 @@ export default function ErrorState({
   }
 
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-[28px] border border-red-200 bg-red-50/90 px-6 py-12 text-center shadow-[0_18px_60px_rgba(15,23,42,0.06)]">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-red-200 bg-red-50 px-6 py-12 text-center shadow-sm">
       <div
         aria-hidden
-        className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-100 text-red-600"
+        className="flex h-11 w-11 items-center justify-center rounded-lg bg-red-100 text-red-600"
       >
         <svg
           viewBox="0 0 24 24"
@@ -67,7 +65,7 @@ export default function ErrorState({
           type="button"
           onClick={onRetry}
           disabled={retrying}
-          className="mt-1 rounded-2xl border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-60"
+          className="mt-1 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-60"
         >
           {retrying ? "재시도 중..." : "다시 시도"}
         </button>
