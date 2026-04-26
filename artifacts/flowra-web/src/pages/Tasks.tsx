@@ -255,22 +255,26 @@ export default function Tasks() {
   }, [setSearchParams]);
 
   const query = {
-    ...(filters.statuses.length === 1 ? { status: filters.statuses[0] } : {}),
-    ...(filters.priorities.length === 1
-      ? { priority: filters.priorities[0] }
+    ...(filters.statuses.length > 0 ? { status: filters.statuses } : {}),
+    ...(filters.priorities.length > 0
+      ? { priority: filters.priorities }
       : {}),
-    ...(filters.categories.length === 1
-      ? { category_id: filters.categories[0] }
+    ...(filters.categories.length > 0
+      ? { category_id: filters.categories }
       : {}),
     ...(typeof filters.schedule === "number"
       ? { schedule_id: filters.schedule }
       : {}),
+    ...(filters.schedule === "linked" || filters.schedule === "unlinked"
+      ? { schedule_filter: filters.schedule }
+      : {}),
+    ...(filters.q.trim() ? { q: filters.q.trim() } : {}),
     ...(filters.dueFrom ? { due_from: dateToRangeStart(filters.dueFrom) } : {}),
     ...(filters.dueTo ? { due_to: dateToRangeEnd(filters.dueTo) } : {}),
   };
   const { data, isLoading, isError, error, isFetching, refetch } =
     useTasks(query);
-  const schedulesQuery = useSchedules({ size: 100 });
+  const schedulesQuery = useSchedules();
   const categoriesQuery = useCategories("task");
 
   const schedules = schedulesQuery.data ?? [];

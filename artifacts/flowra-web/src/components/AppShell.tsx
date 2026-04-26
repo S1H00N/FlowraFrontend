@@ -63,12 +63,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const initials = displayName.slice(0, 1).toUpperCase();
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-slate-900">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-slate-200 bg-white md:flex md:flex-col">
+    <div className="min-h-screen bg-[linear-gradient(180deg,#f8fafc_0%,#f7fee7_44%,#f8fafc_100%)] text-slate-900">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-slate-200/80 bg-white/90 shadow-sm backdrop-blur md:flex md:flex-col">
         <div className="flex h-16 items-center gap-3 border-b border-slate-200 px-5">
           <Link
             to="/"
-            className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm"
+            className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-950 text-white shadow-sm"
             aria-label="Flowra 홈"
           >
             <Sparkles className="h-5 w-5" />
@@ -90,9 +90,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 to={item.to}
                 end={item.to === "/"}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
+                  `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
                     isActive
-                      ? "bg-emerald-50 text-emerald-700"
+                      ? "bg-slate-950 text-white shadow-sm"
                       : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
                   }`
                 }
@@ -105,7 +105,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="border-t border-slate-200 p-3">
-          <div className="rounded-lg bg-slate-50 p-3">
+          <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
             <p className="text-xs font-medium text-slate-500">빠른 실행</p>
             <div className="mt-2 space-y-1">
               {quickActions.map((action) => (
@@ -124,12 +124,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="min-h-screen md:pl-64">
-        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+        <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/85 backdrop-blur">
           <div className="flex min-h-16 flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
             <div className="flex items-center gap-3">
               <Link
                 to="/"
-                className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm md:hidden"
+                className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-950 text-white shadow-sm md:hidden"
                 aria-label="Flowra 홈"
               >
                 <Sparkles className="h-5 w-5" />
@@ -150,7 +150,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                   <Link
                     key={action.to}
                     to={action.to}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
                   >
                     <Plus className="h-3.5 w-3.5" />
                     {action.label}
@@ -159,8 +159,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
               </div>
 
               <div className="flex items-center gap-2">
-                <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-100 text-sm font-semibold text-emerald-700">
+                <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-50 text-sm font-semibold text-emerald-700 ring-1 ring-emerald-100">
                     {initials}
                   </div>
                   <div className="min-w-0">
@@ -187,7 +187,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </main>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-slate-200 bg-white px-2 pb-[env(safe-area-inset-bottom)] pt-1 md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-slate-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] pt-1 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur md:hidden">
         {navigation.map((item) => {
           const Icon = item.icon;
           return (

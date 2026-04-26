@@ -1,6 +1,6 @@
 import apiClient from "./client";
 import { toOffsetISOString } from "@/utils/dateUtils";
-import { compactParams, toNullableString, toOptionalNumber } from "./normalize";
+import { compactParams, toCommaParam, toNullableString } from "./normalize";
 import type {
   ApiListData,
   ApiResponse,
@@ -10,7 +10,7 @@ import type {
   UpdateTaskRequest,
 } from "@/types";
 
-type TaskListData = ApiListData<Task> & { tasks?: Task[] };
+type TaskListData = Partial<ApiListData<Task>> & { tasks?: Task[] };
 type TaskData = Task | { task: Task };
 
 function unwrapTask(data: TaskData): Task {
@@ -31,9 +31,14 @@ function normalizeTaskPayload<T extends CreateTaskRequest | UpdateTaskRequest>(
 
 function normalizeTaskQuery(query: TaskListQuery) {
   return compactParams({
-    ...query,
-    category_id: toOptionalNumber(query.category_id),
-    schedule_id: toOptionalNumber(query.schedule_id),
+    status: toCommaParam(query.status),
+    priority: toCommaParam(query.priority),
+    category_id: toCommaParam(query.category_id),
+    schedule_id: toCommaParam(query.schedule_id),
+    schedule_filter: query.schedule_id ? undefined : query.schedule_filter,
+    q: query.q,
+    due_from: query.due_from,
+    due_to: query.due_to,
   });
 }
 

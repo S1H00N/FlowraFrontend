@@ -72,14 +72,12 @@ export interface UpdateTaskRequest {
 }
 
 export interface TaskListQuery {
-  status?: TaskStatus;
-  priority?: TaskPriority;
-  category_id?: string | number;
+  status?: TaskStatus | TaskStatus[];
+  priority?: TaskPriority | TaskPriority[];
+  category_id?: string | number | Array<string | number>;
   schedule_id?: string | number;
+  schedule_filter?: "linked" | "unlinked";
+  q?: string;
   due_from?: string;
   due_to?: string;
-  page?: number;
-  size?: number;
-  sort_by?: "created_at" | "due_datetime" | "priority";
-  sort_order?: "asc" | "desc";
 }

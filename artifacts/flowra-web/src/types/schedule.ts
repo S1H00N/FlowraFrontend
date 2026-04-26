@@ -1,3 +1,5 @@
+import type { TaskPriority } from "./task";
+
 export type ScheduleType =
   | "personal"
   | "meeting"
@@ -5,7 +7,7 @@ export type ScheduleType =
   | "deadline"
   | "other";
 
-export type ScheduleVisibility = "private" | "company";
+export type ScheduleVisibility = "private";
 
 export const SCHEDULE_TYPES: ScheduleType[] = [
   "personal",
@@ -23,7 +25,9 @@ export const SCHEDULE_TYPE_LABELS: Record<ScheduleType, string> = {
   other: "기타",
 };
 
-export const SCHEDULE_VISIBILITY_LABELS: Partial<Record<ScheduleVisibility, string>> = {
+export const SCHEDULE_VISIBILITY_LABELS: Partial<
+  Record<ScheduleVisibility, string>
+> = {
   private: "비공개",
 };
 
@@ -41,6 +45,9 @@ export interface Schedule {
   location?: string | null;
   category_id?: number | null;
   visibility: ScheduleVisibility;
+  recurrence_group_id?: string | null;
+  recurrence_sequence?: number | null;
+  recurrence_rule?: RecurrenceRule | null;
   source_memo_id?: number | null;
   source_ai_result_id?: number | null;
   created_at: string;
@@ -75,14 +82,57 @@ export interface UpdateScheduleRequest {
   visibility?: ScheduleVisibility;
 }
 
+export type ScheduleWeekday =
+  | "monday"
+  | "tuesday"
+  | "wednesday"
+  | "thursday"
+  | "friday"
+  | "saturday"
+  | "sunday";
+
+export type ScheduleWeekdayAction =
+  | "skip"
+  | "move_next_day"
+  | "move_previous_day";
+
+export interface ScheduleWeekdayRule {
+  weekday: ScheduleWeekday;
+  action: ScheduleWeekdayAction;
+}
+
+export interface RecurrenceRule {
+  repeat_interval_days: number;
+  repeat_until: string;
+  timezone?: string;
+  weekday_rules?: ScheduleWeekdayRule[];
+  excluded_dates?: string[];
+  max_occurrences?: number;
+  [key: string]: unknown;
+}
+
+export interface CreateRecurringScheduleRequest
+  extends CreateScheduleRequest, RecurrenceRule {}
+
+export interface CreateRecurringScheduleResponse {
+  recurrence_group_id: string;
+  recurrence_rule: RecurrenceRule;
+  occurrence_count: number;
+  schedules: Schedule[];
+}
+
 export interface ScheduleListQuery {
   start_from?: string;
   start_to?: string;
   start_date?: string;
   end_date?: string;
   view?: "month" | "week" | "day" | "list";
-  category_id?: string | number;
-  schedule_type?: ScheduleType;
+  category_id?: string | number | Array<string | number>;
+  schedule_type?: ScheduleType | ScheduleType[];
+  priority?: TaskPriority | TaskPriority[];
+  is_completed?: boolean;
+  q?: string;
+  location?: string;
   page?: number;
   size?: number;
 }

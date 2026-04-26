@@ -19,6 +19,25 @@ export function toNullableString(value: string | number | null | undefined) {
   return toOptionalString(value);
 }
 
+export function toCommaParam(
+  value:
+    | string
+    | number
+    | boolean
+    | Array<string | number | boolean>
+    | null
+    | undefined,
+) {
+  if (value === null || value === undefined || value === "") return undefined;
+  if (Array.isArray(value)) {
+    const items = value
+      .filter((item) => item !== "")
+      .map((item) => String(item));
+    return items.length > 0 ? items.join(",") : undefined;
+  }
+  return String(value);
+}
+
 export function compactParams<T extends Record<string, unknown>>(params: T) {
   return Object.fromEntries(
     Object.entries(params).filter(([, value]) => value !== undefined && value !== ""),

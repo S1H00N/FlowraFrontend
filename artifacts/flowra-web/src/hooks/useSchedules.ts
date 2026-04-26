@@ -4,13 +4,16 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
+  createRecurringSchedule,
   createSchedule,
   deleteSchedule,
+  deleteSchedulesBulk,
   listSchedules,
   updateSchedule,
 } from "@/api/schedules";
 import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
 import type {
+  CreateRecurringScheduleRequest,
   CreateScheduleRequest,
   Schedule,
   ScheduleListQuery,
@@ -54,8 +57,48 @@ export function useCreateSchedule() {
     },
     onSuccess: () => invalidate(),
     meta: {
-      successMessage: "일정을 추가했습니다.",
+      successMessage: "일정이 추가되었습니다.",
       errorMessage: "일정 추가에 실패했습니다.",
+    },
+  });
+}
+
+export function useCreateSchedules() {
+  const invalidate = useInvalidateSchedules();
+  return useMutation({
+    mutationFn: async (payloads: CreateScheduleRequest[]) => {
+      const schedules: Schedule[] = [];
+
+      for (const payload of payloads) {
+        const res = await createSchedule(payload);
+        if (!res.success) {
+          throw new Error(res.message || "생성에 실패했습니다.");
+        }
+        schedules.push(res.data.schedule);
+      }
+
+      return schedules;
+    },
+    onSuccess: () => invalidate(),
+    meta: {
+      successMessage: "일정이 추가되었습니다.",
+      errorMessage: "일정 추가에 실패했습니다.",
+    },
+  });
+}
+
+export function useCreateRecurringSchedule() {
+  const invalidate = useInvalidateSchedules();
+  return useMutation({
+    mutationFn: async (payload: CreateRecurringScheduleRequest) => {
+      const res = await createRecurringSchedule(payload);
+      if (!res.success) throw new Error(res.message || "생성에 실패했습니다.");
+      return res.data;
+    },
+    onSuccess: () => invalidate(),
+    meta: {
+      successMessage: "반복 일정이 추가되었습니다.",
+      errorMessage: "반복 일정 추가에 실패했습니다.",
     },
   });
 }
@@ -76,7 +119,7 @@ export function useUpdateSchedule() {
     },
     onSuccess: () => invalidate(),
     meta: {
-      successMessage: "일정을 수정했습니다.",
+      successMessage: "일정이 수정되었습니다.",
       errorMessage: "일정 수정에 실패했습니다.",
     },
   });
@@ -92,7 +135,7 @@ export function useDeleteSchedule() {
     },
     onSuccess: () => invalidate(),
     meta: {
-      successMessage: "일정을 삭제했습니다.",
+      successMessage: "일정이 삭제되었습니다.",
       errorMessage: "일정 삭제에 실패했습니다.",
     },
   });
@@ -102,24 +145,9 @@ export function useDeleteSchedules() {
   const invalidate = useInvalidateSchedules();
   return useMutation({
     mutationFn: async (scheduleIds: number[]) => {
-      const results: Array<Record<string, never>> = [];
-      const chunkSize = 10;
-
-      for (let i = 0; i < scheduleIds.length; i += chunkSize) {
-        const chunk = scheduleIds.slice(i, i + chunkSize);
-        const chunkResults = await Promise.all(
-          chunk.map(async (scheduleId) => {
-            const res = await deleteSchedule(scheduleId);
-            if (!res.success) {
-              throw new Error(res.message || "삭제에 실패했습니다.");
-            }
-            return res.data;
-          }),
-        );
-        results.push(...chunkResults);
-      }
-
-      return { count: results.length };
+      const res = await deleteSchedulesBulk(scheduleIds);
+      if (!res.success) throw new Error(res.message || "삭제에 실패했습니다.");
+      return res.data;
     },
     onSuccess: () => invalidate(),
     meta: {
