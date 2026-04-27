@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type FormEvent,
 } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -65,6 +66,13 @@ const weekdayLabels = ["일", "월", "화", "수", "목", "금", "토"];
 interface DayMeta {
   count: number;
   hasDeadline: boolean;
+}
+
+type ScheduleCalendarView = "month" | "week" | "day";
+
+interface MonthCalendarCell {
+  date: Date;
+  currentMonth: boolean;
 }
 
 interface ScheduleFormState {
@@ -215,6 +223,21 @@ function formatCompactDate(date: Date): string {
   });
 }
 
+function formatWeekRange(dates: Date[]): string {
+  const first = dates[0];
+  const last = dates[dates.length - 1];
+  if (!first || !last) return "";
+  const sameMonth =
+    first.getFullYear() === last.getFullYear() &&
+    first.getMonth() === last.getMonth();
+
+  if (sameMonth) {
+    return `${first.getFullYear()}년 ${first.getMonth() + 1}월 ${first.getDate()}일 - ${last.getDate()}일`;
+  }
+
+  return `${formatCompactDate(first)} - ${formatCompactDate(last)}`;
+}
+
 function isToday(date: Date): boolean {
   return toDateKey(date) === toDateKey(new Date());
 }
@@ -258,6 +281,25 @@ function buildMonthCells(date: Date): Array<Date | null> {
   }
 
   return cells;
+}
+
+function buildFullMonthCells(date: Date): MonthCalendarCell[] {
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const firstOfMonth = new Date(year, month, 1);
+  const totalDays = new Date(year, month + 1, 0).getDate();
+  const totalCells = Math.ceil((firstOfMonth.getDay() + totalDays) / 7) * 7;
+  const firstCell = new Date(firstOfMonth);
+  firstCell.setDate(firstOfMonth.getDate() - firstOfMonth.getDay());
+
+  return Array.from({ length: totalCells }, (_, index) => {
+    const cellDate = new Date(firstCell);
+    cellDate.setDate(firstCell.getDate() + index);
+    return {
+      date: cellDate,
+      currentMonth: cellDate.getMonth() === month,
+    };
+  });
 }
 
 function dateKeyToLocalInput(dateKey: string, sourceLocal: string) {
@@ -770,7 +812,7 @@ function InlineFilterGroup<TValue extends FilterOptionValue>({
   const optionButtonClass = (selected: boolean) =>
     `h-8 shrink-0 whitespace-nowrap rounded-md px-2 text-xs font-semibold transition ${
       selected
-        ? "bg-slate-950 text-white shadow-sm"
+        ? "bg-emerald-600 text-white shadow-sm"
         : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
     }`;
 
@@ -787,7 +829,7 @@ function InlineFilterGroup<TValue extends FilterOptionValue>({
             }}
             className={`h-8 shrink-0 whitespace-nowrap rounded-md px-2 text-xs font-semibold transition ${
               selectedValues.length === 0
-                ? "bg-slate-950 text-white shadow-sm"
+                ? "bg-emerald-600 text-white shadow-sm"
                 : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
             }`}
           >
@@ -836,7 +878,7 @@ function InlineFilterGroup<TValue extends FilterOptionValue>({
                     onClick={() => onToggle(option.value)}
                     className={`flex h-9 w-full items-center justify-between gap-2 rounded-md px-3 text-left text-xs font-semibold transition ${
                       selected
-                        ? "bg-slate-950 text-white"
+                        ? "bg-emerald-600 text-white"
                         : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
                     }`}
                     title={option.label}
@@ -1087,7 +1129,7 @@ function ScheduleFormPanel({
         aria-hidden
       />
       <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-xl xl:sticky xl:top-24 xl:z-0 xl:max-h-[calc(100vh-7rem)] xl:rounded-lg xl:border xl:shadow-sm xl:shadow-slate-200/60">
-        <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-[linear-gradient(135deg,#f8fafc,#ecfdf5)] px-5 py-4">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-emerald-50/45 px-5 py-4">
           <div>
             <p className="text-xs font-medium text-emerald-700">
               {mode === "edit"
@@ -1274,7 +1316,7 @@ function ScheduleFormPanel({
                               onClick={() => toggleSelectedDate(dateKey)}
                               className={`aspect-square rounded-md text-sm font-medium transition ${
                                 selected
-                                  ? "bg-slate-950 text-white shadow-sm"
+                                  ? "bg-emerald-600 text-white shadow-sm"
                                   : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100"
                               }`}
                               aria-pressed={selected}
@@ -1321,7 +1363,7 @@ function ScheduleFormPanel({
                           <ChevronDown className="h-4 w-4 text-slate-400" />
                         </button>
                         {repeatPresetOpen ? (
-                          <div className="absolute left-0 right-0 top-12 z-20 rounded-lg border border-slate-200 bg-slate-950 p-2 shadow-xl">
+                          <div className="absolute left-0 right-0 top-12 z-20 rounded-lg border border-slate-200 bg-white p-2 shadow-xl shadow-slate-200">
                             {repeatPresetOptions.map((option) => (
                               <button
                                 key={option.value}
@@ -1329,8 +1371,8 @@ function ScheduleFormPanel({
                                 onClick={() => applyRepeatPreset(option.value)}
                                 className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition ${
                                   repeatPreset === option.value
-                                    ? "bg-emerald-500 text-white"
-                                    : "text-slate-100 hover:bg-white/10"
+                                    ? "bg-emerald-600 text-white"
+                                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
                                 }`}
                               >
                                 <span className="font-medium">
@@ -1704,7 +1746,7 @@ function ScheduleFormPanel({
                 ?.querySelector("form");
               formEl?.requestSubmit();
             }}
-            className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-60"
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60"
           >
             {isPending ? "저장 중..." : mode === "edit" ? "저장" : "추가"}
           </button>
@@ -1746,9 +1788,9 @@ function MiniCalendar({
     return (
       <span className="pointer-events-none absolute inset-x-0 bottom-1.5 flex items-center justify-center gap-1">
         <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
-        <span
-          className={`h-1.5 w-1.5 rounded-full ${dotClass} ${meta.count > 1 ? "" : "opacity-0"}`}
-        />
+        {meta.count > 1 ? (
+          <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
+        ) : null}
       </span>
     );
   };
@@ -1833,7 +1875,7 @@ function MiniCalendar({
                     onClick={() => onSelectDate(day)}
                     className={`relative h-10 rounded-lg text-sm font-semibold transition ${
                       selected
-                        ? "bg-slate-950 text-white shadow-sm shadow-slate-300"
+                        ? "bg-emerald-600 text-white shadow-sm shadow-emerald-200"
                         : meta
                           ? "bg-emerald-50 text-emerald-900 ring-1 ring-emerald-100 hover:bg-emerald-100"
                           : today
@@ -1863,7 +1905,7 @@ function MiniCalendar({
                   onClick={() => onSelectDate(day)}
                   className={`relative flex w-full items-center justify-between rounded-lg border px-3 py-2.5 text-sm transition ${
                     selected
-                      ? "border-slate-950 bg-slate-950 text-white shadow-sm"
+                      ? "border-emerald-600 bg-emerald-600 text-white shadow-sm"
                       : today
                         ? "border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
                         : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
@@ -1929,7 +1971,7 @@ function TimelineItem({
   return (
     <li
       id={`schedule-${schedule.schedule_id}`}
-      className={`group relative overflow-hidden rounded-lg border bg-white p-4 shadow-sm shadow-slate-200/60 transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md ${
+      className={`group relative overflow-hidden rounded-lg border bg-white p-4 shadow-sm shadow-slate-200/60 transition hover:border-emerald-200 hover:shadow-md ${
         highlighted
           ? "border-emerald-300 ring-2 ring-emerald-100"
           : "border-slate-200"
@@ -2056,6 +2098,348 @@ function TimelineItem({
   );
 }
 
+function SchedulePreviewButton({
+  schedule,
+  onOpen,
+  muted = false,
+}: {
+  schedule: Schedule;
+  onOpen: () => void;
+  muted?: boolean;
+}) {
+  const tone =
+    schedule.schedule_type === "deadline"
+      ? "bg-rose-50 text-rose-700 hover:bg-rose-100"
+      : schedule.is_completed
+        ? "bg-slate-100 text-slate-500 hover:bg-slate-200"
+        : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100";
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`flex h-5 w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left text-[11px] font-medium transition ${tone} ${
+        muted ? "opacity-60" : ""
+      }`}
+    >
+      <span className="shrink-0 text-[10px]">
+        {schedule.all_day ? "종일" : formatTime(schedule.start_datetime)}
+      </span>
+      <span className="truncate">{schedule.title}</span>
+    </button>
+  );
+}
+
+function MonthScheduleGrid({
+  cells,
+  schedulesByDate,
+  selectedKey,
+  onOpenDay,
+  onOpenSchedule,
+}: {
+  cells: MonthCalendarCell[];
+  schedulesByDate: Map<string, Schedule[]>;
+  selectedKey: string;
+  onOpenDay: (date: Date) => void;
+  onOpenSchedule: (schedule: Schedule) => void;
+}) {
+  return (
+    <div className="overflow-hidden border-y border-slate-200 bg-white">
+      <div className="grid grid-cols-7 border-b border-slate-200 bg-white text-center text-xs font-medium text-slate-500">
+        {weekdayLabels.map((label, index) => (
+          <span
+            key={`${label}-${index}`}
+            className={`py-3 ${
+              index === 0 ? "text-rose-500" : index === 6 ? "text-sky-500" : ""
+            }`}
+          >
+            {label}
+          </span>
+        ))}
+      </div>
+      <div className="grid grid-cols-7">
+        {cells.map(({ date: day, currentMonth }, index) => {
+          const key = toDateKey(day);
+          const schedules = schedulesByDate.get(key) ?? [];
+          const selected = key === selectedKey;
+          const today = isToday(day);
+          const visibleSchedules = schedules.slice(0, 4);
+          const hiddenCount = Math.max(
+            0,
+            schedules.length - visibleSchedules.length,
+          );
+
+          return (
+            <div
+              key={key}
+              className={`min-h-[132px] border-b border-r border-slate-200 p-1.5 transition ${
+                (index + 1) % 7 === 0 ? "border-r-0" : ""
+              } ${currentMonth ? "bg-white" : "bg-slate-50 text-slate-300"} ${
+                selected ? "ring-2 ring-inset ring-emerald-300" : ""
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => onOpenDay(day)}
+                className={`ml-auto flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-medium transition ${
+                  selected
+                    ? "bg-emerald-600 text-white"
+                    : today
+                      ? "bg-rose-500 text-white"
+                      : currentMonth
+                        ? "text-slate-800 hover:bg-slate-100"
+                        : "text-slate-300 hover:bg-slate-100"
+                }`}
+              >
+                {day.getDate()}
+              </button>
+              <div className="mt-1.5 space-y-1">
+                {visibleSchedules.map((schedule) => (
+                  <SchedulePreviewButton
+                    key={schedule.schedule_id}
+                    schedule={schedule}
+                    muted={!currentMonth}
+                    onOpen={() => onOpenSchedule(schedule)}
+                  />
+                ))}
+                {hiddenCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenDay(day)}
+                    className="w-full rounded-md px-1.5 py-0.5 text-left text-[11px] font-semibold text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
+                  >
+                    + {hiddenCount} more
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const weekHourHeight = 48;
+const weekHours = Array.from({ length: 24 }, (_, hour) => hour);
+
+function formatHourLabel(hour: number) {
+  if (hour === 0) return "12AM";
+  if (hour < 12) return `${hour}AM`;
+  if (hour === 12) return "12PM";
+  return `${hour - 12}PM`;
+}
+
+function formatTimezoneLabel() {
+  const offset = -new Date().getTimezoneOffset();
+  const sign = offset >= 0 ? "+" : "-";
+  const abs = Math.abs(offset);
+  const hours = Math.floor(abs / 60);
+  const minutes = abs % 60;
+  return minutes === 0
+    ? `GMT${sign}${hours}`
+    : `GMT${sign}${hours}:${pad(minutes)}`;
+}
+
+function minutesFromStartOfDay(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return 0;
+  return date.getHours() * 60 + date.getMinutes();
+}
+
+function scheduleBlockStyle(schedule: Schedule): CSSProperties {
+  const startMinutes = minutesFromStartOfDay(schedule.start_datetime);
+  const endDate = schedule.end_datetime
+    ? new Date(schedule.end_datetime)
+    : null;
+  const startDate = new Date(schedule.start_datetime);
+  const rawEndMinutes =
+    endDate && !Number.isNaN(endDate.getTime())
+      ? endDate.getHours() * 60 + endDate.getMinutes()
+      : startMinutes + 60;
+  const endMinutes =
+    endDate &&
+    !Number.isNaN(endDate.getTime()) &&
+    toDateKey(endDate) !== toDateKey(startDate)
+      ? 24 * 60
+      : rawEndMinutes;
+  const duration = Math.max(30, endMinutes - startMinutes);
+
+  return {
+    top: `${(startMinutes / 60) * weekHourHeight}px`,
+    height: `${(duration / 60) * weekHourHeight}px`,
+  };
+}
+
+function WeekScheduleGrid({
+  weekDates,
+  schedulesByDate,
+  selectedKey,
+  onOpenDay,
+  onOpenSchedule,
+}: {
+  weekDates: Date[];
+  schedulesByDate: Map<string, Schedule[]>;
+  selectedKey: string;
+  onOpenDay: (date: Date) => void;
+  onOpenSchedule: (schedule: Schedule) => void;
+}) {
+  const now = new Date();
+  const todayKey = toDateKey(now);
+  const todayIndex = weekDates.findIndex((day) => toDateKey(day) === todayKey);
+  const nowTop =
+    ((now.getHours() * 60 + now.getMinutes()) / 60) * weekHourHeight;
+
+  return (
+    <div className="overflow-auto border-y border-slate-200 bg-white">
+      <div className="min-w-[920px]">
+        <div className="grid grid-cols-[54px_repeat(7,minmax(0,1fr))] border-b border-slate-200 bg-white">
+          <div className="flex items-center justify-center border-r border-slate-200 px-2 text-[11px] text-slate-500">
+            {formatTimezoneLabel()}
+          </div>
+          {weekDates.map((day) => {
+            const key = toDateKey(day);
+            const selected = key === selectedKey;
+            const today = isToday(day);
+
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => onOpenDay(day)}
+                className={`flex h-10 items-center justify-center gap-1 border-r border-slate-200 text-xs font-medium transition last:border-r-0 hover:bg-slate-50 ${
+                  selected ? "text-slate-950" : "text-slate-500"
+                }`}
+              >
+                <span>{weekdayLabels[day.getDay()]}</span>
+                <span
+                  className={
+                    today
+                      ? "flex h-5 min-w-5 items-center justify-center rounded bg-rose-500 px-1 text-[11px] font-semibold text-white"
+                      : selected
+                        ? "font-semibold text-slate-950"
+                        : ""
+                  }
+                >
+                  {day.getDate()}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="grid grid-cols-[54px_repeat(7,minmax(0,1fr))] border-b border-slate-200 bg-white">
+          <div className="flex h-9 items-center justify-center border-r border-slate-200 px-2 text-[11px] text-slate-500">
+            All-day
+          </div>
+          {weekDates.map((day) => {
+            const key = toDateKey(day);
+            const schedules = (schedulesByDate.get(key) ?? []).filter(
+              (schedule) => schedule.all_day,
+            );
+
+            return (
+              <div
+                key={`all-day-${key}`}
+                className="min-h-9 border-r border-slate-200 px-1.5 py-1 last:border-r-0"
+              >
+                <div className="space-y-1">
+                  {schedules.slice(0, 2).map((schedule) => (
+                    <SchedulePreviewButton
+                      key={schedule.schedule_id}
+                      schedule={schedule}
+                      onOpen={() => onOpenSchedule(schedule)}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="grid grid-cols-[54px_repeat(7,minmax(0,1fr))]">
+          <div className="relative border-r border-slate-200">
+            {weekHours.map((hour) => (
+              <div
+                key={hour}
+                className="flex justify-end border-b border-slate-100 pr-1.5 pt-1 text-[11px] text-slate-500"
+                style={{ height: weekHourHeight }}
+              >
+                {formatHourLabel(hour)}
+              </div>
+            ))}
+          </div>
+
+          <div
+            className="relative col-span-7 grid grid-cols-7"
+            style={{ height: weekHourHeight * 24 }}
+          >
+            <div className="pointer-events-none absolute inset-0">
+              {weekHours.map((hour) => (
+                <div
+                  key={`line-${hour}`}
+                  className="border-b border-slate-100"
+                  style={{ height: weekHourHeight }}
+                />
+              ))}
+            </div>
+
+            {todayIndex >= 0 && (
+              <div
+                className="pointer-events-none absolute left-0 right-0 z-20 border-t border-rose-400"
+                style={{ top: nowTop }}
+              >
+                <span className="absolute -left-[42px] -top-2 rounded bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                  {formatTime(now.toISOString())}
+                </span>
+                <span
+                  className="absolute -top-[3px] h-1.5 w-1.5 rounded-full bg-rose-500"
+                  style={{ left: `${(todayIndex / 7) * 100}%` }}
+                />
+              </div>
+            )}
+
+            {weekDates.map((day) => {
+              const key = toDateKey(day);
+              const schedules = (schedulesByDate.get(key) ?? []).filter(
+                (schedule) => !schedule.all_day,
+              );
+              const selected = key === selectedKey;
+
+              return (
+                <div
+                  key={`timed-${key}`}
+                  className={`relative border-r border-slate-200 last:border-r-0 ${
+                    selected ? "bg-emerald-50/20" : ""
+                  }`}
+                >
+                  {schedules.map((schedule) => (
+                    <button
+                      key={schedule.schedule_id}
+                      type="button"
+                      onClick={() => onOpenSchedule(schedule)}
+                      className="absolute left-1 right-1 z-10 overflow-hidden rounded-md bg-emerald-50 px-2 py-1 text-left text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-200 transition hover:bg-emerald-100"
+                      style={scheduleBlockStyle(schedule)}
+                    >
+                      <span className="block truncate">{schedule.title}</span>
+                      <span className="block truncate text-[10px] text-emerald-600">
+                        {formatTime(schedule.start_datetime)}
+                        {schedule.end_datetime
+                          ? ` - ${formatTime(schedule.end_datetime)}`
+                          : ""}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Schedules() {
   const [searchParams, setSearchParams] = useSearchParams();
   const classificationSettings = useClassificationSettings();
@@ -2071,6 +2455,8 @@ export default function Schedules() {
   const deepLinkHandledRef = useRef(false);
 
   const [calendarView, setCalendarView] = useState<"month" | "week">("month");
+  const [scheduleView, setScheduleView] =
+    useState<ScheduleCalendarView>("month");
   const [visibleMonth, setVisibleMonth] = useState(
     () =>
       new Date(safeInitialDate.getFullYear(), safeInitialDate.getMonth(), 1),
@@ -2379,10 +2765,37 @@ export default function Schedules() {
     }
     return cells;
   }, [visibleMonth]);
+  const mainMonthCells = useMemo(
+    () => buildFullMonthCells(visibleMonth),
+    [visibleMonth],
+  );
 
   const selectedKey = toDateKey(selectedDate);
   const selectedSchedules = schedulesByDate.get(selectedKey) ?? [];
   const weekDates = useMemo(() => buildWeekDates(selectedDate), [selectedDate]);
+  const weekSchedules = useMemo(
+    () => weekDates.flatMap((day) => schedulesByDate.get(toDateKey(day)) ?? []),
+    [schedulesByDate, weekDates],
+  );
+  const monthVisibleSchedules = useMemo(
+    () =>
+      mainMonthCells.flatMap(
+        (cell) => schedulesByDate.get(toDateKey(cell.date)) ?? [],
+      ),
+    [mainMonthCells, schedulesByDate],
+  );
+  const currentViewSchedules =
+    scheduleView === "month"
+      ? monthVisibleSchedules
+      : scheduleView === "week"
+        ? weekSchedules
+        : selectedSchedules;
+  const currentViewLabel =
+    scheduleView === "month"
+      ? formatMonthTitle(visibleMonth)
+      : scheduleView === "week"
+        ? formatWeekRange(weekDates)
+        : formatSelectedDate(selectedDate);
   const selectedScheduleCount = selectedScheduleIds.size;
   const monthScheduleCount = items.length;
   const deadlineCount = useMemo(
@@ -2531,15 +2944,15 @@ export default function Schedules() {
   return (
     <AppShell>
       <div className="space-y-5">
-        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/70">
-          <div className="border-b border-slate-200 bg-[linear-gradient(135deg,#f8fafc_0%,#ecfdf5_48%,#f0f9ff_100%)] px-5 py-5 sm:px-6">
+        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/60">
+          <div className="border-b border-slate-200 bg-emerald-50/35 px-5 py-5 sm:px-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-2xl">
-                <p className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-white/75 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                <p className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-white/80 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
                   <CalendarDays className="h-3.5 w-3.5" />
-                  Calendar board
+                  일정 흐름
                 </p>
-                <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
+                <h1 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
                   일정
                 </h1>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
@@ -2550,14 +2963,14 @@ export default function Schedules() {
               <div className="flex flex-wrap gap-2">
                 <Link
                   to="/"
-                  className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white/80 px-4 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-white"
+                  className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white/85 px-4 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-white"
                 >
                   홈으로
                 </Link>
                 <button
                   type="button"
                   onClick={openCreatePanel}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
                 >
                   <CalendarPlus className="h-4 w-4" />
                   일정 추가
@@ -2752,39 +3165,104 @@ export default function Schedules() {
 
         <div
           className={`grid gap-5 ${
-            panelMode
-              ? "xl:grid-cols-[336px_minmax(0,1fr)_390px]"
-              : "xl:grid-cols-[336px_minmax(0,1fr)]"
+            scheduleView === "month"
+              ? panelMode
+                ? "xl:grid-cols-[minmax(0,1fr)_390px]"
+                : "xl:grid-cols-1"
+              : panelMode
+                ? "xl:grid-cols-[336px_minmax(0,1fr)_390px]"
+                : "xl:grid-cols-[336px_minmax(0,1fr)]"
           }`}
         >
-          <MiniCalendar
-            calendarView={calendarView}
-            visibleMonth={visibleMonth}
-            selectedKey={selectedKey}
-            dateMeta={dateMeta}
-            monthCells={monthCells}
-            weekDates={weekDates}
-            onMoveMonth={moveMonth}
-            onSelectDate={selectDate}
-            onSetCalendarView={setCalendarView}
-          />
+          {scheduleView !== "month" && (
+            <MiniCalendar
+              calendarView={calendarView}
+              visibleMonth={visibleMonth}
+              selectedKey={selectedKey}
+              dateMeta={dateMeta}
+              monthCells={monthCells}
+              weekDates={weekDates}
+              onMoveMonth={moveMonth}
+              onSelectDate={selectDate}
+              onSetCalendarView={setCalendarView}
+            />
+          )}
 
           <section className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/60">
             <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-xs font-semibold text-emerald-700">
-                  {formatCompactDate(selectedDate)}
+                  {scheduleView === "month"
+                    ? "월간 보기"
+                    : scheduleView === "week"
+                      ? "주간 보기"
+                      : formatCompactDate(selectedDate)}
                 </p>
                 <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">
-                  {formatSelectedDate(selectedDate)}
+                  {currentViewLabel}
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  선택한 날짜의 일정 {selectedSchedules.length}건
+                  {scheduleView === "month"
+                    ? "이번 달"
+                    : scheduleView === "week"
+                      ? "이번 주"
+                      : "선택한 날짜"}{" "}
+                  일정 {currentViewSchedules.length}건
                   {isFetching && " · 업데이트 중"}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                {selectedSchedules.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const today = new Date();
+                    selectDate(today);
+                  }}
+                  className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Today
+                </button>
+                <div className="grid grid-cols-3 rounded-lg bg-slate-100/80 p-1 text-xs">
+                  {(
+                    [
+                      ["month", "월"],
+                      ["week", "주"],
+                      ["day", "일"],
+                    ] as const
+                  ).map(([view, label]) => (
+                    <button
+                      key={view}
+                      type="button"
+                      onClick={() => setScheduleView(view)}
+                      className={`h-8 min-w-10 rounded-md px-3 font-semibold transition ${
+                        scheduleView === view
+                          ? "bg-white text-emerald-700 shadow-sm"
+                          : "text-slate-500 hover:text-slate-900"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => moveMonth(-1)}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                    aria-label="Previous month"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveMonth(1)}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                    aria-label="Next month"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+                {scheduleView === "day" && selectedSchedules.length > 0 && (
                   <>
                     <button
                       type="button"
@@ -2820,14 +3298,14 @@ export default function Schedules() {
                 <button
                   type="button"
                   onClick={openCreatePanel}
-                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-slate-950 px-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
                 >
                   <CalendarDays className="h-4 w-4" />이 날짜에 추가
                 </button>
               </div>
             </div>
 
-            <div className="p-5">
+            <div className={scheduleView === "month" ? "p-0" : "p-5"}>
               {isLoading ? (
                 <FullSpinner message="일정을 불러오는 중..." />
               ) : isError ? (
@@ -2836,6 +3314,34 @@ export default function Schedules() {
                   message={(error as Error).message}
                   onRetry={() => refetch()}
                   retrying={isFetching}
+                />
+              ) : scheduleView === "month" ? (
+                <MonthScheduleGrid
+                  cells={mainMonthCells}
+                  schedulesByDate={schedulesByDate}
+                  selectedKey={selectedKey}
+                  onOpenDay={(date) => {
+                    selectDate(date);
+                    setScheduleView("day");
+                  }}
+                  onOpenSchedule={(schedule) => {
+                    selectDate(new Date(schedule.start_datetime));
+                    openEditPanel(schedule);
+                  }}
+                />
+              ) : scheduleView === "week" ? (
+                <WeekScheduleGrid
+                  weekDates={weekDates}
+                  schedulesByDate={schedulesByDate}
+                  selectedKey={selectedKey}
+                  onOpenDay={(date) => {
+                    selectDate(date);
+                    setScheduleView("day");
+                  }}
+                  onOpenSchedule={(schedule) => {
+                    selectDate(new Date(schedule.start_datetime));
+                    openEditPanel(schedule);
+                  }}
                 />
               ) : selectedSchedules.length === 0 ? (
                 <EmptyState

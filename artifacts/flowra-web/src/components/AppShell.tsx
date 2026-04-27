@@ -63,12 +63,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const initials = displayName.slice(0, 1).toUpperCase();
 
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,#f8fafc_0%,#f7fee7_44%,#f8fafc_100%)] text-slate-900">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-slate-200/80 bg-white/90 shadow-sm backdrop-blur md:flex md:flex-col">
+    <div className="min-h-screen bg-[#f7f8f5] text-slate-900">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-slate-200/80 bg-white/95 shadow-sm backdrop-blur md:flex md:flex-col">
         <div className="flex h-16 items-center gap-3 border-b border-slate-200 px-5">
           <Link
             to="/"
-            className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-950 text-white shadow-sm"
+            className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm"
             aria-label="Flowra 홈"
           >
             <Sparkles className="h-5 w-5" />
@@ -92,7 +92,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 className={({ isActive }) =>
                   `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
                     isActive
-                      ? "bg-slate-950 text-white shadow-sm"
+                      ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100"
                       : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
                   }`
                 }
@@ -124,12 +124,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="min-h-screen md:pl-64">
-        <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/85 backdrop-blur">
+        <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur">
           <div className="flex min-h-16 flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
             <div className="flex items-center gap-3">
               <Link
                 to="/"
-                className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-950 text-white shadow-sm md:hidden"
+                className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm md:hidden"
                 aria-label="Flowra 홈"
               >
                 <Sparkles className="h-5 w-5" />
