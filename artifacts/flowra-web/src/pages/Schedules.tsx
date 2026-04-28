@@ -6,11 +6,12 @@ import {
   useState,
   type CSSProperties,
   type FormEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   CalendarDays,
-  CalendarPlus,
   CheckSquare2,
   ChevronDown,
   ChevronLeft,
@@ -86,6 +87,12 @@ interface ScheduleFormState {
   location: string;
   visibility: ScheduleVisibility;
   category_id: number | "";
+}
+
+type ScheduleFormSubmitIntent = "manual" | "auto" | "repeat";
+
+interface ScheduleFormSubmitOptions {
+  intent?: ScheduleFormSubmitIntent;
 }
 
 type ScheduleCompletionFilter = "all" | "active" | "completed";
@@ -307,8 +314,27 @@ function dateKeyToLocalInput(dateKey: string, sourceLocal: string) {
   return `${dateKey}${time}`;
 }
 
+function dateFromLocalInput(value: string) {
+  return value.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? "";
+}
+
 function timeFromLocalInput(value: string) {
   return value.match(/T(\d{2}:\d{2})/)?.[1] ?? "";
+}
+
+function localInputFromDate(date: Date) {
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function localInputWithDate(
+  value: string,
+  dateKey: string,
+  fallbackTime = "09:00",
+) {
+  if (!dateKey) return "";
+  const time = timeFromLocalInput(value) || fallbackTime;
+  return `${dateKey}T${time}`;
 }
 
 function localInputWithTime(value: string, time: string, fallbackDate: string) {
@@ -317,6 +343,31 @@ function localInputWithTime(value: string, time: string, fallbackDate: string) {
     ? value.slice(0, 10)
     : fallbackDate;
   return `${dateKey}T${time}`;
+}
+
+function endLocalAfterStartChange(
+  nextStartLocal: string,
+  currentEndLocal: string,
+  previousStartLocal: string,
+) {
+  if (!currentEndLocal) return currentEndLocal;
+
+  const nextStart = new Date(nextStartLocal);
+  const currentEnd = new Date(currentEndLocal);
+  if (Number.isNaN(nextStart.getTime()) || Number.isNaN(currentEnd.getTime())) {
+    return currentEndLocal;
+  }
+  if (currentEnd > nextStart) return currentEndLocal;
+
+  const previousStart = new Date(previousStartLocal);
+  const previousEnd = new Date(currentEndLocal);
+  const previousDuration =
+    !Number.isNaN(previousStart.getTime()) && previousEnd > previousStart
+      ? previousEnd.getTime() - previousStart.getTime()
+      : 60 * 60 * 1000;
+  const duration = Math.max(30 * 60 * 1000, previousDuration);
+
+  return localInputFromDate(new Date(nextStart.getTime() + duration));
 }
 
 function normalizeDateKeys(dateKeys: string[]) {
@@ -513,13 +564,24 @@ function formFromSchedule(schedule: Schedule): ScheduleFormState {
 }
 
 function emptyFormForDate(date: Date): ScheduleFormState {
+  const hasExplicitTime =
+    date.getHours() !== 0 ||
+    date.getMinutes() !== 0 ||
+    date.getSeconds() !== 0 ||
+    date.getMilliseconds() !== 0;
+  const endDate = addMinutes(date, 60);
+
   return {
     title: "",
     description: "",
     schedule_type: "personal",
     priority: "medium",
-    start_local: dateAtLocalTime(date, 9),
-    end_local: dateAtLocalTime(date, 10),
+    start_local: hasExplicitTime
+      ? dateAtLocalTime(date, date.getHours(), date.getMinutes())
+      : dateAtLocalTime(date, 9),
+    end_local: hasExplicitTime
+      ? dateAtLocalTime(endDate, endDate.getHours(), endDate.getMinutes())
+      : dateAtLocalTime(date, 10),
     all_day: false,
     location: "",
     visibility: "private",
@@ -542,6 +604,10 @@ function toPayload(form: ScheduleFormState) {
     visibility: form.visibility,
     category_id: form.category_id === "" ? undefined : String(form.category_id),
   };
+}
+
+function scheduleFormSignature(form: ScheduleFormState) {
+  return JSON.stringify(toPayload(form));
 }
 
 function validateForm(form: ScheduleFormState): string | null {
@@ -902,6 +968,8 @@ function ScheduleFormPanel({
   schedule,
   isPending,
   onClose,
+  onDelete,
+  deletePending,
   onSubmit,
 }: {
   mode: "create" | "edit" | "repeat";
@@ -909,11 +977,24 @@ function ScheduleFormPanel({
   schedule?: Schedule | null;
   isPending?: boolean;
   onClose: () => void;
-  onSubmit: (forms: ScheduleFormState[]) => Promise<void> | void;
+  onDelete?: () => Promise<void> | void;
+  deletePending?: boolean;
+  onSubmit: (
+    forms: ScheduleFormState[],
+    options?: ScheduleFormSubmitOptions,
+  ) => Promise<void> | void;
 }) {
   const [form, setForm] = useState(initial);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoSaveState, setAutoSaveState] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const onSubmitRef = useRef(onSubmit);
+  const lastAutoSaveSignatureRef = useRef(scheduleFormSignature(initial));
+  const autoSaveSequenceRef = useRef(0);
+  const syncingInitialSignatureRef = useRef<string | null>(null);
+  const initialSignature = scheduleFormSignature(initial);
   const [selectedDates, setSelectedDates] = useState<string[]>([
     initial.start_local.slice(0, 10),
   ]);
@@ -933,6 +1014,7 @@ function ScheduleFormPanel({
     new Date(initial.start_local).getDay(),
   ]);
   const [repeatPresetOpen, setRepeatPresetOpen] = useState(false);
+  const [repeatEnabled, setRepeatEnabled] = useState(mode === "repeat");
   const [repeatPreset, setRepeatPreset] = useState<RepeatPreset>("weekly");
   const [repeatInterval, setRepeatInterval] = useState(1);
   const [repeatUnit, setRepeatUnit] = useState<RepeatFrequencyUnit>("week");
@@ -984,24 +1066,90 @@ function ScheduleFormPanel({
   const selectedRepeatPreset =
     repeatPresetOptions.find((option) => option.value === repeatPreset) ??
     repeatPresetOptions[2];
+  const isRepeatMode =
+    mode === "repeat" ||
+    ((mode === "create" || mode === "edit") && repeatEnabled);
   const selectedDateCells = useMemo(
     () => buildMonthCells(selectedDateMonth),
     [selectedDateMonth],
   );
-  const targetDateKeys =
-    mode === "create"
+  const targetDateKeys = isRepeatMode
+    ? repeatPreviewDates
+    : mode === "create"
       ? normalizeDateKeys(selectedDates)
-      : mode === "repeat"
-        ? repeatPreviewDates
-        : [form.start_local.slice(0, 10)];
+      : [form.start_local.slice(0, 10)];
   const targetDateSet = useMemo(
     () => new Set(targetDateKeys),
     [targetDateKeys],
   );
   const previewForms =
-    mode === "create" || mode === "repeat"
+    mode === "create" || isRepeatMode
       ? buildFormsForDateKeys(form, targetDateKeys)
       : [form];
+  const autoSaveSignature = useMemo(
+    () => scheduleFormSignature(form),
+    [form],
+  );
+
+  useEffect(() => {
+    syncingInitialSignatureRef.current = initialSignature;
+    setForm(initial);
+    setSelectedDates([initial.start_local.slice(0, 10)]);
+    setRepeatStartDate(initial.start_local.slice(0, 10));
+    setRepeatEndDate(initial.start_local.slice(0, 10));
+    setRepeatDays([new Date(initial.start_local).getDay()]);
+    lastAutoSaveSignatureRef.current = initialSignature;
+    setAutoSaveState("idle");
+    setError(null);
+  }, [initialSignature]);
+
+  useEffect(() => {
+    onSubmitRef.current = onSubmit;
+  }, [onSubmit]);
+
+  useEffect(() => {
+    if (mode !== "edit" || !schedule) return;
+
+    if (syncingInitialSignatureRef.current) {
+      if (autoSaveSignature === syncingInitialSignatureRef.current) {
+        syncingInitialSignatureRef.current = null;
+      }
+      return;
+    }
+
+    if (autoSaveSignature === lastAutoSaveSignatureRef.current) {
+      return;
+    }
+
+    const validationError = validateForm(form);
+    if (validationError) {
+      setAutoSaveState("error");
+      setError(validationError);
+      return;
+    }
+
+    setError(null);
+    setAutoSaveState("saving");
+    const sequence = autoSaveSequenceRef.current + 1;
+    autoSaveSequenceRef.current = sequence;
+
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          await onSubmitRef.current([form], { intent: "auto" });
+          if (autoSaveSequenceRef.current !== sequence) return;
+          lastAutoSaveSignatureRef.current = autoSaveSignature;
+          setAutoSaveState("saved");
+        } catch (err) {
+          if (autoSaveSequenceRef.current !== sequence) return;
+          setAutoSaveState("error");
+          setError(getErrorMessage(err, "자동 저장에 실패했습니다."));
+        }
+      })();
+    }, 700);
+
+    return () => window.clearTimeout(timer);
+  }, [autoSaveSignature, form, mode, schedule]);
 
   const moveSelectedDateMonth = (offset: number) => {
     setSelectedDateMonth(
@@ -1088,20 +1236,17 @@ function ScheduleFormPanel({
     event.preventDefault();
     setError(null);
 
-    if (mode === "create" && targetDateKeys.length === 0) {
+    if (mode === "create" && !isRepeatMode && targetDateKeys.length === 0) {
       setError("추가할 날짜를 하나 이상 선택해 주세요.");
       return;
     }
 
-    if (mode === "repeat" && targetDateKeys.length === 0) {
+    if (isRepeatMode && targetDateKeys.length === 0) {
       setError("반복 조건에 맞는 날짜가 없습니다.");
       return;
     }
 
-    if (
-      (mode === "create" || mode === "repeat") &&
-      targetDateKeys.length > 100
-    ) {
+    if ((mode === "create" || isRepeatMode) && targetDateKeys.length > 100) {
       setError("한 번에 추가할 수 있는 일정은 최대 100개입니다.");
       return;
     }
@@ -1115,10 +1260,79 @@ function ScheduleFormPanel({
     }
 
     try {
-      await onSubmit(previewForms);
+      await onSubmit(previewForms, { intent: "manual" });
     } catch (err) {
       setError(getErrorMessage(err, "저장에 실패했습니다."));
     }
+  };
+
+  const handleApplyRepeat = async () => {
+    setError(null);
+
+    if (!isRepeatMode || targetDateKeys.length === 0) {
+      setError("반복 조건에 맞는 날짜가 없습니다.");
+      return;
+    }
+    if (targetDateKeys.length > 100) {
+      setError("한 번에 추가할 수 있는 일정은 최대 100개입니다.");
+      return;
+    }
+
+    for (const item of previewForms) {
+      const validationError = validateForm(item);
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
+    }
+
+    try {
+      await onSubmit(previewForms, { intent: "repeat" });
+      setAutoSaveState("saved");
+    } catch (err) {
+      setAutoSaveState("error");
+      setError(getErrorMessage(err, "반복 일정 생성에 실패했습니다."));
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!onDelete) return;
+    const confirmed = confirm(
+      "정말 이 일정을 삭제할까요?\n삭제 후에는 되돌릴 수 없습니다.",
+    );
+    if (!confirmed) return;
+
+    setError(null);
+    try {
+      await onDelete();
+    } catch (err) {
+      setError(getErrorMessage(err, "삭제에 실패했습니다."));
+    }
+  };
+
+  const updateStartLocal = (nextStartLocal: string) => {
+    const nextDateKey = dateFromLocalInput(nextStartLocal);
+    if (nextDateKey) {
+      setRepeatStartDate(nextDateKey);
+      setSelectedDateMonth(new Date(`${nextDateKey}T00:00:00`));
+    }
+
+    setForm((prev) => ({
+      ...prev,
+      start_local: nextStartLocal,
+      end_local: endLocalAfterStartChange(
+        nextStartLocal,
+        prev.end_local,
+        prev.start_local,
+      ),
+    }));
+  };
+
+  const updateEndLocal = (nextEndLocal: string) => {
+    setForm((prev) => ({
+      ...prev,
+      end_local: nextEndLocal,
+    }));
   };
 
   return (
@@ -1175,7 +1389,7 @@ function ScheduleFormPanel({
               />
             </label>
 
-            {mode === "repeat" ? (
+            {isRepeatMode ? (
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block">
                   <span className="text-xs font-medium text-slate-600">
@@ -1222,40 +1436,155 @@ function ScheduleFormPanel({
                 </label>
               </div>
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block">
-                  <span className="text-xs font-medium text-slate-600">
-                    시작 일시
-                  </span>
-                  <input
-                    type="datetime-local"
-                    required
-                    value={form.start_local}
-                    onChange={(event) =>
-                      setForm({ ...form, start_local: event.target.value })
-                    }
-                    className="mt-1 h-11 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-xs font-medium text-slate-600">
-                    종료 일시
-                  </span>
-                  <input
-                    type="datetime-local"
-                    value={form.end_local}
-                    onChange={(event) =>
-                      setForm({ ...form, end_local: event.target.value })
-                    }
-                    className="mt-1 h-11 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                  />
-                </label>
+              <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm shadow-slate-200/50">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-600">
+                      시작 날짜
+                    </span>
+                    <input
+                      type="date"
+                      required
+                      value={dateFromLocalInput(form.start_local)}
+                      onChange={(event) =>
+                        updateStartLocal(
+                          localInputWithDate(
+                            form.start_local,
+                            event.target.value,
+                            "09:00",
+                          ),
+                        )
+                      }
+                      className="mt-1 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-600">
+                      종료 날짜
+                    </span>
+                    <input
+                      type="date"
+                      value={
+                        dateFromLocalInput(form.end_local) ||
+                        dateFromLocalInput(form.start_local)
+                      }
+                      onChange={(event) =>
+                        updateEndLocal(
+                          localInputWithDate(
+                            form.end_local || form.start_local,
+                            event.target.value,
+                            timeFromLocalInput(form.end_local) ||
+                              timeFromLocalInput(form.start_local) ||
+                              "10:00",
+                          ),
+                        )
+                      }
+                      className="mt-1 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                    />
+                  </label>
+                </div>
+
+                <div
+                  className={`mt-3 grid gap-3 sm:grid-cols-2 ${
+                    form.all_day ? "opacity-50" : ""
+                  }`}
+                >
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-600">
+                      시작 시간
+                    </span>
+                    <input
+                      type="time"
+                      required={!form.all_day}
+                      disabled={form.all_day}
+                      value={timeFromLocalInput(form.start_local)}
+                      onChange={(event) =>
+                        updateStartLocal(
+                          localInputWithTime(
+                            form.start_local,
+                            event.target.value,
+                            dateFromLocalInput(form.start_local),
+                          ),
+                        )
+                      }
+                      className="mt-1 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-50"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-600">
+                      종료 시간
+                    </span>
+                    <input
+                      type="time"
+                      disabled={form.all_day}
+                      value={timeFromLocalInput(form.end_local)}
+                      onChange={(event) =>
+                        updateEndLocal(
+                          event.target.value
+                            ? localInputWithTime(
+                                form.end_local || form.start_local,
+                                event.target.value,
+                                dateFromLocalInput(form.end_local) ||
+                                  dateFromLocalInput(form.start_local),
+                              )
+                            : "",
+                        )
+                      }
+                      className="mt-1 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-50"
+                    />
+                  </label>
+                </div>
               </div>
             )}
 
-            {(mode === "create" || mode === "repeat") && (
+            <label className="inline-flex h-11 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm">
+              <input
+                type="checkbox"
+                checked={form.all_day}
+                onChange={(event) =>
+                  setForm({ ...form, all_day: event.target.checked })
+                }
+                className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              종일 일정
+            </label>
+
+            {(mode === "create" || mode === "repeat" || mode === "edit") && (
               <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm shadow-slate-200/50">
-                {mode === "create" ? (
+                {mode === "create" || mode === "edit" ? (
+                  <label className="mb-3 block">
+                    <span className="text-xs font-medium text-slate-600">
+                      반복 설정
+                    </span>
+                    <select
+                      value={repeatEnabled ? repeatPreset : "none"}
+                      onChange={(event) => {
+                        const nextPreset = event.target.value;
+                        if (nextPreset === "none") {
+                          setRepeatEnabled(false);
+                          setRepeatPresetOpen(false);
+                          return;
+                        }
+                        setRepeatEnabled(true);
+                        applyRepeatPreset(nextPreset as RepeatPreset);
+                      }}
+                      className="mt-1 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                    >
+                      <option value="none">반복 안 함</option>
+                      {repeatPresetOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                {mode === "edit" && !isRepeatMode ? (
+                  <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                    반복 안 함으로 저장되어 있어요. 반복 설정을 선택하면 이 일정의
+                    정보를 기준으로 반복 일정을 만들 수 있습니다.
+                  </p>
+                ) : !isRepeatMode ? (
                   <div className="space-y-3">
                     <div className="rounded-lg bg-slate-50/80 p-3 ring-1 ring-slate-200">
                       <div className="flex items-center justify-between">
@@ -1567,13 +1896,25 @@ function ScheduleFormPanel({
                           </label>
                         </div>
                       </div>
+                      {mode === "edit" ? (
+                        <button
+                          type="button"
+                          onClick={handleApplyRepeat}
+                          disabled={isPending || targetDateKeys.length <= 1}
+                          className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isPending
+                            ? "반복 일정 생성 중..."
+                            : `반복 일정 만들기 (${Math.max(0, targetDateKeys.length - 1)}개 추가)`}
+                        </button>
+                      ) : null}
                     </div>
                   </>
                 )}
               </div>
             )}
 
-            <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
               <label className="block">
                 <span className="text-xs font-medium text-slate-600">
                   일정 유형
@@ -1618,17 +1959,6 @@ function ScheduleFormPanel({
                 </select>
               </label>
 
-              <label className="inline-flex h-11 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={form.all_day}
-                  onChange={(event) =>
-                    setForm({ ...form, all_day: event.target.checked })
-                  }
-                  className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                />
-                종일
-              </label>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
@@ -1729,27 +2059,62 @@ function ScheduleFormPanel({
           </div>
         </form>
 
-        <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-white p-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-          >
-            취소
-          </button>
-          <button
-            type="submit"
-            disabled={isPending}
-            onClick={(event) => {
-              const formEl = event.currentTarget
-                .closest("aside")
-                ?.querySelector("form");
-              formEl?.requestSubmit();
-            }}
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60"
-          >
-            {isPending ? "저장 중..." : mode === "edit" ? "저장" : "추가"}
-          </button>
+        <div className="flex items-center justify-between gap-2 border-t border-slate-200 bg-white p-4">
+          {mode === "edit" && schedule && onDelete ? (
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deletePending}
+              className="rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-60"
+            >
+              {deletePending ? "삭제 중..." : "삭제"}
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex items-center justify-end gap-2">
+            {mode === "edit" ? (
+              <span
+                className={`mr-auto text-xs font-medium ${
+                  autoSaveState === "error"
+                    ? "text-red-600"
+                    : autoSaveState === "saving"
+                      ? "text-amber-600"
+                      : "text-slate-500"
+                }`}
+              >
+                {autoSaveState === "saving"
+                  ? "자동 저장 중..."
+                  : autoSaveState === "error"
+                    ? "자동 저장 실패"
+                    : autoSaveState === "saved"
+                      ? "자동 저장됨"
+                      : "변경 시 자동 저장"}
+              </span>
+            ) : null}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              취소
+            </button>
+            {mode !== "edit" ? (
+              <button
+                type="submit"
+                disabled={isPending}
+                onClick={(event) => {
+                  const formEl = event.currentTarget
+                    .closest("aside")
+                    ?.querySelector("form");
+                  formEl?.requestSubmit();
+                }}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {isPending ? "저장 중..." : "추가"}
+              </button>
+            ) : null}
+          </div>
         </div>
       </aside>
     </>
@@ -1796,7 +2161,7 @@ function MiniCalendar({
   };
 
   return (
-    <aside className="rounded-lg border border-slate-200/80 bg-white/95 p-4 shadow-sm shadow-slate-200/60 xl:sticky xl:top-24 xl:self-start">
+    <aside className="rounded-lg border border-slate-200/80 bg-white/95 p-4 shadow-sm shadow-slate-200/60 xl:sticky xl:top-0 xl:self-start">
       <div className="flex items-center justify-between">
         <button
           type="button"
@@ -2101,28 +2466,33 @@ function TimelineItem({
 function SchedulePreviewButton({
   schedule,
   onOpen,
+  categoryColors,
   muted = false,
 }: {
   schedule: Schedule;
   onOpen: () => void;
+  categoryColors: Map<number, string>;
   muted?: boolean;
 }) {
-  const tone =
-    schedule.schedule_type === "deadline"
-      ? "bg-rose-50 text-rose-700 hover:bg-rose-100"
-      : schedule.is_completed
-        ? "bg-slate-100 text-slate-500 hover:bg-slate-200"
-        : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100";
+  const color = scheduleAccentColor(schedule, categoryColors);
 
   return (
     <button
       type="button"
-      onClick={onOpen}
-      className={`flex h-5 w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left text-[11px] font-medium transition ${tone} ${
-        muted ? "opacity-60" : ""
-      }`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen();
+      }}
+      className={`flex min-h-6 w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-left text-xs transition hover:brightness-95 hover:ring-1 hover:ring-emerald-200 ${
+        schedule.is_completed ? "opacity-70" : ""
+      } ${muted ? "opacity-60" : ""}`}
+      style={{
+        backgroundColor: colorWithAlpha(color, "18"),
+        color,
+        boxShadow: `inset 3px 0 0 ${color}`,
+      }}
     >
-      <span className="shrink-0 text-[10px]">
+      <span className="shrink-0 font-medium">
         {schedule.all_day ? "종일" : formatTime(schedule.start_datetime)}
       </span>
       <span className="truncate">{schedule.title}</span>
@@ -2130,22 +2500,219 @@ function SchedulePreviewButton({
   );
 }
 
+function MonthSchedulePreview({
+  schedule,
+  categoryColors,
+  active,
+  muted = false,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
+}: {
+  schedule: Schedule;
+  categoryColors: Map<number, string>;
+  active?: boolean;
+  muted?: boolean;
+  onPointerDown: (
+    event: ReactPointerEvent<HTMLElement>,
+    kind: WeekScheduleInteractionKind,
+  ) => void;
+  onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void;
+  onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void;
+  onPointerCancel: () => void;
+}) {
+  const color = scheduleAccentColor(schedule, categoryColors);
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={`${schedule.title} 일정 이동`}
+      onPointerDown={(event) => onPointerDown(event, "move")}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      className={`relative flex min-h-6 w-full min-w-0 touch-none cursor-grab items-center gap-2 overflow-hidden rounded-lg px-2 py-1 text-left text-xs transition hover:brightness-95 active:cursor-grabbing ${
+        schedule.is_completed ? "opacity-70" : ""
+      } ${muted ? "opacity-60" : ""} ${
+        active ? "ring-2 ring-emerald-400 ring-offset-1" : "hover:ring-1 hover:ring-emerald-200"
+      }`}
+      style={{
+        backgroundColor: colorWithAlpha(color, "18"),
+        color,
+        boxShadow: `inset 3px 0 0 ${color}`,
+      }}
+    >
+      <span
+        role="presentation"
+        className="absolute inset-y-0 left-0 z-10 w-2 cursor-ew-resize"
+        onPointerDown={(event) => onPointerDown(event, "resize-left")}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
+      />
+      <span
+        role="presentation"
+        className="absolute inset-y-0 right-0 z-10 w-2 cursor-ew-resize"
+        onPointerDown={(event) => onPointerDown(event, "resize-right")}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
+      />
+      <span className="shrink-0 font-medium">
+        {schedule.all_day ? "종일" : formatTime(schedule.start_datetime)}
+      </span>
+      <span className="truncate">{schedule.title}</span>
+    </div>
+  );
+}
+
 function MonthScheduleGrid({
   cells,
   schedulesByDate,
   selectedKey,
+  categoryColors,
+  activeScheduleId,
   onOpenDay,
   onOpenSchedule,
+  onCreateDay,
+  onScheduleTimeChange,
 }: {
   cells: MonthCalendarCell[];
   schedulesByDate: Map<string, Schedule[]>;
   selectedKey: string;
+  categoryColors: Map<number, string>;
+  activeScheduleId?: number | null;
   onOpenDay: (date: Date) => void;
   onOpenSchedule: (schedule: Schedule) => void;
+  onCreateDay: (date: Date) => void;
+  onScheduleTimeChange: ScheduleTimeChangeHandler;
 }) {
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [interaction, setInteraction] =
+    useState<WeekScheduleInteraction | null>(null);
+  const rowCount = Math.max(1, Math.ceil(cells.length / 7));
+
+  const beginMonthInteraction = (
+    event: ReactPointerEvent<HTMLElement>,
+    kind: WeekScheduleInteractionKind,
+    schedule: Schedule,
+  ) => {
+    const grid = gridRef.current;
+    if (!grid) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const { start, end } = scheduleDateRange(schedule);
+    setInteraction({
+      kind,
+      schedule,
+      scheduleId: schedule.schedule_id,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      previewOffsetX: 0,
+      previewOffsetY: 0,
+      originalStart: start,
+      originalEnd: end,
+      start,
+      end,
+      gridRect: grid.getBoundingClientRect(),
+    });
+  };
+
+  const updateMonthInteraction = (event: ReactPointerEvent<HTMLElement>) => {
+    if (!interaction || interaction.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const columnWidth = interaction.gridRect.width / 7;
+    const rowHeight = interaction.gridRect.height / rowCount;
+    const dayDelta =
+      Math.round((event.clientX - interaction.startClientX) / columnWidth) +
+      Math.round((event.clientY - interaction.startClientY) / rowHeight) * 7;
+    const minDurationMs = minTimedScheduleMinutes * 60 * 1000;
+
+    let start = interaction.start;
+    let end = interaction.end;
+
+    if (interaction.kind === "move") {
+      start = addDays(interaction.originalStart, dayDelta);
+      end = addDays(interaction.originalEnd, dayDelta);
+    } else if (interaction.kind === "resize-left") {
+      const nextStart = addDays(interaction.originalStart, dayDelta);
+      const maxStart = new Date(interaction.originalEnd.getTime() - minDurationMs);
+      start = nextStart > maxStart ? maxStart : nextStart;
+      end = interaction.originalEnd;
+    } else {
+      const nextEnd = addDays(interaction.originalEnd, dayDelta);
+      const minEnd = new Date(interaction.originalStart.getTime() + minDurationMs);
+      start = interaction.originalStart;
+      end = nextEnd < minEnd ? minEnd : nextEnd;
+    }
+
+    setInteraction((current) =>
+      current && current.pointerId === event.pointerId
+        ? { ...current, start, end }
+        : current,
+    );
+  };
+
+  const endMonthInteraction = (event: ReactPointerEvent<HTMLElement>) => {
+    if (!interaction || interaction.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const changed =
+      interaction.start.getTime() !== interaction.originalStart.getTime() ||
+      interaction.end.getTime() !== interaction.originalEnd.getTime();
+    const shouldOpen =
+      !changed &&
+      interaction.kind === "move" &&
+      Math.abs(event.clientX - interaction.startClientX) < 4 &&
+      Math.abs(event.clientY - interaction.startClientY) < 4;
+    const finishedInteraction = interaction;
+
+    setInteraction(null);
+
+    if (shouldOpen) {
+      onOpenSchedule(finishedInteraction.schedule);
+      return;
+    }
+
+    if (changed) {
+      const nextDurationMs =
+        finishedInteraction.end.getTime() - finishedInteraction.start.getTime();
+      const nextAllDay = finishedInteraction.schedule.all_day
+        ? nextDurationMs >= allDayLikeThresholdMs
+        : finishedInteraction.schedule.all_day;
+      const changeOptions = { allDay: nextAllDay };
+
+      void onScheduleTimeChange(
+        finishedInteraction.schedule,
+        finishedInteraction.start,
+        finishedInteraction.end,
+        changeOptions,
+      );
+      onOpenSchedule(
+        scheduleWithDraftTime(
+          finishedInteraction.schedule,
+          finishedInteraction.start,
+          finishedInteraction.end,
+          changeOptions,
+        ),
+      );
+    }
+  };
+
   return (
-    <div className="overflow-hidden border-y border-slate-200 bg-white">
-      <div className="grid grid-cols-7 border-b border-slate-200 bg-white text-center text-xs font-medium text-slate-500">
+    <div className="overflow-hidden bg-white">
+      <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50/70 text-center text-xs font-medium text-slate-500">
         {weekdayLabels.map((label, index) => (
           <span
             key={`${label}-${index}`}
@@ -2157,7 +2724,7 @@ function MonthScheduleGrid({
           </span>
         ))}
       </div>
-      <div className="grid grid-cols-7">
+      <div ref={gridRef} className="grid grid-cols-7">
         {cells.map(({ date: day, currentMonth }, index) => {
           const key = toDateKey(day);
           const schedules = schedulesByDate.get(key) ?? [];
@@ -2172,20 +2739,26 @@ function MonthScheduleGrid({
           return (
             <div
               key={key}
-              className={`min-h-[132px] border-b border-r border-slate-200 p-1.5 transition ${
+              onClick={() => onOpenDay(day)}
+              className={`group min-h-[144px] cursor-pointer border-b border-r border-slate-100 p-2.5 transition hover:bg-emerald-50/40 sm:p-3 ${
                 (index + 1) % 7 === 0 ? "border-r-0" : ""
-              } ${currentMonth ? "bg-white" : "bg-slate-50 text-slate-300"} ${
-                selected ? "ring-2 ring-inset ring-emerald-300" : ""
+              } ${currentMonth ? "bg-white" : "bg-slate-50/70 text-slate-300"} ${
+                selected
+                  ? "bg-emerald-50 ring-2 ring-inset ring-emerald-400"
+                  : ""
               }`}
             >
               <button
                 type="button"
-                onClick={() => onOpenDay(day)}
-                className={`ml-auto flex h-6 min-w-6 items-center justify-center rounded px-1.5 text-xs font-medium transition ${
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpenDay(day);
+                }}
+                className={`ml-auto flex h-7 min-w-7 items-center justify-center rounded-full px-2 text-xs font-semibold transition ${
                   selected
                     ? "bg-emerald-600 text-white"
                     : today
-                      ? "bg-rose-500 text-white"
+                      ? "bg-emerald-600 text-white"
                       : currentMonth
                         ? "text-slate-800 hover:bg-slate-100"
                         : "text-slate-300 hover:bg-slate-100"
@@ -2193,20 +2766,44 @@ function MonthScheduleGrid({
               >
                 {day.getDate()}
               </button>
-              <div className="mt-1.5 space-y-1">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onCreateDay(day);
+                }}
+                className="mt-2 inline-flex items-center rounded-lg px-2 py-1 text-xs font-semibold text-emerald-700 opacity-100 transition hover:bg-emerald-50 sm:opacity-0 sm:group-hover:opacity-100"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                일정
+              </button>
+              <div className="mt-2 space-y-1.5">
                 {visibleSchedules.map((schedule) => (
-                  <SchedulePreviewButton
+                  <MonthSchedulePreview
                     key={schedule.schedule_id}
                     schedule={schedule}
+                    categoryColors={categoryColors}
+                    active={
+                      activeScheduleId === schedule.schedule_id ||
+                      interaction?.scheduleId === schedule.schedule_id
+                    }
                     muted={!currentMonth}
-                    onOpen={() => onOpenSchedule(schedule)}
+                    onPointerDown={(event, kind) =>
+                      beginMonthInteraction(event, kind, schedule)
+                    }
+                    onPointerMove={updateMonthInteraction}
+                    onPointerUp={endMonthInteraction}
+                    onPointerCancel={() => setInteraction(null)}
                   />
                 ))}
                 {hiddenCount > 0 && (
                   <button
                     type="button"
-                    onClick={() => onOpenDay(day)}
-                    className="w-full rounded-md px-1.5 py-0.5 text-left text-[11px] font-semibold text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpenDay(day);
+                    }}
+                    className="w-full rounded-lg px-2 py-1 text-left text-xs font-semibold text-slate-500 transition hover:bg-white hover:text-slate-800"
                   >
                     + {hiddenCount} more
                   </button>
@@ -2221,13 +2818,95 @@ function MonthScheduleGrid({
 }
 
 const weekHourHeight = 48;
+const weekTimeColumnWidth = 64;
 const weekHours = Array.from({ length: 24 }, (_, hour) => hour);
+const weekSnapMinutes = 15;
+const minTimedScheduleMinutes = 30;
+const allDayLikeThresholdMs = 24 * 60 * 60 * 1000;
+
+type WeekScheduleInteractionKind = "move" | "resize-left" | "resize-right";
+type WeekScheduleInteractionSurface = "time" | "all-day";
+
+interface WeekScheduleDraft {
+  scheduleId: number;
+  start: Date;
+  end: Date;
+}
+
+interface WeekScheduleInteraction extends WeekScheduleDraft {
+  kind: WeekScheduleInteractionKind;
+  surface?: WeekScheduleInteractionSurface;
+  schedule: Schedule;
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  previewOffsetX: number;
+  previewOffsetY: number;
+  settling?: boolean;
+  originalStart: Date;
+  originalEnd: Date;
+  gridRect: DOMRect;
+}
+
+interface ScheduleBlockMetrics {
+  left: number;
+  width: number;
+  top: number;
+  height: number;
+}
+
+interface TimedScheduleLayout {
+  schedule: Schedule;
+  start: Date;
+  end: Date;
+  metrics: ScheduleBlockMetrics;
+  lane: number;
+  laneCount: number;
+}
+
+interface AllDayScheduleLayout {
+  schedule: Schedule;
+  startIndex: number;
+  endIndex: number;
+  lane: number;
+  laneCount: number;
+}
+
+interface OptimisticScheduleTime {
+  start: string;
+  end: string;
+  allDay?: boolean;
+}
+
+interface ScheduleTimeChangeOptions {
+  allDay?: boolean;
+}
+
+type ScheduleTimeChangeHandler = (
+  schedule: Schedule,
+  start: Date,
+  end: Date,
+  options?: ScheduleTimeChangeOptions,
+) => Promise<void> | void;
+
+function scheduleWithDraftTime(
+  schedule: Schedule,
+  start: Date,
+  end: Date,
+  options?: ScheduleTimeChangeOptions,
+): Schedule {
+  return {
+    ...schedule,
+    start_datetime: toOffsetISOString(start),
+    end_datetime: toOffsetISOString(end),
+    all_day: options?.allDay ?? schedule.all_day,
+  };
+}
 
 function formatHourLabel(hour: number) {
-  if (hour === 0) return "12AM";
-  if (hour < 12) return `${hour}AM`;
-  if (hour === 12) return "12PM";
-  return `${hour - 12}PM`;
+  const period = hour < 12 ? "오전" : "오후";
+  const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+  return `${period} ${displayHour}시`;
 }
 
 function formatTimezoneLabel() {
@@ -2241,60 +2920,916 @@ function formatTimezoneLabel() {
     : `GMT${sign}${hours}:${pad(minutes)}`;
 }
 
+function colorWithAlpha(color: string, alphaHex: string) {
+  if (/^#[0-9a-fA-F]{6}$/.test(color)) return `${color}${alphaHex}`;
+  return color;
+}
+
+function scheduleAccentColor(
+  schedule: Schedule,
+  categoryColors: Map<number, string>,
+) {
+  return (
+    (schedule.category_id
+      ? categoryColors.get(schedule.category_id)
+      : undefined) ??
+    (schedule.schedule_type === "deadline" ? "#f43f5e" : "#10b981")
+  );
+}
+
+function weekdayToneClass(day: Date, selected = false) {
+  if (isToday(day)) {
+    return "bg-emerald-50/95 text-emerald-800 shadow-[inset_0_-2px_0_rgba(16,185,129,0.45)]";
+  }
+  if (day.getDay() === 0) {
+    return selected
+      ? "bg-rose-50/90 text-rose-700"
+      : "bg-rose-50/45 text-rose-600";
+  }
+  if (day.getDay() === 6) {
+    return selected
+      ? "bg-sky-50/90 text-sky-700"
+      : "bg-sky-50/45 text-sky-600";
+  }
+  return selected ? "bg-emerald-50/80 text-slate-950" : "text-slate-500";
+}
+
+function weekdayColumnClass(day: Date, selected = false) {
+  if (isToday(day)) {
+    return "bg-emerald-50/35 shadow-[inset_2px_0_0_rgba(16,185,129,0.18),inset_-2px_0_0_rgba(16,185,129,0.18)]";
+  }
+  if (selected) return "bg-emerald-50/20";
+  if (day.getDay() === 0) return "bg-rose-50/20";
+  if (day.getDay() === 6) return "bg-sky-50/20";
+  return "";
+}
+
 function minutesFromStartOfDay(iso: string) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return 0;
   return date.getHours() * 60 + date.getMinutes();
 }
 
-function scheduleBlockStyle(schedule: Schedule): CSSProperties {
-  const startMinutes = minutesFromStartOfDay(schedule.start_datetime);
-  const endDate = schedule.end_datetime
-    ? new Date(schedule.end_datetime)
-    : null;
-  const startDate = new Date(schedule.start_datetime);
-  const rawEndMinutes =
-    endDate && !Number.isNaN(endDate.getTime())
-      ? endDate.getHours() * 60 + endDate.getMinutes()
-      : startMinutes + 60;
-  const endMinutes =
-    endDate &&
-    !Number.isNaN(endDate.getTime()) &&
-    toDateKey(endDate) !== toDateKey(startDate)
-      ? 24 * 60
-      : rawEndMinutes;
-  const duration = Math.max(30, endMinutes - startMinutes);
+function scheduleDateRange(schedule: Schedule) {
+  const start = new Date(schedule.start_datetime);
+  const safeStart = Number.isNaN(start.getTime()) ? new Date() : start;
+  const rawEnd = schedule.end_datetime ? new Date(schedule.end_datetime) : null;
+  const safeEnd =
+    rawEnd && !Number.isNaN(rawEnd.getTime()) && rawEnd > safeStart
+      ? rawEnd
+      : new Date(safeStart.getTime() + 60 * 60 * 1000);
+
+  return { start: safeStart, end: safeEnd };
+}
+
+function scheduleDurationMs(schedule: Schedule) {
+  const { start, end } = scheduleDateRange(schedule);
+  return end.getTime() - start.getTime();
+}
+
+function isAllDayLikeSchedule(schedule: Schedule) {
+  return (
+    schedule.all_day || scheduleDurationMs(schedule) >= allDayLikeThresholdMs
+  );
+}
+
+function schedulePreviewTimeLabel(schedule: Schedule) {
+  if (schedule.all_day) return "종일";
+  return formatTime(schedule.start_datetime);
+}
+
+function dayBounds(date: Date) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(date);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+function scheduleOverlapsRange(schedule: Schedule, start: Date, end: Date) {
+  const range = scheduleDateRange(schedule);
+  return range.start <= end && range.end >= start;
+}
+
+function scheduleOverlapsDay(schedule: Schedule, date: Date) {
+  const { start, end } = dayBounds(date);
+  return scheduleOverlapsRange(schedule, start, end);
+}
+
+function dateRangeOverlapsDay(startDate: Date, endDate: Date, date: Date) {
+  const { start, end } = dayBounds(date);
+  return startDate <= end && endDate >= start;
+}
+
+function allDaySpanIndexesFromDates(
+  startDate: Date,
+  endDate: Date,
+  weekDates: Date[],
+) {
+  const indexes = weekDates
+    .map((day, index) =>
+      dateRangeOverlapsDay(startDate, endDate, day) ? index : -1,
+    )
+    .filter((index) => index >= 0);
+
+  if (indexes.length === 0) return null;
 
   return {
-    top: `${(startMinutes / 60) * weekHourHeight}px`,
-    height: `${(duration / 60) * weekHourHeight}px`,
+    startIndex: Math.min(...indexes),
+    endIndex: Math.max(...indexes),
   };
+}
+
+function uniqueSchedulesFromMap(schedulesByDate: Map<string, Schedule[]>) {
+  const byId = new Map<number, Schedule>();
+  for (const schedules of schedulesByDate.values()) {
+    for (const schedule of schedules) {
+      byId.set(schedule.schedule_id, schedule);
+    }
+  }
+  return [...byId.values()];
+}
+
+function minuteOfDay(date: Date) {
+  return date.getHours() * 60 + date.getMinutes();
+}
+
+function snapToWeekGrid(minutes: number) {
+  return Math.round(minutes / weekSnapMinutes) * weekSnapMinutes;
+}
+
+function addDays(date: Date, dayDelta: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + dayDelta);
+  return next;
+}
+
+function addMinutes(date: Date, minuteDelta: number) {
+  const next = new Date(date);
+  next.setMinutes(next.getMinutes() + minuteDelta);
+  return next;
+}
+
+function clampDate(date: Date, min: Date, max: Date) {
+  if (date < min) return new Date(min);
+  if (date > max) return new Date(max);
+  return date;
+}
+
+function scheduleBlockStyleFromDates(
+  startDate: Date,
+  endDate: Date,
+  weekDates: Date[],
+): CSSProperties {
+  const metrics = scheduleBlockMetricsFromDates(startDate, endDate, weekDates);
+  if (!metrics) return {};
+
+  return scheduleBlockStyleFromMetrics(metrics);
+}
+
+function scheduleBlockStyleFromMetrics(
+  metrics: ScheduleBlockMetrics,
+  lane = 0,
+  laneCount = 1,
+): CSSProperties {
+  const safeLaneCount = Math.max(1, laneCount);
+  const laneWidth = metrics.width / safeLaneCount;
+  const laneLeft = metrics.left + laneWidth * lane;
+  const sideInset = safeLaneCount > 1 ? 3 : 4;
+  const widthInset = safeLaneCount > 1 ? 5 : 8;
+
+  return {
+    top: `${metrics.top}px`,
+    height: `${metrics.height}px`,
+    left: `calc(${laneLeft}% + ${sideInset}px)`,
+    width: `calc(${laneWidth}% - ${widthInset}px)`,
+  };
+}
+
+function scheduleBlockMetricsFromDates(
+  startDate: Date,
+  endDate: Date,
+  weekDates: Date[],
+): ScheduleBlockMetrics | null {
+  if (weekDates.length === 0) return null;
+
+  const startMinutes = minuteOfDay(startDate);
+  const rawEndMinutes = minuteOfDay(endDate);
+  const endMinutes =
+    toDateKey(endDate) !== toDateKey(startDate)
+      ? rawEndMinutes > startMinutes
+        ? rawEndMinutes
+        : startMinutes + minTimedScheduleMinutes
+      : rawEndMinutes;
+  const duration = Math.max(minTimedScheduleMinutes, endMinutes - startMinutes);
+  const startKey = toDateKey(startDate);
+  const endKey = toDateKey(endDate);
+  const rawStartIndex = weekDates.findIndex((day) => toDateKey(day) === startKey);
+  const rawEndIndex = weekDates.findIndex((day) => toDateKey(day) === endKey);
+  const firstDay = weekDates[0];
+  const startIndex =
+    rawStartIndex >= 0
+      ? rawStartIndex
+      : startDate < firstDay
+        ? 0
+        : weekDates.length - 1;
+  const endIndex =
+    rawEndIndex >= 0
+      ? rawEndIndex
+      : endDate < firstDay
+        ? 0
+        : weekDates.length - 1;
+  const span = Math.max(
+    1,
+    Math.min(weekDates.length - startIndex, endIndex - startIndex + 1),
+  );
+
+  return {
+    top: (startMinutes / 60) * weekHourHeight,
+    height: (duration / 60) * weekHourHeight,
+    left: (startIndex / weekDates.length) * 100,
+    width: (span / weekDates.length) * 100,
+  };
+}
+
+function scheduleBlocksOverlap(
+  first: ScheduleBlockMetrics,
+  second: ScheduleBlockMetrics,
+) {
+  const firstRight = first.left + first.width;
+  const secondRight = second.left + second.width;
+  const firstBottom = first.top + first.height;
+  const secondBottom = second.top + second.height;
+
+  return (
+    first.left < secondRight &&
+    firstRight > second.left &&
+    first.top < secondBottom &&
+    firstBottom > second.top
+  );
+}
+
+function layoutTimedSchedules(
+  schedules: Schedule[],
+  weekDates: Date[],
+): TimedScheduleLayout[] {
+  const blocks = schedules
+    .map((schedule) => {
+      const { start, end } = scheduleDateRange(schedule);
+      const metrics = scheduleBlockMetricsFromDates(start, end, weekDates);
+      return metrics ? { schedule, start, end, metrics } : null;
+    })
+    .filter(
+      (
+        item,
+      ): item is Omit<TimedScheduleLayout, "lane" | "laneCount"> =>
+        item !== null,
+    );
+
+  const singleDayBlocks = blocks.filter(
+    (block) => toDateKey(block.start) === toDateKey(block.end),
+  );
+  const lanesByScheduleId = new Map<number, { lane: number; laneCount: number }>();
+
+  for (const block of blocks) {
+    if (toDateKey(block.start) !== toDateKey(block.end)) {
+      lanesByScheduleId.set(block.schedule.schedule_id, {
+        lane: 0,
+        laneCount: 1,
+      });
+    }
+  }
+
+  const parent = singleDayBlocks.map((_, index) => index);
+  const find = (index: number): number => {
+    if (parent[index] !== index) parent[index] = find(parent[index]);
+    return parent[index];
+  };
+  const union = (first: number, second: number) => {
+    const firstRoot = find(first);
+    const secondRoot = find(second);
+    if (firstRoot !== secondRoot) parent[secondRoot] = firstRoot;
+  };
+
+  for (let i = 0; i < singleDayBlocks.length; i += 1) {
+    for (let j = i + 1; j < singleDayBlocks.length; j += 1) {
+      if (
+        scheduleBlocksOverlap(
+          singleDayBlocks[i].metrics,
+          singleDayBlocks[j].metrics,
+        )
+      ) {
+        union(i, j);
+      }
+    }
+  }
+
+  const groups = new Map<number, typeof singleDayBlocks>();
+  singleDayBlocks.forEach((block, index) => {
+    const root = find(index);
+    const group = groups.get(root);
+    if (group) group.push(block);
+    else groups.set(root, [block]);
+  });
+
+  for (const group of groups.values()) {
+    const sorted = [...group].sort((first, second) => {
+      const firstTime = first.start.getTime();
+      const secondTime = second.start.getTime();
+      if (firstTime !== secondTime) return firstTime - secondTime;
+      if (first.metrics.top !== second.metrics.top) {
+        return first.metrics.top - second.metrics.top;
+      }
+      return first.metrics.left - second.metrics.left;
+    });
+    const lanes: typeof singleDayBlocks[] = [];
+
+    for (const block of sorted) {
+      const laneIndex = lanes.findIndex((laneBlocks) =>
+        laneBlocks.every(
+          (laneBlock) =>
+            !scheduleBlocksOverlap(laneBlock.metrics, block.metrics),
+        ),
+      );
+      const targetLane = laneIndex >= 0 ? laneIndex : lanes.length;
+      if (!lanes[targetLane]) lanes[targetLane] = [];
+      lanes[targetLane].push(block);
+      lanesByScheduleId.set(block.schedule.schedule_id, {
+        lane: targetLane,
+        laneCount: 1,
+      });
+    }
+
+    for (const block of group) {
+      const lane = lanesByScheduleId.get(block.schedule.schedule_id)?.lane ?? 0;
+      lanesByScheduleId.set(block.schedule.schedule_id, {
+        lane,
+        laneCount: lanes.length,
+      });
+    }
+  }
+
+  return blocks.map((block) => {
+    const laneInfo = lanesByScheduleId.get(block.schedule.schedule_id);
+    return {
+      ...block,
+      lane: laneInfo?.lane ?? 0,
+      laneCount: laneInfo?.laneCount ?? 1,
+    };
+  });
+}
+
+function layoutAllDaySchedules(
+  schedules: Schedule[],
+  weekDates: Date[],
+): AllDayScheduleLayout[] {
+  const blocks = schedules
+    .map((schedule) => {
+      const indexes = weekDates
+        .map((day, index) =>
+          scheduleOverlapsDay(schedule, day) ? index : -1,
+        )
+        .filter((index) => index >= 0);
+      if (indexes.length === 0) return null;
+
+      return {
+        schedule,
+        startIndex: Math.min(...indexes),
+        endIndex: Math.max(...indexes),
+      };
+    })
+    .filter(
+      (
+        block,
+      ): block is Omit<AllDayScheduleLayout, "lane" | "laneCount"> =>
+        block !== null,
+    )
+    .sort((first, second) => {
+      if (first.startIndex !== second.startIndex) {
+        return first.startIndex - second.startIndex;
+      }
+      const firstSpan = first.endIndex - first.startIndex;
+      const secondSpan = second.endIndex - second.startIndex;
+      if (firstSpan !== secondSpan) return secondSpan - firstSpan;
+      return first.schedule.schedule_id - second.schedule.schedule_id;
+    });
+  const lanes: Array<{ endIndex: number }> = [];
+  const laneByScheduleId = new Map<number, number>();
+
+  for (const block of blocks) {
+    const laneIndex = lanes.findIndex((lane) => lane.endIndex < block.startIndex);
+    const targetLane = laneIndex >= 0 ? laneIndex : lanes.length;
+    lanes[targetLane] = { endIndex: block.endIndex };
+    laneByScheduleId.set(block.schedule.schedule_id, targetLane);
+  }
+
+  return blocks.map((block) => ({
+    ...block,
+    lane: laneByScheduleId.get(block.schedule.schedule_id) ?? 0,
+    laneCount: Math.max(1, lanes.length),
+  }));
 }
 
 function WeekScheduleGrid({
   weekDates,
   schedulesByDate,
   selectedKey,
+  categoryColors,
+  activeScheduleId,
   onOpenDay,
   onOpenSchedule,
+  onCreateDay,
+  onScheduleTimeChange,
 }: {
   weekDates: Date[];
   schedulesByDate: Map<string, Schedule[]>;
   selectedKey: string;
+  categoryColors: Map<number, string>;
+  activeScheduleId?: number | null;
   onOpenDay: (date: Date) => void;
   onOpenSchedule: (schedule: Schedule) => void;
+  onCreateDay: (date: Date) => void;
+  onScheduleTimeChange: ScheduleTimeChangeHandler;
 }) {
+  const dayCount = weekDates.length;
   const now = new Date();
   const todayKey = toDateKey(now);
   const todayIndex = weekDates.findIndex((day) => toDateKey(day) === todayKey);
-  const nowTop =
-    ((now.getHours() * 60 + now.getMinutes()) / 60) * weekHourHeight;
+  const nowTop = (minuteOfDay(now) / 60) * weekHourHeight;
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const allDayGridRef = useRef<HTMLDivElement | null>(null);
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const dropSettleTimeoutRef = useRef<number | null>(null);
+  const [interaction, setInteraction] =
+    useState<WeekScheduleInteraction | null>(null);
+  const [hoveredScheduleId, setHoveredScheduleId] = useState<number | null>(
+    null,
+  );
+  const visibleSchedules = useMemo(() => {
+    const firstDay = weekDates[0];
+    const lastDay = weekDates[weekDates.length - 1] ?? firstDay;
+    if (!firstDay || !lastDay) return [];
+
+    const rangeStart = dayBounds(firstDay).start;
+    const rangeEnd = dayBounds(lastDay).end;
+    return uniqueSchedulesFromMap(schedulesByDate).filter((schedule) =>
+      scheduleOverlapsRange(schedule, rangeStart, rangeEnd),
+    );
+  }, [schedulesByDate, weekDates]);
+  const allDayLikeSchedules = useMemo(
+    () => visibleSchedules.filter(isAllDayLikeSchedule),
+    [visibleSchedules],
+  );
+  const allDayScheduleLayouts = useMemo(
+    () => layoutAllDaySchedules(allDayLikeSchedules, weekDates),
+    [allDayLikeSchedules, weekDates],
+  );
+  const allDayLaneCount = allDayScheduleLayouts.reduce(
+    (count, layout) => Math.max(count, layout.laneCount),
+    1,
+  );
+  const allDayRowHeight = Math.max(42, 30 + allDayLaneCount * 24);
+  const timedSchedules = useMemo(
+    () =>
+      visibleSchedules
+        .filter((schedule) => !isAllDayLikeSchedule(schedule))
+        .sort(
+          (a, b) =>
+            new Date(a.start_datetime).getTime() -
+            new Date(b.start_datetime).getTime(),
+        ),
+    [visibleSchedules],
+  );
+  const timedScheduleLayouts = useMemo(
+    () => layoutTimedSchedules(timedSchedules, weekDates),
+    [timedSchedules, weekDates],
+  );
+
+  const beginInteraction = (
+    event: ReactPointerEvent<HTMLElement>,
+    kind: WeekScheduleInteractionKind,
+    schedule: Schedule,
+  ) => {
+    const grid = gridRef.current;
+    if (!grid) return;
+
+    if (dropSettleTimeoutRef.current !== null) {
+      window.clearTimeout(dropSettleTimeoutRef.current);
+      dropSettleTimeoutRef.current = null;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const { start, end } = scheduleDateRange(schedule);
+    setInteraction({
+      kind,
+      surface: "time",
+      schedule,
+      scheduleId: schedule.schedule_id,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      previewOffsetX: 0,
+      previewOffsetY: 0,
+      originalStart: start,
+      originalEnd: end,
+      start,
+      end,
+      gridRect: grid.getBoundingClientRect(),
+    });
+  };
+
+  function movePreviewOffsetToTarget(
+    draft: WeekScheduleInteraction,
+  ): { x: number; y: number } | null {
+    const originalMetrics = scheduleBlockMetricsFromDates(
+      draft.originalStart,
+      draft.originalEnd,
+      weekDates,
+    );
+    const targetMetrics = scheduleBlockMetricsFromDates(
+      draft.start,
+      draft.end,
+      weekDates,
+    );
+    if (!originalMetrics || !targetMetrics) return null;
+
+    return {
+      x:
+        ((targetMetrics.left - originalMetrics.left) / 100) *
+        draft.gridRect.width,
+      y: targetMetrics.top - originalMetrics.top,
+    };
+  }
+
+  const updateInteraction = (event: ReactPointerEvent<HTMLElement>) => {
+    if (!interaction || interaction.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const columnWidth = interaction.gridRect.width / weekDates.length;
+    const rawOffsetX = event.clientX - interaction.startClientX;
+    const rawOffsetY = event.clientY - interaction.startClientY;
+    const dayDelta = Math.round(
+      rawOffsetX / columnWidth,
+    );
+    const minuteDelta = snapToWeekGrid(
+      (rawOffsetY / weekHourHeight) * 60,
+    );
+    const duration = Math.max(
+      minTimedScheduleMinutes * 60 * 1000,
+      interaction.originalEnd.getTime() - interaction.originalStart.getTime(),
+    );
+    const minStart = new Date(weekDates[0]);
+    minStart.setHours(0, 0, 0, 0);
+    const maxStart = new Date(weekDates[weekDates.length - 1]);
+    maxStart.setHours(23, 59, 0, 0);
+
+    let start = interaction.start;
+    let end = interaction.end;
+    let previewOffsetX = interaction.previewOffsetX;
+    let previewOffsetY = interaction.previewOffsetY;
+
+    if (interaction.kind === "move") {
+      start = addMinutes(addDays(interaction.originalStart, dayDelta), minuteDelta);
+      start = clampDate(start, minStart, maxStart);
+      end = new Date(start.getTime() + duration);
+      const originalMetrics = scheduleBlockMetricsFromDates(
+        interaction.originalStart,
+        interaction.originalEnd,
+        weekDates,
+      );
+
+      if (originalMetrics) {
+        const leftPx = (originalMetrics.left / 100) * interaction.gridRect.width;
+        const widthPx =
+          (originalMetrics.width / 100) * interaction.gridRect.width;
+        const topPx = originalMetrics.top;
+        const minX = -leftPx;
+        const maxX = interaction.gridRect.width - leftPx - widthPx;
+        const minY = -topPx;
+        const maxY = weekHourHeight * 24 - topPx - originalMetrics.height;
+
+        previewOffsetX = Math.min(maxX, Math.max(minX, rawOffsetX));
+        previewOffsetY = Math.min(maxY, Math.max(minY, rawOffsetY));
+      } else {
+        previewOffsetX = rawOffsetX;
+        previewOffsetY = rawOffsetY;
+      }
+    } else if (interaction.kind === "resize-left") {
+      const maxResizeStart = new Date(
+        interaction.originalEnd.getTime() - minTimedScheduleMinutes * 60 * 1000,
+      );
+      start = clampDate(
+        addDays(interaction.originalStart, dayDelta),
+        minStart,
+        maxResizeStart,
+      );
+      end = interaction.originalEnd;
+    } else {
+      const minResizeEnd = new Date(
+        interaction.originalStart.getTime() +
+          minTimedScheduleMinutes * 60 * 1000,
+      );
+      end = addDays(interaction.originalEnd, dayDelta);
+      if (end < minResizeEnd) end = minResizeEnd;
+      start = interaction.originalStart;
+    }
+
+    setInteraction((current) =>
+      current && current.pointerId === event.pointerId
+        ? { ...current, start, end, previewOffsetX, previewOffsetY }
+        : current,
+    );
+  };
+
+  const endInteraction = (event: ReactPointerEvent<HTMLElement>) => {
+    if (!interaction || interaction.pointerId !== event.pointerId) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const changed =
+      interaction.start.getTime() !== interaction.originalStart.getTime() ||
+      interaction.end.getTime() !== interaction.originalEnd.getTime();
+    const shouldOpen =
+      !changed &&
+      interaction.kind === "move" &&
+      Math.abs(event.clientX - interaction.startClientX) < 4 &&
+      Math.abs(event.clientY - interaction.startClientY) < 4;
+    const finishedInteraction = interaction;
+
+    if (shouldOpen) {
+      setInteraction(null);
+      onOpenSchedule(finishedInteraction.schedule);
+      return;
+    }
+
+    if (changed) {
+      const targetOffset =
+        finishedInteraction.kind === "move"
+          ? movePreviewOffsetToTarget(finishedInteraction)
+          : null;
+
+      setInteraction({
+        ...finishedInteraction,
+        previewOffsetX:
+          targetOffset?.x ?? finishedInteraction.previewOffsetX,
+        previewOffsetY:
+          targetOffset?.y ?? finishedInteraction.previewOffsetY,
+        settling: true,
+      });
+
+      void onScheduleTimeChange(
+        finishedInteraction.schedule,
+        finishedInteraction.start,
+        finishedInteraction.end,
+      );
+      onOpenSchedule(
+        scheduleWithDraftTime(
+          finishedInteraction.schedule,
+          finishedInteraction.start,
+          finishedInteraction.end,
+        ),
+      );
+
+      dropSettleTimeoutRef.current = window.setTimeout(() => {
+        setInteraction((current) =>
+          current?.pointerId === finishedInteraction.pointerId &&
+          current.settling
+            ? null
+            : current,
+        );
+        dropSettleTimeoutRef.current = null;
+      }, 170);
+      return;
+    }
+
+    setInteraction(null);
+  };
+
+  const beginAllDayInteraction = (
+    event: ReactPointerEvent<HTMLElement>,
+    kind: WeekScheduleInteractionKind,
+    schedule: Schedule,
+  ) => {
+    const grid = allDayGridRef.current;
+    if (!grid) return;
+
+    if (dropSettleTimeoutRef.current !== null) {
+      window.clearTimeout(dropSettleTimeoutRef.current);
+      dropSettleTimeoutRef.current = null;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const { start, end } = scheduleDateRange(schedule);
+    setInteraction({
+      kind,
+      surface: "all-day",
+      schedule,
+      scheduleId: schedule.schedule_id,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      previewOffsetX: 0,
+      previewOffsetY: 0,
+      originalStart: start,
+      originalEnd: end,
+      start,
+      end,
+      gridRect: grid.getBoundingClientRect(),
+    });
+  };
+
+  const updateAllDayInteraction = (
+    event: ReactPointerEvent<HTMLElement>,
+  ) => {
+    if (
+      !interaction ||
+      interaction.pointerId !== event.pointerId ||
+      interaction.surface !== "all-day"
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const columnWidth = interaction.gridRect.width / weekDates.length;
+    const rawOffsetX = event.clientX - interaction.startClientX;
+    const dayDelta = Math.round(rawOffsetX / columnWidth);
+    const rangeStart = dayBounds(weekDates[0]).start;
+    const rangeEnd = dayBounds(weekDates[weekDates.length - 1]).end;
+    const minDurationMs = minTimedScheduleMinutes * 60 * 1000;
+    const duration = Math.max(
+      minDurationMs,
+      interaction.originalEnd.getTime() - interaction.originalStart.getTime(),
+    );
+
+    let start = interaction.start;
+    let end = interaction.end;
+
+    if (interaction.kind === "move") {
+      start = clampDate(
+        addDays(interaction.originalStart, dayDelta),
+        rangeStart,
+        rangeEnd,
+      );
+      end = new Date(start.getTime() + duration);
+    } else if (interaction.kind === "resize-left") {
+      const maxStart = new Date(interaction.originalEnd.getTime() - minDurationMs);
+      start = clampDate(
+        addDays(interaction.originalStart, dayDelta),
+        rangeStart,
+        maxStart < rangeStart ? rangeStart : maxStart,
+      );
+      end = interaction.originalEnd;
+    } else {
+      const nextEnd = addDays(interaction.originalEnd, dayDelta);
+      const minEnd = new Date(interaction.originalStart.getTime() + minDurationMs);
+      start = interaction.originalStart;
+      end = nextEnd < minEnd ? minEnd : nextEnd;
+    }
+
+    setInteraction((current) =>
+      current && current.pointerId === event.pointerId
+        ? {
+            ...current,
+            start,
+            end,
+            previewOffsetX: rawOffsetX,
+            previewOffsetY: 0,
+          }
+        : current,
+    );
+  };
+
+  const endAllDayInteraction = (event: ReactPointerEvent<HTMLElement>) => {
+    if (
+      !interaction ||
+      interaction.pointerId !== event.pointerId ||
+      interaction.surface !== "all-day"
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const changed =
+      interaction.start.getTime() !== interaction.originalStart.getTime() ||
+      interaction.end.getTime() !== interaction.originalEnd.getTime();
+    const shouldOpen =
+      !changed &&
+      interaction.kind === "move" &&
+      Math.abs(event.clientX - interaction.startClientX) < 4 &&
+      Math.abs(event.clientY - interaction.startClientY) < 4;
+    const finishedInteraction = interaction;
+
+    setInteraction(null);
+
+    if (shouldOpen) {
+      onOpenSchedule(finishedInteraction.schedule);
+      return;
+    }
+
+    if (changed) {
+      const nextDurationMs =
+        finishedInteraction.end.getTime() - finishedInteraction.start.getTime();
+      const nextAllDay = finishedInteraction.schedule.all_day
+        ? nextDurationMs >= allDayLikeThresholdMs
+        : finishedInteraction.schedule.all_day;
+      const changeOptions = { allDay: nextAllDay };
+
+      void onScheduleTimeChange(
+        finishedInteraction.schedule,
+        finishedInteraction.start,
+        finishedInteraction.end,
+        changeOptions,
+      );
+      onOpenSchedule(
+        scheduleWithDraftTime(
+          finishedInteraction.schedule,
+          finishedInteraction.start,
+          finishedInteraction.end,
+          changeOptions,
+        ),
+      );
+    }
+  };
+
+  const dateFromGridPointer = (
+    event: ReactMouseEvent<HTMLElement>,
+    fallbackDay: Date,
+  ) => {
+    const grid = gridRef.current;
+    if (!grid) return fallbackDay;
+
+    const rect = grid.getBoundingClientRect();
+    const columnWidth = rect.width / dayCount;
+    const dayIndex = Math.min(
+      dayCount - 1,
+      Math.max(0, Math.floor((event.clientX - rect.left) / columnWidth)),
+    );
+    const rawMinutes = ((event.clientY - rect.top) / weekHourHeight) * 60;
+    const snappedMinutes = Math.min(
+      23 * 60 + 45,
+      Math.max(0, snapToWeekGrid(rawMinutes)),
+    );
+    const date = new Date(weekDates[dayIndex] ?? fallbackDay);
+    date.setHours(
+      Math.floor(snappedMinutes / 60),
+      snappedMinutes % 60,
+      0,
+      0,
+    );
+    return date;
+  };
+
+  const createFromGridPointer = (
+    event: ReactMouseEvent<HTMLElement>,
+    fallbackDay: Date,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onCreateDay(dateFromGridPointer(event, fallbackDay));
+  };
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || todayIndex < 0) return;
+
+    requestAnimationFrame(() => {
+      container.scrollTop = Math.max(0, nowTop - container.clientHeight / 2);
+    });
+  }, [nowTop, todayIndex]);
+
+  useEffect(
+    () => () => {
+      if (dropSettleTimeoutRef.current !== null) {
+        window.clearTimeout(dropSettleTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   return (
-    <div className="overflow-auto border-y border-slate-200 bg-white">
-      <div className="min-w-[920px]">
-        <div className="grid grid-cols-[54px_repeat(7,minmax(0,1fr))] border-b border-slate-200 bg-white">
-          <div className="flex items-center justify-center border-r border-slate-200 px-2 text-[11px] text-slate-500">
+    <div ref={scrollContainerRef} className="h-full overflow-auto bg-white">
+      <div style={{ minWidth: dayCount === 1 ? 520 : 920 }}>
+        <div
+          className="sticky top-0 z-30 grid border-b border-slate-100 bg-slate-50/95 shadow-[0_1px_0_rgba(226,232,240,0.9)] backdrop-blur"
+          style={{
+            gridTemplateColumns: `${weekTimeColumnWidth}px repeat(${dayCount}, minmax(0, 1fr))`,
+          }}
+        >
+          <div className="flex items-center justify-center border-r border-slate-100 px-2 text-[11px] text-slate-500">
             {formatTimezoneLabel()}
           </div>
           {weekDates.map((day) => {
@@ -2307,15 +3842,13 @@ function WeekScheduleGrid({
                 key={key}
                 type="button"
                 onClick={() => onOpenDay(day)}
-                className={`flex h-10 items-center justify-center gap-1 border-r border-slate-200 text-xs font-medium transition last:border-r-0 hover:bg-slate-50 ${
-                  selected ? "text-slate-950" : "text-slate-500"
-                }`}
+                className={`flex h-11 items-center justify-center gap-1 border-r border-slate-100 text-xs font-medium transition last:border-r-0 hover:bg-white ${weekdayToneClass(day, selected)}`}
               >
                 <span>{weekdayLabels[day.getDay()]}</span>
                 <span
                   className={
                     today
-                      ? "flex h-5 min-w-5 items-center justify-center rounded bg-rose-500 px-1 text-[11px] font-semibold text-white"
+                      ? "flex h-6 min-w-6 items-center justify-center rounded-full bg-emerald-600 px-1.5 text-[11px] font-semibold text-white"
                       : selected
                         ? "font-semibold text-slate-950"
                         : ""
@@ -2328,41 +3861,157 @@ function WeekScheduleGrid({
           })}
         </div>
 
-        <div className="grid grid-cols-[54px_repeat(7,minmax(0,1fr))] border-b border-slate-200 bg-white">
-          <div className="flex h-9 items-center justify-center border-r border-slate-200 px-2 text-[11px] text-slate-500">
+        <div
+          className="sticky top-11 z-30 grid border-b border-slate-100 bg-white/95 shadow-[0_1px_0_rgba(226,232,240,0.85)] backdrop-blur"
+          style={{
+            gridTemplateColumns: `${weekTimeColumnWidth}px repeat(${dayCount}, minmax(0, 1fr))`,
+          }}
+        >
+          <div
+            className="flex items-start justify-center border-r border-slate-100 px-2 pt-3 text-[11px] text-slate-500"
+            style={{ minHeight: allDayRowHeight }}
+          >
             All-day
           </div>
-          {weekDates.map((day) => {
-            const key = toDateKey(day);
-            const schedules = (schedulesByDate.get(key) ?? []).filter(
-              (schedule) => schedule.all_day,
-            );
+          <div
+            ref={allDayGridRef}
+            className="relative grid"
+            style={{
+              gridColumn: `span ${dayCount} / span ${dayCount}`,
+              gridTemplateColumns: `repeat(${dayCount}, minmax(0, 1fr))`,
+              minHeight: allDayRowHeight,
+            }}
+          >
+            {weekDates.map((day) => {
+              const key = toDateKey(day);
 
-            return (
-              <div
-                key={`all-day-${key}`}
-                className="min-h-9 border-r border-slate-200 px-1.5 py-1 last:border-r-0"
-              >
-                <div className="space-y-1">
-                  {schedules.slice(0, 2).map((schedule) => (
-                    <SchedulePreviewButton
-                      key={schedule.schedule_id}
-                      schedule={schedule}
-                      onOpen={() => onOpenSchedule(schedule)}
-                    />
-                  ))}
+              return (
+                <div
+                  key={`all-day-${key}`}
+                  className={`border-r border-slate-100 px-1.5 py-1.5 last:border-r-0 ${weekdayColumnClass(day, selectedKey === key)}`}
+                >
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onCreateDay(day);
+                    }}
+                    className="inline-flex rounded-lg px-2 py-0.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+            {allDayScheduleLayouts.map((layout) => {
+              const { schedule, startIndex, endIndex, lane } = layout;
+              const color = scheduleAccentColor(schedule, categoryColors);
+              const activeDraft =
+                interaction?.surface === "all-day" &&
+                interaction.scheduleId === schedule.schedule_id
+                  ? interaction
+                  : null;
+              const activeSpan = activeDraft
+                ? allDaySpanIndexesFromDates(
+                    activeDraft.start,
+                    activeDraft.end,
+                    weekDates,
+                  )
+                : null;
+              const displayStartIndex = activeSpan?.startIndex ?? startIndex;
+              const displayEndIndex = activeSpan?.endIndex ?? endIndex;
+              const span = displayEndIndex - displayStartIndex + 1;
+              const selected = activeScheduleId === schedule.schedule_id;
+
+              return (
+                <div
+                  key={`all-day-bar-${schedule.schedule_id}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Move ${schedule.title}`}
+                  onPointerDown={(event) =>
+                    beginAllDayInteraction(event, "move", schedule)
+                  }
+                  onPointerMove={updateAllDayInteraction}
+                  onPointerUp={endAllDayInteraction}
+                  onPointerCancel={(event) => {
+                    if (interaction?.pointerId === event.pointerId) {
+                      setInteraction(null);
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onOpenSchedule(schedule);
+                    }
+                  }}
+                  className={`absolute h-5 touch-none overflow-hidden rounded-md px-2 pr-4 text-left text-[11px] font-semibold leading-5 transition-[left,width,box-shadow,filter,opacity,transform] duration-150 ease-out hover:brightness-95 focus:outline-none ${
+                    activeDraft
+                      ? "z-40 scale-[1.01] cursor-grabbing shadow-lg"
+                      : "z-20 cursor-grab"
+                  } ${
+                    selected
+                      ? "ring-2 ring-emerald-400 ring-offset-1"
+                      : "hover:ring-1 hover:ring-emerald-200"
+                  }`}
+                  style={{
+                    top: 26 + lane * 24,
+                    left: `calc(${(displayStartIndex / dayCount) * 100}% + 4px)`,
+                    width: `calc(${(span / dayCount) * 100}% - 8px)`,
+                    backgroundColor: colorWithAlpha(color, "18"),
+                    color,
+                    boxShadow: `inset 3px 0 0 ${color}, 0 0 0 1px ${colorWithAlpha(color, "30")}`,
+                  }}
+                >
+                  <span
+                    role="presentation"
+                    className="absolute inset-y-0 left-0 z-10 w-2 cursor-ew-resize rounded-l-md transition hover:bg-white/40"
+                    onPointerDown={(event) =>
+                      beginAllDayInteraction(event, "resize-left", schedule)
+                    }
+                    onPointerMove={updateAllDayInteraction}
+                    onPointerUp={endAllDayInteraction}
+                    onPointerCancel={(event) => {
+                      if (interaction?.pointerId === event.pointerId) {
+                        setInteraction(null);
+                      }
+                    }}
+                  />
+                  <span
+                    role="presentation"
+                    className="absolute inset-y-0 right-0 z-10 w-2 cursor-ew-resize rounded-r-md transition hover:bg-white/40"
+                    onPointerDown={(event) =>
+                      beginAllDayInteraction(event, "resize-right", schedule)
+                    }
+                    onPointerMove={updateAllDayInteraction}
+                    onPointerUp={endAllDayInteraction}
+                    onPointerCancel={(event) => {
+                      if (interaction?.pointerId === event.pointerId) {
+                        setInteraction(null);
+                      }
+                    }}
+                  />
+                  <span className="pointer-events-none mr-1">{schedule.title}</span>
+                  <span className="pointer-events-none font-medium opacity-80">
+                    {schedulePreviewTimeLabel(schedule)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
-        <div className="grid grid-cols-[54px_repeat(7,minmax(0,1fr))]">
-          <div className="relative border-r border-slate-200">
+        <div
+          className="grid"
+          style={{
+            gridTemplateColumns: `${weekTimeColumnWidth}px repeat(${dayCount}, minmax(0, 1fr))`,
+          }}
+        >
+          <div className="relative border-r border-slate-100">
             {weekHours.map((hour) => (
               <div
                 key={hour}
-                className="flex justify-end border-b border-slate-100 pr-1.5 pt-1 text-[11px] text-slate-500"
+                className="flex justify-end whitespace-nowrap border-b border-slate-100 pr-1.5 pt-1 text-[11px] text-slate-500"
                 style={{ height: weekHourHeight }}
               >
                 {formatHourLabel(hour)}
@@ -2371,8 +4020,13 @@ function WeekScheduleGrid({
           </div>
 
           <div
-            className="relative col-span-7 grid grid-cols-7"
-            style={{ height: weekHourHeight * 24 }}
+            ref={gridRef}
+            className="relative grid"
+            style={{
+              gridColumn: `span ${dayCount} / span ${dayCount}`,
+              gridTemplateColumns: `repeat(${dayCount}, minmax(0, 1fr))`,
+              height: weekHourHeight * 24,
+            }}
           >
             <div className="pointer-events-none absolute inset-0">
               {weekHours.map((hour) => (
@@ -2389,50 +4043,200 @@ function WeekScheduleGrid({
                 className="pointer-events-none absolute left-0 right-0 z-20 border-t border-rose-400"
                 style={{ top: nowTop }}
               >
-                <span className="absolute -left-[42px] -top-2 rounded bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                <span
+                  className="absolute -top-2 whitespace-nowrap rounded bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold text-white"
+                  style={{ left: -weekTimeColumnWidth + 4 }}
+                >
                   {formatTime(now.toISOString())}
                 </span>
                 <span
                   className="absolute -top-[3px] h-1.5 w-1.5 rounded-full bg-rose-500"
-                  style={{ left: `${(todayIndex / 7) * 100}%` }}
+                  style={{ left: `${(todayIndex / dayCount) * 100}%` }}
                 />
               </div>
             )}
 
             {weekDates.map((day) => {
               const key = toDateKey(day);
-              const schedules = (schedulesByDate.get(key) ?? []).filter(
-                (schedule) => !schedule.all_day,
-              );
               const selected = key === selectedKey;
 
               return (
                 <div
                   key={`timed-${key}`}
-                  className={`relative border-r border-slate-200 last:border-r-0 ${
-                    selected ? "bg-emerald-50/20" : ""
-                  }`}
+                  onDoubleClick={(event) => createFromGridPointer(event, day)}
+                  onContextMenu={(event) => createFromGridPointer(event, day)}
+                  className={`relative border-r border-slate-100 transition hover:bg-emerald-50/20 last:border-r-0 ${weekdayColumnClass(day, selected)}`}
+                />
+              );
+            })}
+
+            {timedScheduleLayouts.map((layout) => {
+              const { schedule, start, end, metrics, lane, laneCount } = layout;
+              const color = scheduleAccentColor(schedule, categoryColors);
+              const activeDraft =
+                interaction?.scheduleId === schedule.schedule_id
+                  ? interaction
+                  : null;
+              const selected = activeScheduleId === schedule.schedule_id;
+              const hovered = hoveredScheduleId === schedule.schedule_id;
+              const blockStyle = scheduleBlockStyleFromMetrics(
+                metrics,
+                lane,
+                laneCount,
+              );
+
+              return (
+                <div
+                  key={schedule.schedule_id}
+                  id={`schedule-${schedule.schedule_id}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${schedule.title} 일정 이동`}
+                  onPointerDown={(event) =>
+                    beginInteraction(event, "move", schedule)
+                  }
+                  onPointerEnter={() => {
+                    setHoveredScheduleId(schedule.schedule_id);
+                  }}
+                  onPointerLeave={() => setHoveredScheduleId(null)}
+                  onPointerMove={updateInteraction}
+                  onPointerUp={endInteraction}
+                  onPointerCancel={() => {
+                    setInteraction(null);
+                  }}
+                  onFocus={() => {
+                    setHoveredScheduleId(schedule.schedule_id);
+                  }}
+                  onBlur={() => setHoveredScheduleId(null)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onOpenSchedule(schedule);
+                    }
+                  }}
+                  className={`absolute z-10 origin-top-left touch-none cursor-grab overflow-hidden rounded-lg px-2 py-1 text-left text-xs font-medium transition-[box-shadow,filter,opacity,transform,left,top,width,height] duration-150 ease-out hover:scale-[1.02] hover:brightness-95 focus:scale-[1.02] active:cursor-grabbing ${
+                    selected
+                      ? "ring-2 ring-emerald-400 ring-offset-1"
+                      : "hover:ring-1 hover:ring-emerald-200"
+                  } ${activeDraft ? "opacity-45 saturate-75" : ""}`}
+                  style={{
+                    ...blockStyle,
+                    zIndex:
+                      selected || hovered
+                        ? 35
+                        : activeDraft
+                          ? 12
+                          : 10 + lane,
+                    backgroundColor: colorWithAlpha(color, "24"),
+                    borderLeft: `3px solid ${color}`,
+                    color,
+                    boxShadow: activeDraft
+                      ? `0 0 0 1px ${colorWithAlpha(color, "28")}`
+                      : `0 0 0 1px ${colorWithAlpha(color, "40")}`,
+                  }}
                 >
-                  {schedules.map((schedule) => (
-                    <button
-                      key={schedule.schedule_id}
-                      type="button"
-                      onClick={() => onOpenSchedule(schedule)}
-                      className="absolute left-1 right-1 z-10 overflow-hidden rounded-md bg-emerald-50 px-2 py-1 text-left text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-200 transition hover:bg-emerald-100"
-                      style={scheduleBlockStyle(schedule)}
-                    >
-                      <span className="block truncate">{schedule.title}</span>
-                      <span className="block truncate text-[10px] text-emerald-600">
-                        {formatTime(schedule.start_datetime)}
-                        {schedule.end_datetime
-                          ? ` - ${formatTime(schedule.end_datetime)}`
-                          : ""}
-                      </span>
-                    </button>
-                  ))}
+                  <span
+                    role="presentation"
+                    className="absolute inset-y-0 left-0 z-20 w-2 cursor-ew-resize"
+                    onPointerDown={(event) =>
+                      beginInteraction(event, "resize-left", schedule)
+                    }
+                    onPointerMove={updateInteraction}
+                    onPointerUp={endInteraction}
+                    onPointerCancel={() => {
+                      setInteraction(null);
+                    }}
+                  />
+                  <span
+                    role="presentation"
+                    className="absolute inset-y-0 right-0 z-20 w-2 cursor-ew-resize"
+                    onPointerDown={(event) =>
+                      beginInteraction(event, "resize-right", schedule)
+                    }
+                    onPointerMove={updateInteraction}
+                    onPointerUp={endInteraction}
+                    onPointerCancel={() => {
+                      setInteraction(null);
+                    }}
+                  />
+                  <span className="block truncate pr-2">{schedule.title}</span>
+                  <span className="block truncate pr-2 text-[10px] opacity-80">
+                    {formatTime(start.toISOString())} - {formatTime(end.toISOString())}
+                  </span>
                 </div>
               );
             })}
+
+            {interaction && interaction.surface !== "all-day" && !interaction.settling && (
+              <div
+                className="pointer-events-none absolute z-40 rounded-lg bg-white/35 transition-[left,top,width,height,opacity] duration-150 ease-out"
+                style={{
+                  ...scheduleBlockStyleFromDates(
+                    interaction.start,
+                    interaction.end,
+                    weekDates,
+                  ),
+                  border: `1.5px solid ${scheduleAccentColor(
+                    interaction.schedule,
+                    categoryColors,
+                  )}`,
+                  boxShadow: `0 0 0 3px ${colorWithAlpha(
+                    scheduleAccentColor(interaction.schedule, categoryColors),
+                    "18",
+                  )}`,
+                }}
+              />
+            )}
+
+            {interaction && interaction.surface !== "all-day" && (
+              <div
+                className={`pointer-events-none absolute z-50 touch-none overflow-hidden rounded-lg px-2 py-1 text-left text-xs font-semibold shadow-2xl will-change-transform transition-[box-shadow,opacity,transform] ${
+                  interaction.settling
+                    ? "duration-[170ms] ease-out"
+                    : "duration-75 ease-out"
+                }`}
+                style={{
+                  ...scheduleBlockStyleFromDates(
+                    interaction.kind === "move"
+                      ? interaction.originalStart
+                      : interaction.start,
+                    interaction.kind === "move"
+                      ? interaction.originalEnd
+                      : interaction.end,
+                    weekDates,
+                  ),
+                  backgroundColor: colorWithAlpha(
+                    scheduleAccentColor(interaction.schedule, categoryColors),
+                    "66",
+                  ),
+                  borderLeft: `3px solid ${scheduleAccentColor(
+                    interaction.schedule,
+                    categoryColors,
+                  )}`,
+                  color: scheduleAccentColor(interaction.schedule, categoryColors),
+                  boxShadow: `0 18px 34px rgba(15,23,42,0.18), 0 0 0 1.5px ${scheduleAccentColor(
+                    interaction.schedule,
+                    categoryColors,
+                  )}, inset 0 0 0 1px ${colorWithAlpha(
+                    scheduleAccentColor(interaction.schedule, categoryColors),
+                    "55",
+                  )}`,
+                  transform:
+                    interaction.kind === "move"
+                      ? `translate3d(${interaction.previewOffsetX}px, ${interaction.previewOffsetY}px, 0) scale(1.01)`
+                      : "scale(1.01)",
+                }}
+              >
+                <span className="block truncate pr-2">
+                  {interaction.schedule.title}
+                </span>
+                <span className="block truncate pr-2 text-[10px] opacity-85">
+                  {formatTime(interaction.start.toISOString())} -{" "}
+                  {formatTime(interaction.end.toISOString())}
+                </span>
+              </div>
+            )}
+
           </div>
         </div>
       </div>
@@ -2456,7 +4260,8 @@ export default function Schedules() {
 
   const [calendarView, setCalendarView] = useState<"month" | "week">("month");
   const [scheduleView, setScheduleView] =
-    useState<ScheduleCalendarView>("month");
+    useState<ScheduleCalendarView>("week");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [visibleMonth, setVisibleMonth] = useState(
     () =>
       new Date(safeInitialDate.getFullYear(), safeInitialDate.getMonth(), 1),
@@ -2465,6 +4270,9 @@ export default function Schedules() {
   const [selectedScheduleIds, setSelectedScheduleIds] = useState<Set<number>>(
     () => new Set(),
   );
+  const [optimisticScheduleTimes, setOptimisticScheduleTimes] = useState<
+    Map<number, OptimisticScheduleTime>
+  >(() => new Map());
   const [panelMode, setPanelMode] = useState<
     "create" | "edit" | "repeat" | null
   >(null);
@@ -2491,6 +4299,16 @@ export default function Schedules() {
   const deleteMutation = useDeleteSchedule();
   const bulkDeleteMutation = useDeleteSchedules();
   const categoriesQuery = useCategories("schedule");
+  const categoryColors = useMemo(
+    () =>
+      new Map(
+        (categoriesQuery.data ?? []).map((category) => [
+          category.category_id,
+          category.color,
+        ]),
+      ),
+    [categoriesQuery.data],
+  );
 
   const clearDeepLinkParams = useCallback(() => {
     if (!searchParams.has("schedule_id") && !searchParams.has("date")) return;
@@ -2589,6 +4407,17 @@ export default function Schedules() {
     const keyword = filters.q.trim().toLowerCase();
     const locationKeyword = filters.location.trim().toLowerCase();
     return [...(data ?? [])]
+      .map((schedule) => {
+        const optimisticTime = optimisticScheduleTimes.get(schedule.schedule_id);
+        if (!optimisticTime) return schedule;
+
+        return {
+          ...schedule,
+          start_datetime: optimisticTime.start,
+          end_datetime: optimisticTime.end,
+          all_day: optimisticTime.allDay ?? schedule.all_day,
+        };
+      })
       .filter((schedule) => {
         if (filters.completion === "active" && schedule.is_completed) {
           return false;
@@ -2640,6 +4469,7 @@ export default function Schedules() {
     filters.priorities,
     filters.q,
     filters.scheduleTypes,
+    optimisticScheduleTimes,
   ]);
   const activeFilterCount = useMemo(() => {
     let count = 0;
@@ -2771,12 +4601,23 @@ export default function Schedules() {
   );
 
   const selectedKey = toDateKey(selectedDate);
-  const selectedSchedules = schedulesByDate.get(selectedKey) ?? [];
-  const weekDates = useMemo(() => buildWeekDates(selectedDate), [selectedDate]);
-  const weekSchedules = useMemo(
-    () => weekDates.flatMap((day) => schedulesByDate.get(toDateKey(day)) ?? []),
-    [schedulesByDate, weekDates],
+  const selectedSchedules = useMemo(
+    () => items.filter((schedule) => scheduleOverlapsDay(schedule, selectedDate)),
+    [items, selectedDate],
   );
+  const weekDates = useMemo(() => buildWeekDates(selectedDate), [selectedDate]);
+  const weekSchedules = useMemo(() => {
+    const firstDay = weekDates[0];
+    const lastDay = weekDates[weekDates.length - 1] ?? firstDay;
+    if (!firstDay || !lastDay) return [];
+    return items.filter((schedule) =>
+      scheduleOverlapsRange(
+        schedule,
+        dayBounds(firstDay).start,
+        dayBounds(lastDay).end,
+      ),
+    );
+  }, [items, weekDates]);
   const monthVisibleSchedules = useMemo(
     () =>
       mainMonthCells.flatMap(
@@ -2807,6 +4648,38 @@ export default function Schedules() {
     () => items.filter((schedule) => schedule.is_completed).length,
     [items],
   );
+
+  useEffect(() => {
+    if (optimisticScheduleTimes.size === 0 || !data) return;
+
+    setOptimisticScheduleTimes((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+
+      for (const schedule of data) {
+        const optimisticTime = next.get(schedule.schedule_id);
+        if (!optimisticTime) continue;
+
+        const serverStart = new Date(schedule.start_datetime).getTime();
+        const serverEnd = new Date(schedule.end_datetime ?? "").getTime();
+        const optimisticStart = new Date(optimisticTime.start).getTime();
+        const optimisticEnd = new Date(optimisticTime.end).getTime();
+        const optimisticAllDay = optimisticTime.allDay ?? schedule.all_day;
+
+        if (
+          serverStart === optimisticStart &&
+          schedule.all_day === optimisticAllDay &&
+          (serverEnd === optimisticEnd ||
+            (Number.isNaN(serverEnd) && Number.isNaN(optimisticEnd)))
+        ) {
+          next.delete(schedule.schedule_id);
+          changed = true;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [data, optimisticScheduleTimes.size]);
 
   useEffect(() => {
     setSelectedScheduleIds((prev) => {
@@ -2861,6 +4734,17 @@ export default function Schedules() {
     });
   };
 
+  const moveCurrentRange = (offset: number) => {
+    if (scheduleView === "month") {
+      moveMonth(offset);
+      return;
+    }
+
+    const next = new Date(selectedDate);
+    next.setDate(selectedDate.getDate() + offset * (scheduleView === "week" ? 7 : 1));
+    selectDate(next);
+  };
+
   const selectDate = (date: Date) => {
     clearDeepLinkParams();
     setSelectedScheduleIds(new Set());
@@ -2904,19 +4788,55 @@ export default function Schedules() {
     );
   };
 
-  const openCreatePanel = () => {
+  const openCreatePanel = (date = selectedDate) => {
+    selectDate(date);
     setEditingSchedule(null);
     setPanelMode("create");
-  };
-
-  const openRepeatPanel = () => {
-    setEditingSchedule(null);
-    setPanelMode("repeat");
   };
 
   const openEditPanel = (schedule: Schedule) => {
     setEditingSchedule(schedule);
     setPanelMode("edit");
+  };
+
+  const moveScheduleOnCalendar = async (
+    schedule: Schedule,
+    start: Date,
+    end: Date,
+    options?: ScheduleTimeChangeOptions,
+  ) => {
+    const nextStart = toOffsetISOString(start);
+    const nextEnd = toOffsetISOString(end);
+    const nextAllDay = options?.allDay ?? schedule.all_day;
+
+    setOptimisticScheduleTimes((prev) => {
+      const next = new Map(prev);
+      next.set(schedule.schedule_id, {
+        start: nextStart,
+        end: nextEnd,
+        allDay: nextAllDay,
+      });
+      return next;
+    });
+
+    try {
+      await updateMutation.mutateAsync({
+        scheduleId: schedule.schedule_id,
+        payload: {
+          start_datetime: nextStart,
+          end_datetime: nextEnd,
+          all_day: nextAllDay,
+        },
+      });
+      selectDate(start);
+    } catch (error) {
+      setOptimisticScheduleTimes((prev) => {
+        const next = new Map(prev);
+        next.delete(schedule.schedule_id);
+        return next;
+      });
+      throw error;
+    }
   };
 
   const closePanel = () => {
@@ -2935,243 +4855,53 @@ export default function Schedules() {
       : `${panelMode ?? "create"}-${selectedKey}`;
 
   const allDaySchedules = selectedSchedules.filter(
-    (schedule) => schedule.all_day,
+    isAllDayLikeSchedule,
   );
   const timedSchedules = selectedSchedules.filter(
-    (schedule) => !schedule.all_day,
+    (schedule) => !isAllDayLikeSchedule(schedule),
   );
 
   return (
-    <AppShell>
-      <div className="space-y-5">
-        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/60">
-          <div className="border-b border-slate-200 bg-emerald-50/35 px-5 py-5 sm:px-6">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div className="max-w-2xl">
-                <p className="inline-flex items-center gap-2 rounded-md border border-emerald-200 bg-white/80 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
-                  <CalendarDays className="h-3.5 w-3.5" />
-                  일정 흐름
-                </p>
-                <h1 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
-                  일정
-                </h1>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  선택한 날짜의 일정과 반복 등록을 한 화면에서 빠르게
-                  정리하세요.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Link
-                  to="/"
-                  className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white/85 px-4 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-white"
-                >
-                  홈으로
-                </Link>
-                <button
-                  type="button"
-                  onClick={openCreatePanel}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
-                >
-                  <CalendarPlus className="h-4 w-4" />
-                  일정 추가
-                </button>
-                <button
-                  type="button"
-                  onClick={openRepeatPanel}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-white/80 px-4 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-50"
-                >
-                  <CalendarDays className="h-4 w-4" />
-                  반복 추가
-                </button>
-              </div>
-            </div>
+    <AppShell fullBleed>
+      <div className="h-[calc(100dvh-5.5rem)] min-h-0 overflow-hidden bg-white">
+        <section className="sr-only">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
+              일정
+            </h1>
+            <p className="mt-1 text-sm text-slate-500">
+              시간표와 약속을 정리합니다.
+            </p>
           </div>
-
-          <div className="grid gap-px bg-slate-200 sm:grid-cols-4">
+          <div className="flex flex-wrap gap-2">
             {[
               { label: "선택한 날짜", value: `${selectedSchedules.length}건` },
               { label: "현재 범위", value: `${monthScheduleCount}건` },
               { label: "마감", value: `${deadlineCount}건` },
               { label: "완료", value: `${completedCount}건` },
             ].map((metric) => (
-              <div key={metric.label} className="bg-white px-5 py-3">
-                <p className="text-xs font-medium text-slate-500">
-                  {metric.label}
-                </p>
-                <p className="mt-1 text-xl font-semibold tracking-tight text-slate-950">
+              <span
+                key={metric.label}
+                className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-sm text-slate-600"
+              >
+                {metric.label}
+                <strong className="font-semibold text-slate-950">
                   {metric.value}
-                </p>
-              </div>
+                </strong>
+              </span>
             ))}
           </div>
         </section>
 
-        <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/60">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-                <SlidersHorizontal className="h-4 w-4 text-emerald-600" />
-                필터
-                {activeFilterCount > 0 && (
-                  <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
-                    {activeFilterCount}
-                  </span>
-                )}
-              </h2>
-              <p className="mt-1 text-xs text-slate-500">
-                검색과 조건을 조합하면 캘린더 범위 안의 일정만 즉시 좁혀집니다.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={resetFilters}
-              disabled={activeFilterCount === 0}
-              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              초기화
-            </button>
-          </div>
-
-          <div className="mt-4 grid gap-3 xl:grid-cols-[1.35fr_1fr_1fr_1fr]">
-            <label className="block">
-              <span className="text-xs font-medium text-slate-600">검색</span>
-              <div className="relative mt-1">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="search"
-                  value={filters.q}
-                  onChange={(event) => updateFilters({ q: event.target.value })}
-                  placeholder="제목, 설명, 장소"
-                  className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50/70 px-9 text-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
-                />
-              </div>
-            </label>
-
-            <InlineFilterGroup
-              label="일정 유형"
-              selectedValues={filters.scheduleTypes}
-              options={scheduleTypeFilterOptions.map((option) => ({
-                key: option.key,
-                value: option.value,
-                label: option.label,
-              }))}
-              visibleCount={4}
-              onClear={() => updateFilters({ scheduleTypes: [] })}
-              onToggle={(value) => {
-                const selected = filters.scheduleTypes.includes(value);
-                updateFilters({
-                  scheduleTypes: selected
-                    ? filters.scheduleTypes.filter((item) => item !== value)
-                    : [...filters.scheduleTypes, value],
-                });
-              }}
-            />
-
-            <InlineFilterGroup
-              label="우선순위"
-              selectedValues={filters.priorities}
-              options={priorityFilterOptions.map((option) => ({
-                key: option.key,
-                value: option.value,
-                label: option.label,
-              }))}
-              visibleCount={4}
-              onClear={() => updateFilters({ priorities: [] })}
-              onToggle={(value) => {
-                const selected = filters.priorities.includes(value);
-                updateFilters({
-                  priorities: selected
-                    ? filters.priorities.filter((item) => item !== value)
-                    : [...filters.priorities, value],
-                });
-              }}
-            />
-
-            <InlineFilterGroup
-              label="카테고리"
-              selectedValues={filters.categories}
-              options={(categoriesQuery.data ?? []).map((category) => ({
-                key: String(category.category_id),
-                value: category.category_id,
-                label: category.name,
-              }))}
-              visibleCount={1}
-              onClear={() => updateFilters({ categories: [] })}
-              onToggle={(value) => {
-                const selected = filters.categories.includes(value);
-                updateFilters({
-                  categories: selected
-                    ? filters.categories.filter((item) => item !== value)
-                    : [...filters.categories, value],
-                });
-              }}
-            />
-          </div>
-
-          <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_1fr]">
-            <label className="block">
-              <span className="text-xs font-medium text-slate-600">장소</span>
-              <input
-                type="search"
-                value={filters.location}
-                onChange={(event) =>
-                  updateFilters({ location: event.target.value })
-                }
-                placeholder="장소 키워드"
-                className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
-              />
-            </label>
-
-            <label className="block">
-              <span className="text-xs font-medium text-slate-600">
-                완료 여부
-              </span>
-              <select
-                value={filters.completion}
-                onChange={(event) =>
-                  updateFilters({
-                    completion: event.target.value as ScheduleCompletionFilter,
-                  })
-                }
-                className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
-              >
-                <option value="all">전체</option>
-                <option value="active">미완료</option>
-                <option value="completed">완료</option>
-              </select>
-            </label>
-          </div>
-
-          {scheduleFilterChips.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {scheduleFilterChips.map((chip) => (
-                <button
-                  key={chip.key}
-                  type="button"
-                  onClick={() => updateFilters(chip.reset)}
-                  className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
-                  aria-label={`${chip.label} 필터 제거`}
-                >
-                  <span>{chip.label}</span>
-                  <span aria-hidden className="text-emerald-500">
-                    ×
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
-
         <div
-          className={`grid gap-5 ${
+          className={`grid h-full min-h-0 gap-0 ${
             scheduleView === "month"
               ? panelMode
                 ? "xl:grid-cols-[minmax(0,1fr)_390px]"
                 : "xl:grid-cols-1"
               : panelMode
-                ? "xl:grid-cols-[336px_minmax(0,1fr)_390px]"
-                : "xl:grid-cols-[336px_minmax(0,1fr)]"
+                ? "xl:grid-cols-[320px_minmax(0,1fr)_390px]"
+                : "xl:grid-cols-[320px_minmax(0,1fr)]"
           }`}
         >
           {scheduleView !== "month" && (
@@ -3188,8 +4918,8 @@ export default function Schedules() {
             />
           )}
 
-          <section className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/60">
-            <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <section className="flex min-h-0 min-w-0 flex-col overflow-hidden border-x border-slate-200 bg-white">
+            <div className="flex flex-col gap-4 border-b border-slate-100 bg-white px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <p className="text-xs font-semibold text-emerald-700">
                   {scheduleView === "month"
@@ -3198,7 +4928,7 @@ export default function Schedules() {
                       ? "주간 보기"
                       : formatCompactDate(selectedDate)}
                 </p>
-                <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">
+                <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">
                   {currentViewLabel}
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
@@ -3211,18 +4941,53 @@ export default function Schedules() {
                   {isFetching && " · 업데이트 중"}
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setFiltersOpen((open) => !open)}
+                  className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition ${
+                    filtersOpen
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                  필터
+                  {activeFilterCount > 0 && (
+                    <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] leading-none text-white">
+                      {activeFilterCount}
+                    </span>
+                  )}
+                </button>
                 <button
                   type="button"
                   onClick={() => {
                     const today = new Date();
                     selectDate(today);
                   }}
-                  className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                  className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
                 >
                   Today
                 </button>
-                <div className="grid grid-cols-3 rounded-lg bg-slate-100/80 p-1 text-xs">
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => moveCurrentRange(-1)}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
+                    aria-label="이전 범위"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveCurrentRange(1)}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
+                    aria-label="다음 범위"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-3 rounded-xl bg-slate-100 p-1 text-xs">
                   {(
                     [
                       ["month", "월"],
@@ -3234,7 +4999,7 @@ export default function Schedules() {
                       key={view}
                       type="button"
                       onClick={() => setScheduleView(view)}
-                      className={`h-8 min-w-10 rounded-md px-3 font-semibold transition ${
+                      className={`h-8 min-w-10 rounded-lg px-3 font-semibold transition ${
                         scheduleView === view
                           ? "bg-white text-emerald-700 shadow-sm"
                           : "text-slate-500 hover:text-slate-900"
@@ -3244,30 +5009,12 @@ export default function Schedules() {
                     </button>
                   ))}
                 </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => moveMonth(-1)}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
-                    aria-label="Previous month"
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => moveMonth(1)}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
-                    aria-label="Next month"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                </div>
                 {scheduleView === "day" && selectedSchedules.length > 0 && (
                   <>
                     <button
                       type="button"
                       onClick={selectAllCurrentDaySchedules}
-                      className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                      className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
                     >
                       전체 선택
                     </button>
@@ -3275,7 +5022,7 @@ export default function Schedules() {
                       type="button"
                       onClick={clearSelectedSchedules}
                       disabled={selectedScheduleCount === 0}
-                      className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                      className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
                     >
                       선택 해제
                     </button>
@@ -3286,7 +5033,7 @@ export default function Schedules() {
                         selectedScheduleCount === 0 ||
                         bulkDeleteMutation.isPending
                       }
-                      className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+                      className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:opacity-50"
                     >
                       <Trash2 className="h-4 w-4" />
                       {bulkDeleteMutation.isPending
@@ -3297,15 +5044,179 @@ export default function Schedules() {
                 )}
                 <button
                   type="button"
-                  onClick={openCreatePanel}
-                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                  onClick={() => openCreatePanel()}
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
                 >
-                  <CalendarDays className="h-4 w-4" />이 날짜에 추가
+                  <CalendarDays className="h-4 w-4" />+ 일정 추가
                 </button>
               </div>
             </div>
 
-            <div className={scheduleView === "month" ? "p-0" : "p-5"}>
+            {scheduleFilterChips.length > 0 && (
+              <div className="border-b border-slate-100 px-5 py-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  {scheduleFilterChips.map((chip) => (
+                    <button
+                      key={chip.key}
+                      type="button"
+                      onClick={() => updateFilters(chip.reset)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                      aria-label={`${chip.label} 필터 제거`}
+                    >
+                      <span>{chip.label}</span>
+                      <X className="h-3 w-3 text-emerald-500" />
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={resetFilters}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    초기화
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {filtersOpen && (
+              <div className="relative z-20 border-b border-slate-100 bg-slate-50/60 px-5 py-4">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-lg shadow-slate-200/70">
+                  <div className="grid gap-3 xl:grid-cols-[1.35fr_1fr_1fr_1fr]">
+                    <label className="block">
+                      <span className="text-xs font-medium text-slate-600">
+                        검색
+                      </span>
+                      <div className="relative mt-1">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="search"
+                          value={filters.q}
+                          onChange={(event) =>
+                            updateFilters({ q: event.target.value })
+                          }
+                          placeholder="제목, 설명, 장소"
+                          className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50/70 px-9 text-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                        />
+                      </div>
+                    </label>
+
+                    <InlineFilterGroup
+                      label="일정 유형"
+                      selectedValues={filters.scheduleTypes}
+                      options={scheduleTypeFilterOptions.map((option) => ({
+                        key: option.key,
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                      visibleCount={4}
+                      onClear={() => updateFilters({ scheduleTypes: [] })}
+                      onToggle={(value) => {
+                        const selected = filters.scheduleTypes.includes(value);
+                        updateFilters({
+                          scheduleTypes: selected
+                            ? filters.scheduleTypes.filter(
+                                (item) => item !== value,
+                              )
+                            : [...filters.scheduleTypes, value],
+                        });
+                      }}
+                    />
+
+                    <InlineFilterGroup
+                      label="우선순위"
+                      selectedValues={filters.priorities}
+                      options={priorityFilterOptions.map((option) => ({
+                        key: option.key,
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                      visibleCount={4}
+                      onClear={() => updateFilters({ priorities: [] })}
+                      onToggle={(value) => {
+                        const selected = filters.priorities.includes(value);
+                        updateFilters({
+                          priorities: selected
+                            ? filters.priorities.filter(
+                                (item) => item !== value,
+                              )
+                            : [...filters.priorities, value],
+                        });
+                      }}
+                    />
+
+                    <InlineFilterGroup
+                      label="카테고리"
+                      selectedValues={filters.categories}
+                      options={(categoriesQuery.data ?? []).map((category) => ({
+                        key: String(category.category_id),
+                        value: category.category_id,
+                        label: category.name,
+                      }))}
+                      visibleCount={1}
+                      onClear={() => updateFilters({ categories: [] })}
+                      onToggle={(value) => {
+                        const selected = filters.categories.includes(value);
+                        updateFilters({
+                          categories: selected
+                            ? filters.categories.filter(
+                                (item) => item !== value,
+                              )
+                            : [...filters.categories, value],
+                        });
+                      }}
+                    />
+                  </div>
+
+                  <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_1fr]">
+                    <label className="block">
+                      <span className="text-xs font-medium text-slate-600">
+                        장소
+                      </span>
+                      <input
+                        type="search"
+                        value={filters.location}
+                        onChange={(event) =>
+                          updateFilters({ location: event.target.value })
+                        }
+                        placeholder="장소 키워드"
+                        className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="text-xs font-medium text-slate-600">
+                        완료 여부
+                      </span>
+                      <select
+                        value={filters.completion}
+                        onChange={(event) =>
+                          updateFilters({
+                            completion: event.target
+                              .value as ScheduleCompletionFilter,
+                          })
+                        }
+                        className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                      >
+                        <option value="all">전체</option>
+                        <option value="active">미완료</option>
+                        <option value="completed">완료</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div
+              className={
+                scheduleView === "week"
+                  ? "min-h-0 flex-1 overflow-hidden p-0"
+                  : scheduleView === "month"
+                    ? "min-h-0 flex-1 overflow-auto p-0"
+                    : "min-h-0 flex-1 overflow-auto p-5"
+              }
+            >
               {isLoading ? (
                 <FullSpinner message="일정을 불러오는 중..." />
               ) : isError ? (
@@ -3320,28 +5231,51 @@ export default function Schedules() {
                   cells={mainMonthCells}
                   schedulesByDate={schedulesByDate}
                   selectedKey={selectedKey}
+                  categoryColors={categoryColors}
+                  activeScheduleId={editingSchedule?.schedule_id ?? null}
                   onOpenDay={(date) => {
                     selectDate(date);
                     setScheduleView("day");
                   }}
+                  onCreateDay={(date) => openCreatePanel(date)}
                   onOpenSchedule={(schedule) => {
                     selectDate(new Date(schedule.start_datetime));
                     openEditPanel(schedule);
                   }}
+                  onScheduleTimeChange={moveScheduleOnCalendar}
                 />
               ) : scheduleView === "week" ? (
                 <WeekScheduleGrid
                   weekDates={weekDates}
                   schedulesByDate={schedulesByDate}
                   selectedKey={selectedKey}
+                  categoryColors={categoryColors}
+                  activeScheduleId={editingSchedule?.schedule_id ?? null}
                   onOpenDay={(date) => {
                     selectDate(date);
                     setScheduleView("day");
                   }}
+                  onCreateDay={(date) => openCreatePanel(date)}
                   onOpenSchedule={(schedule) => {
                     selectDate(new Date(schedule.start_datetime));
                     openEditPanel(schedule);
                   }}
+                  onScheduleTimeChange={moveScheduleOnCalendar}
+                />
+              ) : scheduleView === "day" ? (
+                <WeekScheduleGrid
+                  weekDates={[selectedDate]}
+                  schedulesByDate={schedulesByDate}
+                  selectedKey={selectedKey}
+                  categoryColors={categoryColors}
+                  activeScheduleId={editingSchedule?.schedule_id ?? null}
+                  onOpenDay={selectDate}
+                  onCreateDay={(date) => openCreatePanel(date)}
+                  onOpenSchedule={(schedule) => {
+                    selectDate(new Date(schedule.start_datetime));
+                    openEditPanel(schedule);
+                  }}
+                  onScheduleTimeChange={moveScheduleOnCalendar}
                 />
               ) : selectedSchedules.length === 0 ? (
                 <EmptyState
@@ -3435,12 +5369,43 @@ export default function Schedules() {
               initial={formInitial}
               schedule={editingSchedule}
               isPending={
-                panelMode === "create" || panelMode === "repeat"
+                panelMode === "edit"
+                  ? updateMutation.isPending || createSchedulesMutation.isPending
+                  : panelMode === "create" || panelMode === "repeat"
                   ? createSchedulesMutation.isPending
                   : updateMutation.isPending
               }
               onClose={closePanel}
-              onSubmit={async (forms) => {
+              deletePending={deleteMutation.isPending}
+              onDelete={
+                panelMode === "edit" && editingSchedule
+                  ? async () => {
+                      await deleteMutation.mutateAsync(
+                        editingSchedule.schedule_id,
+                      );
+                      closePanel();
+                    }
+                  : undefined
+              }
+              onSubmit={async (forms, options) => {
+                const intent = options?.intent ?? "manual";
+
+                if (intent === "repeat" && editingSchedule) {
+                  const [baseForm, ...additionalForms] = forms;
+                  if (baseForm) {
+                    await updateMutation.mutateAsync({
+                      scheduleId: editingSchedule.schedule_id,
+                      payload: toPayload(baseForm),
+                    });
+                  }
+                  if (additionalForms.length > 0) {
+                    await createSchedulesMutation.mutateAsync(
+                      additionalForms.map((form) => toPayload(form)),
+                    );
+                  }
+                  return;
+                }
+
                 if (panelMode === "create" || panelMode === "repeat") {
                   const payloads = forms.map((form) => toPayload(form));
                   const createdSchedules =
@@ -3454,13 +5419,13 @@ export default function Schedules() {
                   if (!Number.isNaN(start.getTime())) {
                     selectDate(start);
                   }
+                  closePanel();
                 } else if (editingSchedule) {
                   await updateMutation.mutateAsync({
                     scheduleId: editingSchedule.schedule_id,
                     payload: toPayload(forms[0]),
                   });
                 }
-                closePanel();
               }}
             />
           )}

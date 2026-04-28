@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { SlidersHorizontal } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import TaskForm from "@/components/TaskForm";
 import TaskItem from "@/components/TaskItem";
@@ -185,7 +186,9 @@ function TaskGroup({
                 task={task}
                 highlighted={task.task_id === deepLinkedTaskId}
                 schedule={
-                  task.schedule_id ? schedulesById.get(task.schedule_id) : undefined
+                  task.schedule_id
+                    ? schedulesById.get(task.schedule_id)
+                    : undefined
                 }
               />
             ))}
@@ -203,6 +206,7 @@ function TaskGroup({
 export default function Tasks() {
   const [searchParams, setSearchParams] = useSearchParams();
   const classificationSettings = useClassificationSettings();
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<TaskFilters>(() => {
     return {
       statuses: parseTaskStatusFilters(searchParams.get("status")),
@@ -256,9 +260,7 @@ export default function Tasks() {
 
   const query = {
     ...(filters.statuses.length > 0 ? { status: filters.statuses } : {}),
-    ...(filters.priorities.length > 0
-      ? { priority: filters.priorities }
-      : {}),
+    ...(filters.priorities.length > 0 ? { priority: filters.priorities } : {}),
     ...(filters.categories.length > 0
       ? { category_id: filters.categories }
       : {}),
@@ -296,9 +298,11 @@ export default function Tasks() {
     { enabledOnly: true, defaultOnly: true },
   );
   const scheduleOptions = useMemo(() => {
-    const linkedIds = new Set((data ?? []).flatMap((task) =>
-      task.schedule_id ? [task.schedule_id] : [],
-    ));
+    const linkedIds = new Set(
+      (data ?? []).flatMap((task) =>
+        task.schedule_id ? [task.schedule_id] : [],
+      ),
+    );
     return schedules
       .filter((schedule) => linkedIds.has(schedule.schedule_id))
       .sort(
@@ -332,7 +336,8 @@ export default function Tasks() {
       if (filters.schedule === "linked" && !task.schedule_id) return false;
       if (filters.schedule === "unlinked" && task.schedule_id) return false;
       if (keyword) {
-        const haystack = `${task.title} ${task.description ?? ""} ${task.location ?? ""}`.toLowerCase();
+        const haystack =
+          `${task.title} ${task.description ?? ""} ${task.location ?? ""}`.toLowerCase();
         if (!haystack.includes(keyword)) return false;
       }
       return true;
@@ -357,7 +362,11 @@ export default function Tasks() {
     return count;
   }, [filters]);
   const taskFilterChips = useMemo(() => {
-    const chips: Array<{ key: string; label: string; reset: Partial<TaskFilters> }> = [];
+    const chips: Array<{
+      key: string;
+      label: string;
+      reset: Partial<TaskFilters>;
+    }> = [];
     filters.statuses.forEach((status) => {
       chips.push({
         key: `status-${status}`,
@@ -487,7 +496,9 @@ export default function Tasks() {
           </div>
           <TaskForm
             defaultScheduleId={
-              typeof filters.schedule === "number" ? filters.schedule : undefined
+              typeof filters.schedule === "number"
+                ? filters.schedule
+                : undefined
             }
           />
           {selectedSchedule && (
@@ -507,8 +518,8 @@ export default function Tasks() {
           )}
         </section>
 
-        <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <section className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-sm font-semibold text-slate-950">
                 필터
@@ -522,219 +533,250 @@ export default function Tasks() {
                 선택한 조건을 모두 만족하는 할 일만 보여줍니다.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={resetFilters}
-              disabled={activeFilterCount === 0}
-              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-            >
-              초기화
-            </button>
-          </div>
-
-          <div className="mt-4 grid gap-3 xl:grid-cols-[1.2fr_1fr_1fr]">
-            <label className="block">
-              <span className="text-xs font-medium text-slate-600">검색</span>
-              <input
-                type="search"
-                value={filters.q}
-                onChange={(event) => updateFilters({ q: event.target.value })}
-                placeholder="제목, 설명, 장소"
-                className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-              />
-            </label>
-
-            <div>
-              <span className="text-xs font-medium text-slate-600">상태</span>
-              <div className="mt-1 flex min-h-10 flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => updateFilters({ statuses: [] })}
-                  className={`h-8 rounded-md px-2 text-xs font-medium transition ${
-                    filters.statuses.length === 0
-                      ? "bg-emerald-600 text-white shadow-sm"
-                      : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                  }`}
-                >
-                  전체
-                </button>
-                {statusFilterOptions.map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    onClick={() => {
-                      const selected = filters.statuses.includes(option.value);
-                      updateFilters({
-                        statuses: selected
-                          ? filters.statuses.filter(
-                              (item) => item !== option.value,
-                            )
-                          : [...filters.statuses, option.value],
-                      });
-                    }}
-                    className={`h-8 rounded-md px-2 text-xs font-medium transition ${
-                      filters.statuses.includes(option.value)
-                        ? "bg-emerald-600 text-white shadow-sm"
-                        : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <span className="text-xs font-medium text-slate-600">
-                우선순위
-              </span>
-              <div className="mt-1 flex min-h-10 flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => updateFilters({ priorities: [] })}
-                  className={`h-8 rounded-md px-2 text-xs font-medium transition ${
-                    filters.priorities.length === 0
-                      ? "bg-emerald-600 text-white shadow-sm"
-                      : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                  }`}
-                >
-                  전체
-                </button>
-                {priorityFilterOptions.map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    onClick={() => {
-                      const selected = filters.priorities.includes(option.value);
-                      updateFilters({
-                        priorities: selected
-                          ? filters.priorities.filter(
-                              (item) => item !== option.value,
-                            )
-                          : [...filters.priorities, option.value],
-                      });
-                    }}
-                    className={`h-8 rounded-md px-2 text-xs font-medium transition ${
-                      filters.priorities.includes(option.value)
-                        ? "bg-emerald-600 text-white shadow-sm"
-                        : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_1fr_1fr_1fr]">
-            <label className="block">
-              <span className="text-xs font-medium text-slate-600">
-                마감 시작
-              </span>
-              <input
-                type="date"
-                value={filters.dueFrom}
-                onChange={(event) =>
-                  updateFilters({ dueFrom: event.target.value })
-                }
-                className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-              />
-            </label>
-
-            <label className="block">
-              <span className="text-xs font-medium text-slate-600">
-                마감 종료
-              </span>
-              <input
-                type="date"
-                value={filters.dueTo}
-                onChange={(event) =>
-                  updateFilters({ dueTo: event.target.value })
-                }
-                className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-              />
-            </label>
-
-            <div>
-              <span className="text-xs font-medium text-slate-600">
-                카테고리
-              </span>
-              <div className="mt-1 flex min-h-10 flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => updateFilters({ categories: [] })}
-                  className={`h-8 rounded-md px-2 text-xs font-medium transition ${
-                    filters.categories.length === 0
-                      ? "bg-emerald-600 text-white shadow-sm"
-                      : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                  }`}
-                >
-                  전체
-                </button>
-                {(categoriesQuery.data ?? []).map((category) => (
-                  <button
-                    key={category.category_id}
-                    type="button"
-                    onClick={() => {
-                      const selected = filters.categories.includes(
-                        category.category_id,
-                      );
-                      updateFilters({
-                        categories: selected
-                          ? filters.categories.filter(
-                              (item) => item !== category.category_id,
-                            )
-                          : [...filters.categories, category.category_id],
-                      });
-                    }}
-                    className={`h-8 rounded-md px-2 text-xs font-medium transition ${
-                      filters.categories.includes(category.category_id)
-                        ? "bg-emerald-600 text-white shadow-sm"
-                        : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                    }`}
-                  >
-                    {category.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <label className="block">
-              <span className="text-xs font-medium text-slate-600">
-                일정
-              </span>
-              <select
-                value={
-                  typeof filters.schedule === "number"
-                    ? String(filters.schedule)
-                    : filters.schedule
-                }
-                onChange={(event) => {
-                  const value = event.target.value;
-                  updateFilters({
-                    schedule:
-                      value === "linked" || value === "unlinked"
-                        ? value
-                        : value
-                          ? Number(value)
-                          : "all",
-                  });
-                }}
-                className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                aria-label="일정별 필터"
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setFiltersOpen((open) => !open)}
+                className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition ${
+                  filtersOpen
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
               >
-                <option value="all">모든 연결</option>
-                <option value="linked">일정 연결</option>
-                <option value="unlinked">미연결</option>
-                {scheduleOptions.map((schedule) => (
-                  <option key={schedule.schedule_id} value={schedule.schedule_id}>
-                    {schedule.title}
-                  </option>
-                ))}
-              </select>
-            </label>
+                <SlidersHorizontal className="h-4 w-4" />
+                {filtersOpen ? "필터 접기" : "필터 열기"}
+              </button>
+              <button
+                type="button"
+                onClick={resetFilters}
+                disabled={activeFilterCount === 0}
+                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              >
+                초기화
+              </button>
+            </div>
           </div>
+
+          {filtersOpen && (
+            <>
+              <div className="mt-4 grid gap-3 xl:grid-cols-[1.2fr_1fr_1fr]">
+                <label className="block">
+                  <span className="text-xs font-medium text-slate-600">
+                    검색
+                  </span>
+                  <input
+                    type="search"
+                    value={filters.q}
+                    onChange={(event) =>
+                      updateFilters({ q: event.target.value })
+                    }
+                    placeholder="제목, 설명, 장소"
+                    className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                  />
+                </label>
+
+                <div>
+                  <span className="text-xs font-medium text-slate-600">
+                    상태
+                  </span>
+                  <div className="mt-1 flex min-h-10 flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => updateFilters({ statuses: [] })}
+                      className={`h-8 rounded-md px-2 text-xs font-medium transition ${
+                        filters.statuses.length === 0
+                          ? "bg-emerald-600 text-white shadow-sm"
+                          : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                      }`}
+                    >
+                      전체
+                    </button>
+                    {statusFilterOptions.map((option) => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onClick={() => {
+                          const selected = filters.statuses.includes(
+                            option.value,
+                          );
+                          updateFilters({
+                            statuses: selected
+                              ? filters.statuses.filter(
+                                  (item) => item !== option.value,
+                                )
+                              : [...filters.statuses, option.value],
+                          });
+                        }}
+                        className={`h-8 rounded-md px-2 text-xs font-medium transition ${
+                          filters.statuses.includes(option.value)
+                            ? "bg-emerald-600 text-white shadow-sm"
+                            : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-xs font-medium text-slate-600">
+                    우선순위
+                  </span>
+                  <div className="mt-1 flex min-h-10 flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => updateFilters({ priorities: [] })}
+                      className={`h-8 rounded-md px-2 text-xs font-medium transition ${
+                        filters.priorities.length === 0
+                          ? "bg-emerald-600 text-white shadow-sm"
+                          : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                      }`}
+                    >
+                      전체
+                    </button>
+                    {priorityFilterOptions.map((option) => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onClick={() => {
+                          const selected = filters.priorities.includes(
+                            option.value,
+                          );
+                          updateFilters({
+                            priorities: selected
+                              ? filters.priorities.filter(
+                                  (item) => item !== option.value,
+                                )
+                              : [...filters.priorities, option.value],
+                          });
+                        }}
+                        className={`h-8 rounded-md px-2 text-xs font-medium transition ${
+                          filters.priorities.includes(option.value)
+                            ? "bg-emerald-600 text-white shadow-sm"
+                            : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_1fr_1fr_1fr]">
+                <label className="block">
+                  <span className="text-xs font-medium text-slate-600">
+                    마감 시작
+                  </span>
+                  <input
+                    type="date"
+                    value={filters.dueFrom}
+                    onChange={(event) =>
+                      updateFilters({ dueFrom: event.target.value })
+                    }
+                    className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-xs font-medium text-slate-600">
+                    마감 종료
+                  </span>
+                  <input
+                    type="date"
+                    value={filters.dueTo}
+                    onChange={(event) =>
+                      updateFilters({ dueTo: event.target.value })
+                    }
+                    className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                  />
+                </label>
+
+                <div>
+                  <span className="text-xs font-medium text-slate-600">
+                    카테고리
+                  </span>
+                  <div className="mt-1 flex min-h-10 flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => updateFilters({ categories: [] })}
+                      className={`h-8 rounded-md px-2 text-xs font-medium transition ${
+                        filters.categories.length === 0
+                          ? "bg-emerald-600 text-white shadow-sm"
+                          : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                      }`}
+                    >
+                      전체
+                    </button>
+                    {(categoriesQuery.data ?? []).map((category) => (
+                      <button
+                        key={category.category_id}
+                        type="button"
+                        onClick={() => {
+                          const selected = filters.categories.includes(
+                            category.category_id,
+                          );
+                          updateFilters({
+                            categories: selected
+                              ? filters.categories.filter(
+                                  (item) => item !== category.category_id,
+                                )
+                              : [...filters.categories, category.category_id],
+                          });
+                        }}
+                        className={`h-8 rounded-md px-2 text-xs font-medium transition ${
+                          filters.categories.includes(category.category_id)
+                            ? "bg-emerald-600 text-white shadow-sm"
+                            : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                        }`}
+                      >
+                        {category.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <label className="block">
+                  <span className="text-xs font-medium text-slate-600">
+                    일정
+                  </span>
+                  <select
+                    value={
+                      typeof filters.schedule === "number"
+                        ? String(filters.schedule)
+                        : filters.schedule
+                    }
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      updateFilters({
+                        schedule:
+                          value === "linked" || value === "unlinked"
+                            ? value
+                            : value
+                              ? Number(value)
+                              : "all",
+                      });
+                    }}
+                    className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                    aria-label="일정별 필터"
+                  >
+                    <option value="all">모든 연결</option>
+                    <option value="linked">일정 연결</option>
+                    <option value="unlinked">미연결</option>
+                    {scheduleOptions.map((schedule) => (
+                      <option
+                        key={schedule.schedule_id}
+                        value={schedule.schedule_id}
+                      >
+                        {schedule.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </>
+          )}
 
           {taskFilterChips.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">

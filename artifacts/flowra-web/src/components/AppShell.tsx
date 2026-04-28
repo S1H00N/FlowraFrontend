@@ -4,12 +4,14 @@ import {
   LayoutDashboard,
   LogOut,
   NotebookPen,
+  PanelLeftClose,
+  PanelLeftOpen,
   Sparkles,
   Tag,
   CheckSquare2,
   Plus,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMe } from "@/hooks/useMe";
 
@@ -52,24 +54,63 @@ const quickActions = [
   { to: "/memos", label: "메모 작성" },
 ];
 
-export default function AppShell({ children }: { children: ReactNode }) {
+export default function AppShell({
+  children,
+  fullBleed = false,
+}: {
+  children: ReactNode;
+  fullBleed?: boolean;
+}) {
   const { user: cachedUser, logout } = useAuth();
   const meQuery = useMe();
   const location = useLocation();
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window === "undefined") return true;
+
+    const saved = window.localStorage.getItem("flowra-sidebar-open");
+    if (saved !== null) return saved === "true";
+
+    return window.matchMedia("(min-width: 768px)").matches;
+  });
 
   const displayName = meQuery.data?.name ?? cachedUser?.name ?? "사용자";
   const activeItem =
     navigation.find((item) => item.to === location.pathname) ?? navigation[0];
   const initials = displayName.slice(0, 1).toUpperCase();
+  const SidebarToggleIcon = sidebarOpen ? PanelLeftClose : PanelLeftOpen;
+
+  useEffect(() => {
+    window.localStorage.setItem("flowra-sidebar-open", String(sidebarOpen));
+  }, [sidebarOpen]);
+
+  const closeSidebarOnMobile = () => {
+    if (window.matchMedia("(max-width: 767px)").matches) {
+      setSidebarOpen(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#f7f8f5] text-slate-900">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-slate-200/80 bg-white/95 shadow-sm backdrop-blur md:flex md:flex-col">
+      {sidebarOpen && (
+        <button
+          type="button"
+          aria-label="사이드바 닫기"
+          className="fixed inset-0 z-40 bg-slate-950/20 backdrop-blur-[1px] md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-slate-200/80 bg-white/95 shadow-sm backdrop-blur transition-transform duration-200 ease-out md:z-40 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
         <div className="flex h-16 items-center gap-3 border-b border-slate-200 px-5">
           <Link
             to="/"
             className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm"
             aria-label="Flowra 홈"
+            onClick={closeSidebarOnMobile}
           >
             <Sparkles className="h-5 w-5" />
           </Link>
@@ -79,6 +120,15 @@ export default function AppShell({ children }: { children: ReactNode }) {
               Personal workspace
             </p>
           </div>
+          <button
+            type="button"
+            aria-label="사이드바 닫기"
+            title="사이드바 닫기"
+            className="ml-auto inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
+            onClick={() => setSidebarOpen(false)}
+          >
+            <PanelLeftClose className="h-4 w-4" />
+          </button>
         </div>
 
         <nav className="flex-1 space-y-1 px-3 py-4">
@@ -89,6 +139,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 key={item.to}
                 to={item.to}
                 end={item.to === "/"}
+                onClick={closeSidebarOnMobile}
                 className={({ isActive }) =>
                   `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
                     isActive
@@ -112,6 +163,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 <Link
                   key={action.to}
                   to={action.to}
+                  onClick={closeSidebarOnMobile}
                   className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-white hover:text-slate-950"
                 >
                   <Plus className="h-3.5 w-3.5" />
@@ -123,17 +175,23 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      <div className="min-h-screen md:pl-64">
+      <div
+        className={`min-h-screen transition-[padding] duration-200 ease-out ${
+          sidebarOpen ? "md:pl-64" : "md:pl-0"
+        }`}
+      >
         <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur">
           <div className="flex min-h-16 flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
             <div className="flex items-center gap-3">
-              <Link
-                to="/"
-                className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm md:hidden"
-                aria-label="Flowra 홈"
+              <button
+                type="button"
+                aria-label={sidebarOpen ? "사이드바 닫기" : "사이드바 열기"}
+                title={sidebarOpen ? "사이드바 닫기" : "사이드바 열기"}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
+                onClick={() => setSidebarOpen((open) => !open)}
               >
-                <Sparkles className="h-5 w-5" />
-              </Link>
+                <SidebarToggleIcon className="h-4 w-4" />
+              </button>
               <div className="min-w-0">
                 <h1 className="text-lg font-semibold text-slate-950">
                   {activeItem.label}
@@ -182,7 +240,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-7xl px-4 py-5 pb-24 sm:px-6 lg:px-8 lg:py-6">
+        <main
+          className={
+            fullBleed
+              ? "w-full pb-16 md:pb-0"
+              : "mx-auto w-full max-w-7xl px-4 py-5 pb-24 sm:px-6 lg:px-8 lg:py-6"
+          }
+        >
           {children}
         </main>
       </div>
