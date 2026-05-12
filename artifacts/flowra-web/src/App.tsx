@@ -19,6 +19,7 @@ const Tasks = lazy(() => import("@/pages/Tasks"));
 const Schedules = lazy(() => import("@/pages/Schedules"));
 const Memos = lazy(() => import("@/pages/Memos"));
 const Categories = lazy(() => import("@/pages/Categories"));
+const CompanyInvite = lazy(() => import("@/pages/CompanyInvite"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 interface MutationMeta {
@@ -71,6 +72,7 @@ function App() {
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
+              <Route path="/company-invites/:token" element={<CompanyInvite />} />
               <Route
                 path="/"
                 element={

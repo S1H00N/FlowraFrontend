@@ -7,3 +7,4 @@ export * from "./schedule";
 export * from "./memo";
 export * from "./category";
 export * from "./reminder";
+export * from "./company";

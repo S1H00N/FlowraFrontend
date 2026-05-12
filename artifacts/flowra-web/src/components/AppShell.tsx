@@ -9,7 +9,6 @@ import {
   Sparkles,
   Tag,
   CheckSquare2,
-  Plus,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -49,28 +48,32 @@ const navigation = [
 ];
 
 const quickActions = [
-  { to: "/tasks", label: "할 일 추가" },
-  { to: "/schedules", label: "일정 추가" },
-  { to: "/memos", label: "메모 작성" },
+  { to: "/tasks", label: "할 일 추가", icon: CheckSquare2 },
+  { to: "/schedules", label: "일정 추가", icon: CalendarDays },
+  { to: "/memos", label: "메모 작성", icon: NotebookPen },
 ];
+
+const SIDEBAR_OPEN_STORAGE_KEY = "flowra-sidebar-open";
 
 export default function AppShell({
   children,
   fullBleed = false,
+  titleMeta,
 }: {
   children: ReactNode;
   fullBleed?: boolean;
+  titleMeta?: ReactNode;
 }) {
   const { user: cachedUser, logout } = useAuth();
   const meQuery = useMe();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(() => {
-    if (typeof window === "undefined") return true;
+    if (typeof window === "undefined") return false;
 
-    const saved = window.localStorage.getItem("flowra-sidebar-open");
+    const saved = window.localStorage.getItem(SIDEBAR_OPEN_STORAGE_KEY);
     if (saved !== null) return saved === "true";
 
-    return window.matchMedia("(min-width: 768px)").matches;
+    return false;
   });
 
   const displayName = meQuery.data?.name ?? cachedUser?.name ?? "사용자";
@@ -78,9 +81,10 @@ export default function AppShell({
     navigation.find((item) => item.to === location.pathname) ?? navigation[0];
   const initials = displayName.slice(0, 1).toUpperCase();
   const SidebarToggleIcon = sidebarOpen ? PanelLeftClose : PanelLeftOpen;
+  const showHeaderQuickActions = !sidebarOpen;
 
   useEffect(() => {
-    window.localStorage.setItem("flowra-sidebar-open", String(sidebarOpen));
+    window.localStorage.setItem(SIDEBAR_OPEN_STORAGE_KEY, String(sidebarOpen));
   }, [sidebarOpen]);
 
   const closeSidebarOnMobile = () => {
@@ -95,13 +99,13 @@ export default function AppShell({
         <button
           type="button"
           aria-label="사이드바 닫기"
-          className="fixed inset-0 z-40 bg-slate-950/20 backdrop-blur-[1px] md:hidden"
+          className="fixed inset-0 z-40 bg-slate-950/20 backdrop-blur-[1px]"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-slate-200/80 bg-white/95 shadow-sm backdrop-blur transition-transform duration-200 ease-out md:z-40 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-slate-200/80 bg-white/95 shadow-xl backdrop-blur transition-transform duration-200 ease-out ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -124,7 +128,7 @@ export default function AppShell({
             type="button"
             aria-label="사이드바 닫기"
             title="사이드바 닫기"
-            className="ml-auto inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
+            className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
             onClick={() => setSidebarOpen(false)}
           >
             <PanelLeftClose className="h-4 w-4" />
@@ -154,35 +158,20 @@ export default function AppShell({
             );
           })}
         </nav>
-
-        <div className="border-t border-slate-200 p-3">
-          <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-            <p className="text-xs font-medium text-slate-500">빠른 실행</p>
-            <div className="mt-2 space-y-1">
-              {quickActions.map((action) => (
-                <Link
-                  key={action.to}
-                  to={action.to}
-                  onClick={closeSidebarOnMobile}
-                  className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-white hover:text-slate-950"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  {action.label}
-                </Link>
-              ))}
-            </div>
-          </div>
-        </div>
       </aside>
 
       <div
-        className={`min-h-screen transition-[padding] duration-200 ease-out ${
-          sidebarOpen ? "md:pl-64" : "md:pl-0"
-        }`}
+        className={fullBleed ? "h-dvh overflow-hidden" : "min-h-screen"}
       >
         <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur">
-          <div className="flex min-h-16 flex-col gap-3 px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
-            <div className="flex items-center gap-3">
+          <div
+            className={`flex items-center justify-between gap-3 ${
+              fullBleed
+                ? "min-h-12 px-4 py-1.5 sm:px-5 lg:px-6"
+                : "min-h-14 px-4 py-2 sm:px-6 lg:px-8"
+            }`}
+          >
+            <div className="flex min-w-0 items-center gap-3">
               <button
                 type="button"
                 aria-label={sidebarOpen ? "사이드바 닫기" : "사이드바 열기"}
@@ -193,28 +182,51 @@ export default function AppShell({
                 <SidebarToggleIcon className="h-4 w-4" />
               </button>
               <div className="min-w-0">
-                <h1 className="text-lg font-semibold text-slate-950">
-                  {activeItem.label}
-                </h1>
-                <p className="truncate text-sm text-slate-500">
-                  {activeItem.description}
-                </p>
+                <div className="flex min-w-0 items-baseline gap-2">
+                  <h1
+                    className={`shrink-0 font-semibold text-slate-950 ${
+                      fullBleed ? "text-base" : "text-lg"
+                    }`}
+                  >
+                    {activeItem.label}
+                  </h1>
+                  {titleMeta && (
+                    <span className="hidden min-w-0 truncate text-xs font-medium text-slate-500 sm:block">
+                      {titleMeta}
+                    </span>
+                  )}
+                </div>
+                {!fullBleed && (
+                  <p className="truncate text-sm text-slate-500">
+                    {activeItem.description}
+                  </p>
+                )}
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-3 lg:justify-end">
-              <div className="hidden items-center gap-2 sm:flex">
-                {quickActions.map((action) => (
-                  <Link
-                    key={action.to}
-                    to={action.to}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    {action.label}
-                  </Link>
-                ))}
-              </div>
+            <div className="ml-auto flex min-w-0 items-center justify-end gap-3">
+              {showHeaderQuickActions && (
+                <div className="hidden items-center gap-1 rounded-lg bg-slate-50 px-2 py-1 md:flex">
+                  <span className="mr-1 text-[11px] font-semibold text-slate-500">
+                    빠른 실행
+                  </span>
+                  {quickActions.map((action) => {
+                    const ActionIcon = action.icon;
+
+                    return (
+                      <Link
+                        key={action.to}
+                        to={action.to}
+                        title={action.label}
+                        aria-label={action.label}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 transition hover:bg-white hover:text-emerald-700 hover:shadow-sm"
+                      >
+                        <ActionIcon className="h-4 w-4" />
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
 
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm">
@@ -243,7 +255,7 @@ export default function AppShell({
         <main
           className={
             fullBleed
-              ? "w-full pb-16 md:pb-0"
+              ? "h-[calc(100dvh-7rem)] w-full overflow-hidden md:h-[calc(100dvh-3rem)]"
               : "mx-auto w-full max-w-7xl px-4 py-5 pb-24 sm:px-6 lg:px-8 lg:py-6"
           }
         >

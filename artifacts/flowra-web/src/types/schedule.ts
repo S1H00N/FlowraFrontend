@@ -33,6 +33,14 @@ export const SCHEDULE_VISIBILITY_LABELS: Partial<
 
 export interface Schedule {
   schedule_id: number;
+  company_schedule_id?: number;
+  is_company_schedule?: boolean;
+  company?: {
+    company_id: number;
+    public_uid?: string;
+    name: string;
+    status?: string;
+  };
   user_id?: number;
   title: string;
   description?: string | null;
@@ -50,6 +58,8 @@ export interface Schedule {
   recurrence_rule?: RecurrenceRule | null;
   source_memo_id?: number | null;
   source_ai_result_id?: number | null;
+  source_type?: string | null;
+  targets?: Array<Record<string, unknown>>;
   created_at: string;
   updated_at?: string;
 }

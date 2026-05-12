@@ -9,14 +9,17 @@ import { toast } from "@/lib/toast";
 import { Sparkles } from "lucide-react";
 
 interface LocationState {
-  from?: { pathname: string };
+  from?: { pathname: string; search?: string; hash?: string };
 }
 
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const from = (location.state as LocationState | null)?.from?.pathname || "/";
+  const fromLocation = (location.state as LocationState | null)?.from;
+  const from = fromLocation
+    ? `${fromLocation.pathname}${fromLocation.search ?? ""}${fromLocation.hash ?? ""}`
+    : "/";
 
   const {
     register,

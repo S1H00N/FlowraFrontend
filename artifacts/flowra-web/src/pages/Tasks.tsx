@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { SlidersHorizontal } from "lucide-react";
+import { Plus, SlidersHorizontal, X } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import TaskForm from "@/components/TaskForm";
 import TaskItem from "@/components/TaskItem";
@@ -455,6 +455,7 @@ export default function Tasks() {
     typeof filters.schedule === "number"
       ? schedulesById.get(filters.schedule)
       : undefined;
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
 
   useEffect(() => {
     if (!deepLinkedTaskId || Number.isNaN(deepLinkedTaskId)) return;
@@ -487,20 +488,50 @@ export default function Tasks() {
           </div>
         </section>
 
-        <section className="space-y-3">
+        <section className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <button
+            type="button"
+            onClick={() => setQuickAddOpen((open) => !open)}
+            aria-expanded={quickAddOpen}
+            className="flex w-full items-center justify-between gap-3 text-left"
+          >
           <div>
             <h2 className="text-sm font-semibold text-slate-950">빠른 추가</h2>
             <p className="mt-1 text-xs text-slate-500">
               입력하면 기본 상태는 할 일(todo)로 저장됩니다.
             </p>
           </div>
-          <TaskForm
-            defaultScheduleId={
-              typeof filters.schedule === "number"
-                ? filters.schedule
-                : undefined
-            }
-          />
+            <span
+              className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition ${
+                quickAddOpen
+                  ? "border-slate-200 bg-slate-100 text-slate-600"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-700"
+              }`}
+            >
+              {quickAddOpen ? (
+                <X className="h-4 w-4" />
+              ) : (
+                <Plus className="h-4 w-4" />
+              )}
+            </span>
+          </button>
+          <div
+            className={`grid transition-[grid-template-rows] duration-200 ease-out ${
+              quickAddOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+            }`}
+          >
+            <div className="overflow-hidden">
+              <div className="mt-3 border-t border-slate-100 pt-3">
+                <TaskForm
+                  defaultScheduleId={
+                    typeof filters.schedule === "number"
+                      ? filters.schedule
+                      : undefined
+                  }
+                />
+              </div>
+            </div>
+          </div>
           {selectedSchedule && (
             <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
               빠른 추가 항목은 일정{" "}
