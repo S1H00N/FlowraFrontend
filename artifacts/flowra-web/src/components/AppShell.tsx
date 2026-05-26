@@ -4,13 +4,11 @@ import {
   LayoutDashboard,
   LogOut,
   NotebookPen,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Sparkles,
+  PanelLeft,
   Tag,
   CheckSquare2,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMe } from "@/hooks/useMe";
 
@@ -53,44 +51,124 @@ const quickActions = [
   { to: "/memos", label: "메모 작성", icon: NotebookPen },
 ];
 
-const SIDEBAR_OPEN_STORAGE_KEY = "flowra-sidebar-open";
+export const SIDEBAR_COLLAPSED_STORAGE_KEY = "flowra-sidebar-collapsed";
 
 export default function AppShell({
   children,
   fullBleed = false,
+  sidebarExtra,
   titleMeta,
+  onSidebarCollapsedChange,
+  onSidebarPreviewChange,
 }: {
   children: ReactNode;
   fullBleed?: boolean;
+  sidebarExtra?: ReactNode;
   titleMeta?: ReactNode;
+  onSidebarCollapsedChange?: (collapsed: boolean) => void;
+  onSidebarPreviewChange?: (open: boolean) => void;
 }) {
   const { user: cachedUser, logout } = useAuth();
   const meQuery = useMe();
   const location = useLocation();
-  const [sidebarOpen, setSidebarOpen] = useState(() => {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarPreviewOpen, setSidebarPreviewOpen] = useState(false);
+  const sidebarPreviewCloseTimeoutRef = useRef<number | null>(null);
+  const [isDesktop, setIsDesktop] = useState(() => {
     if (typeof window === "undefined") return false;
 
-    const saved = window.localStorage.getItem(SIDEBAR_OPEN_STORAGE_KEY);
-    if (saved !== null) return saved === "true";
+    return window.matchMedia("(min-width: 600px)").matches;
+  });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
 
-    return false;
+    return (
+      window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true"
+    );
   });
 
   const displayName = meQuery.data?.name ?? cachedUser?.name ?? "사용자";
   const activeItem =
     navigation.find((item) => item.to === location.pathname) ?? navigation[0];
   const initials = displayName.slice(0, 1).toUpperCase();
-  const SidebarToggleIcon = sidebarOpen ? PanelLeftClose : PanelLeftOpen;
-  const showHeaderQuickActions = !sidebarOpen;
+  const headerSidebarLabel = isDesktop
+    ? sidebarCollapsed
+      ? "사이드바 펼치기"
+      : "사이드바 접기"
+    : sidebarOpen
+      ? "사이드바 닫기"
+      : "사이드바 열기";
+  const showHeaderQuickActions = sidebarCollapsed;
+  const showSidebarPreview = sidebarCollapsed && sidebarPreviewOpen;
+  const splitSummaryHeader = fullBleed && titleMeta;
+  const summaryParts =
+    typeof titleMeta === "string" ? titleMeta.split(" · ") : null;
 
   useEffect(() => {
-    window.localStorage.setItem(SIDEBAR_OPEN_STORAGE_KEY, String(sidebarOpen));
-  }, [sidebarOpen]);
+    window.localStorage.setItem(
+      SIDEBAR_COLLAPSED_STORAGE_KEY,
+      String(sidebarCollapsed),
+    );
+    onSidebarCollapsedChange?.(sidebarCollapsed);
+  }, [onSidebarCollapsedChange, sidebarCollapsed]);
+
+  useEffect(() => {
+    onSidebarPreviewChange?.(showSidebarPreview);
+  }, [onSidebarPreviewChange, showSidebarPreview]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(min-width: 600px)");
+    const handleChange = () => setIsDesktop(mediaQuery.matches);
+
+    handleChange();
+    mediaQuery.addEventListener("change", handleChange);
+
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
 
   const closeSidebarOnMobile = () => {
-    if (window.matchMedia("(max-width: 767px)").matches) {
+    if (window.matchMedia("(max-width: 599px)").matches) {
       setSidebarOpen(false);
     }
+  };
+
+  const clearSidebarPreviewClose = () => {
+    if (sidebarPreviewCloseTimeoutRef.current === null) return;
+    window.clearTimeout(sidebarPreviewCloseTimeoutRef.current);
+    sidebarPreviewCloseTimeoutRef.current = null;
+  };
+
+  const openSidebarPreview = () => {
+    if (!sidebarCollapsed) return;
+    clearSidebarPreviewClose();
+    setSidebarPreviewOpen(true);
+  };
+
+  const scheduleSidebarPreviewClose = () => {
+    if (!sidebarCollapsed) return;
+    clearSidebarPreviewClose();
+    sidebarPreviewCloseTimeoutRef.current = window.setTimeout(() => {
+      setSidebarPreviewOpen(false);
+      sidebarPreviewCloseTimeoutRef.current = null;
+    }, 420);
+  };
+
+  useEffect(
+    () => () => {
+      clearSidebarPreviewClose();
+    },
+    [],
+  );
+
+  const handleHeaderSidebarToggle = () => {
+    if (isDesktop) {
+      setSidebarCollapsed((collapsed) => !collapsed);
+      clearSidebarPreviewClose();
+      setSidebarPreviewOpen(false);
+      return;
+    }
+
+    setSidebarOpen((open) => !open);
   };
 
   return (
@@ -99,43 +177,74 @@ export default function AppShell({
         <button
           type="button"
           aria-label="사이드바 닫기"
-          className="fixed inset-0 z-40 bg-slate-950/20 backdrop-blur-[1px]"
+          className="fixed inset-0 z-40 bg-slate-950/20 backdrop-blur-[1px] min-[600px]:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
+      {sidebarCollapsed && (
+        <div
+          className="fixed bottom-4 left-0 top-16 z-40 hidden w-2 min-[600px]:block"
+          onMouseEnter={openSidebarPreview}
+          onMouseLeave={scheduleSidebarPreviewClose}
+          aria-hidden="true"
+        />
+      )}
+
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-slate-200/80 bg-white/95 shadow-xl backdrop-blur transition-transform duration-200 ease-out ${
+        className={`fixed left-0 z-50 flex w-64 flex-col border-r border-slate-200/80 bg-white/95 shadow-xl backdrop-blur transition-[transform,width,border-color] duration-200 ease-out ${
+          showSidebarPreview
+            ? "bottom-0 top-16"
+            : "inset-y-0"
+        } ${
+          showSidebarPreview
+            ? "min-[600px]:w-64 min-[600px]:translate-x-0 min-[600px]:shadow-2xl"
+            : sidebarCollapsed
+              ? "min-[600px]:w-0 min-[600px]:-translate-x-full min-[600px]:overflow-hidden min-[600px]:border-transparent min-[600px]:shadow-none"
+              : "min-[600px]:w-64 min-[600px]:translate-x-0 min-[600px]:shadow-none"
+        } ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
+        onMouseEnter={openSidebarPreview}
+        onMouseLeave={scheduleSidebarPreviewClose}
       >
-        <div className="flex h-16 items-center gap-3 border-b border-slate-200 px-5">
-          <Link
-            to="/"
-            className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm"
-            aria-label="Flowra 홈"
-            onClick={closeSidebarOnMobile}
-          >
-            <Sparkles className="h-5 w-5" />
-          </Link>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-slate-950">Flowra</p>
-            <p className="truncate text-xs text-slate-500">
-              Personal workspace
-            </p>
-          </div>
+        <div
+          className={`flex h-16 items-center gap-3 border-b border-slate-200 transition-all ${
+            fullBleed ? "px-4 sm:px-5 lg:px-6" : "px-4 sm:px-6 lg:px-8"
+          } ${
+            sidebarCollapsed ? "min-[600px]:hidden" : ""
+          }`}
+        >
           <button
             type="button"
-            aria-label="사이드바 닫기"
-            title="사이드바 닫기"
-            className="ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
-            onClick={() => setSidebarOpen(false)}
+            aria-label={headerSidebarLabel}
+            title={headerSidebarLabel}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
+            onClick={() => {
+              if (isDesktop) {
+                setSidebarCollapsed((collapsed) => !collapsed);
+                setSidebarPreviewOpen(false);
+                return;
+              }
+
+              setSidebarOpen(false);
+            }}
           >
-            <PanelLeftClose className="h-4 w-4" />
+            <PanelLeft className="h-4 w-4" />
           </button>
         </div>
 
-        <nav className="flex-1 space-y-1 px-3 py-4">
+        <nav
+          className={`flex-1 space-y-1 px-3 py-4 transition-all ${
+            sidebarCollapsed && !showSidebarPreview ? "min-[600px]:hidden" : ""
+          }`}
+        >
+          {sidebarExtra && (
+            <div className="mb-4 border-b border-slate-100 pb-4">
+              {sidebarExtra}
+            </div>
+          )}
+
           {navigation.map((item) => {
             const Icon = item.icon;
             return (
@@ -154,54 +263,93 @@ export default function AppShell({
               >
                 <Icon className="h-4 w-4" />
                 <span>{item.label}</span>
-              </NavLink>
+                </NavLink>
             );
           })}
         </nav>
       </aside>
 
       <div
-        className={fullBleed ? "h-dvh overflow-hidden" : "min-h-screen"}
+        className={
+          fullBleed
+            ? `h-dvh overflow-hidden ${
+                sidebarCollapsed ? "min-[600px]:pl-0" : "min-[600px]:pl-64"
+              }`
+            : `min-h-screen ${
+                sidebarCollapsed ? "min-[600px]:pl-0" : "min-[600px]:pl-64"
+              }`
+        }
       >
-        <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur">
+        <header
+          className={`sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur ${
+            fullBleed ? "h-12 min-[600px]:h-16" : "h-14 min-[600px]:h-16"
+          }`}
+        >
           <div
-            className={`flex items-center justify-between gap-3 ${
+            className={`relative flex h-full items-center justify-between gap-3 ${
               fullBleed
-                ? "min-h-12 px-4 py-1.5 sm:px-5 lg:px-6"
-                : "min-h-14 px-4 py-2 sm:px-6 lg:px-8"
+                ? "px-4 py-1.5 sm:px-5 lg:px-6"
+                : "px-4 py-2 sm:px-6 lg:px-8"
             }`}
           >
-            <div className="flex min-w-0 items-center gap-3">
-              <button
-                type="button"
-                aria-label={sidebarOpen ? "사이드바 닫기" : "사이드바 열기"}
-                title={sidebarOpen ? "사이드바 닫기" : "사이드바 열기"}
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
-                onClick={() => setSidebarOpen((open) => !open)}
-              >
-                <SidebarToggleIcon className="h-4 w-4" />
-              </button>
-              <div className="min-w-0">
-                <div className="flex min-w-0 items-baseline gap-2">
-                  <h1
-                    className={`shrink-0 font-semibold text-slate-950 ${
-                      fullBleed ? "text-base" : "text-lg"
-                    }`}
-                  >
-                    {activeItem.label}
-                  </h1>
-                  {titleMeta && (
-                    <span className="hidden min-w-0 truncate text-xs font-medium text-slate-500 sm:block">
+            <div
+              className="relative z-10 flex min-w-0 items-center gap-3"
+            >
+              {(!splitSummaryHeader || !isDesktop || sidebarCollapsed) && (
+                <button
+                  type="button"
+                  aria-label={headerSidebarLabel}
+                  title={headerSidebarLabel}
+                  className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 ${
+                    sidebarCollapsed ? "" : "min-[600px]:hidden"
+                  }`}
+                  onMouseEnter={openSidebarPreview}
+                  onMouseLeave={scheduleSidebarPreviewClose}
+                  onClick={handleHeaderSidebarToggle}
+                >
+                  <PanelLeft className="h-4 w-4" />
+                </button>
+              )}
+              {splitSummaryHeader ? (
+                <div className="min-w-0">
+                  {summaryParts ? (
+                    <>
+                      <p className="truncate text-sm font-semibold text-slate-800 sm:text-base">
+                        {summaryParts[0]}
+                      </p>
+                      <p className="truncate text-xs font-medium text-slate-500">
+                        {summaryParts.slice(1).join(" · ")}
+                      </p>
+                    </>
+                  ) : (
+                    <span className="block truncate text-sm font-semibold text-slate-700 sm:text-base">
                       {titleMeta}
                     </span>
                   )}
                 </div>
-                {!fullBleed && (
-                  <p className="truncate text-sm text-slate-500">
-                    {activeItem.description}
-                  </p>
-                )}
-              </div>
+              ) : (
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-baseline gap-2">
+                    <h1
+                      className={`shrink-0 font-semibold text-slate-950 ${
+                        fullBleed ? "text-base" : "text-lg"
+                      }`}
+                    >
+                      {activeItem.label}
+                    </h1>
+                    {titleMeta && (
+                      <span className="hidden min-w-0 truncate text-xs font-medium text-slate-500 sm:block">
+                        {titleMeta}
+                      </span>
+                    )}
+                  </div>
+                  {!fullBleed && (
+                    <p className="truncate text-sm text-slate-500">
+                      {activeItem.description}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="ml-auto flex min-w-0 items-center justify-end gap-3">
@@ -255,15 +403,15 @@ export default function AppShell({
         <main
           className={
             fullBleed
-              ? "h-[calc(100dvh-7rem)] w-full overflow-hidden md:h-[calc(100dvh-3rem)]"
-              : "mx-auto w-full max-w-7xl px-4 py-5 pb-24 sm:px-6 lg:px-8 lg:py-6"
+              ? "h-[calc(100dvh-7rem)] w-full overflow-hidden min-[600px]:h-[calc(100dvh-4rem)]"
+              : "mx-auto w-full max-w-7xl px-4 py-5 pb-24 min-[600px]:pb-6 sm:px-6 lg:px-8 lg:py-6"
           }
         >
           {children}
         </main>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-slate-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] pt-1 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-slate-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] pt-1 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur min-[600px]:hidden">
         {navigation.map((item) => {
           const Icon = item.icon;
           return (
