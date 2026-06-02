@@ -1,5 +1,6 @@
 import type { Schedule } from "./schedule";
-import type { Task } from "./task";
+import type { Task, TaskStatus } from "./task";
+import type { Reminder } from "./reminder";
 
 export type MemoType = "quick" | "meeting" | "general";
 export type MemoSourceType = "manual" | "voice" | "imported";
@@ -69,18 +70,50 @@ export interface MemoListQuery {
 export interface AiSuggestedSchedule {
   title?: string;
   description?: string | null;
+  schedule_type?: Schedule["schedule_type"] | null;
+  priority?: Schedule["priority"] | null;
   start_datetime?: string | null;
   end_datetime?: string | null;
+  all_day?: boolean | null;
   location?: string | null;
   category_id?: number | null;
+  visibility?: Schedule["visibility"] | null;
+  recurrence?: Schedule["recurrence_rule"];
+  reminders?: AiSuggestedReminder[];
 }
 
 export interface AiSuggestedTask {
   title?: string;
   description?: string | null;
   priority?: string | null;
+  status?: TaskStatus | null;
   due_datetime?: string | null;
   category_id?: number | null;
+  location?: string | null;
+  reminders?: AiSuggestedReminder[];
+}
+
+export interface AiSuggestedReminder {
+  remind_at?: string | null;
+  offset_minutes?: number | null;
+  reminder_type?: Reminder["reminder_type"];
+}
+
+export interface AiSuggestedAction {
+  type: "create_schedule" | "create_task";
+  title?: string;
+  description?: string | null;
+  schedule_type?: Schedule["schedule_type"] | null;
+  priority?: string | null;
+  status?: TaskStatus | null;
+  start_datetime?: string | null;
+  end_datetime?: string | null;
+  all_day?: boolean | null;
+  due_datetime?: string | null;
+  location?: string | null;
+  visibility?: Schedule["visibility"] | null;
+  recurrence?: Schedule["recurrence_rule"] | null;
+  reminders?: AiSuggestedReminder[];
 }
 
 export interface AiParseResult {
@@ -96,6 +129,7 @@ export interface AiParseResult {
   extracted_priority?: string | null;
   suggested_schedule?: AiSuggestedSchedule | null;
   suggested_task?: AiSuggestedTask | null;
+  suggested_actions?: AiSuggestedAction[] | null;
   confidence_score?: number | null;
   status?: string;
   created_at?: string;
@@ -109,17 +143,17 @@ export interface MemoParseResult {
 }
 
 export interface ApplyMemoRequest {
-  apply_type: "schedule" | "task";
-  override_title?: string;
-  override_start_datetime?: string;
-  override_end_datetime?: string;
-  override_location?: string;
-  override_priority?: string;
-  override_due_datetime?: string;
-  override_category_id?: string | number;
+  ai_result_id?: string | number;
+  apply_type: "schedule" | "task" | "action" | "all";
+  action_index?: number;
+  category_id?: string | number;
+  schedule_id?: string | number;
 }
 
 export interface ApplyMemoResponse {
-  apply_type: "schedule" | "task";
-  resource: Schedule | Task;
+  apply_type: ApplyMemoRequest["apply_type"];
+  resource: Schedule | Task | null;
+  resources?: Array<Schedule | Task>;
+  reminders?: Reminder[];
+  applied_actions?: object[];
 }

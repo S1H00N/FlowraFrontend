@@ -5,7 +5,6 @@ import type {
   LoginRequest,
   LoginResponseData,
   SignupRequest,
-  SignupResponseData,
   UpdateUserRequest,
   User,
 } from "@/types";
@@ -26,6 +25,7 @@ function normalizeLoginData(data: RawLoginResponseData): LoginResponseData {
       access_token: data.tokens.access_token,
       refresh_token: data.tokens.refresh_token,
       expires_in: data.tokens.expires_in,
+      refresh_expires_at: data.tokens.refresh_expires_at,
     };
   }
   return data;
@@ -44,11 +44,11 @@ export async function login(payload: LoginRequest) {
 }
 
 export async function signup(payload: SignupRequest) {
-  const res = await apiClient.post<ApiResponse<RawUserResponseData>>(
+  const res = await apiClient.post<ApiResponse<RawLoginResponseData>>(
     "/auth/signup",
     payload,
   );
-  return { ...res.data, data: normalizeUserData(res.data.data) };
+  return { ...res.data, data: normalizeLoginData(res.data.data) };
 }
 
 export async function getMe() {

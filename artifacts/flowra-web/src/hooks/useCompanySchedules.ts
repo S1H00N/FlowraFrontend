@@ -24,5 +24,6 @@ export function useCompanySchedules(
       }
       return res.data.company_schedules ?? [];
     },
+    placeholderData: (previousData) => previousData,
   });
 }

@@ -1,16 +1,25 @@
-import { Link, NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import {
   CalendarDays,
   LayoutDashboard,
   LogOut,
   NotebookPen,
   PanelLeft,
-  Tag,
+  Settings,
   CheckSquare2,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useMe } from "@/hooks/useMe";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { SettingsPanel } from "@/components/SettingsPanel";
 
 const navigation = [
   {
@@ -37,27 +46,121 @@ const navigation = [
     description: "메모를 남기고 AI 분석을 확인합니다.",
     icon: NotebookPen,
   },
-  {
-    to: "/categories",
-    label: "분류 관리",
-    description: "카테고리와 기본 분류값을 관리합니다.",
-    icon: Tag,
-  },
 ];
 
-const quickActions = [
-  { to: "/tasks", label: "할 일 추가", icon: CheckSquare2 },
-  { to: "/schedules", label: "일정 추가", icon: CalendarDays },
-  { to: "/memos", label: "메모 작성", icon: NotebookPen },
-];
+const settingsNavigationItem = {
+  to: "/settings",
+  label: "설정",
+  description: "표시 옵션과 개인 설정을 관리합니다.",
+  icon: Settings,
+};
+
+const sidebarToggleButtonClass =
+  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-transparent text-slate-500 shadow-none transition hover:bg-slate-100 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300";
 
 export const SIDEBAR_COLLAPSED_STORAGE_KEY = "flowra-sidebar-collapsed";
+
+function ProfileMenu({
+  variant,
+  displayName,
+  displayEmail,
+  profileImageUrl,
+  initials,
+  compact,
+  onOpenSettings,
+  onLogout,
+}: {
+  variant: "icon" | "card";
+  displayName: string;
+  displayEmail: string;
+  profileImageUrl: string | null;
+  initials: string;
+  compact?: boolean;
+  onOpenSettings: () => void;
+  onLogout: () => void;
+}) {
+  const isCard = variant === "card";
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="프로필 메뉴"
+          title="프로필 메뉴"
+          className={
+            isCard
+              ? "flex w-full min-w-0 items-center gap-3 rounded-lg bg-slate-50 px-3 py-2.5 text-left transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+              : `inline-flex shrink-0 items-center justify-center rounded-lg bg-transparent transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 ${
+                  compact ? "h-9 w-9" : "h-10 w-10"
+                }`
+          }
+        >
+          <Avatar
+            className={`rounded-lg ${
+              isCard ? "h-8 w-8" : compact ? "h-7 w-7" : "h-8 w-8"
+            }`}
+          >
+            {profileImageUrl && (
+              <AvatarImage src={profileImageUrl} alt={displayName} />
+            )}
+            <AvatarFallback className="rounded-lg bg-emerald-500 text-sm font-semibold text-white">
+              {initials}
+            </AvatarFallback>
+          </Avatar>
+          {isCard && (
+            <span className="min-w-0">
+              <span className="block truncate text-xs font-semibold text-slate-950">
+                {displayName}
+              </span>
+              <span className="mt-0.5 block truncate text-[11px] font-medium text-slate-400">
+                무료 플랜
+              </span>
+            </span>
+          )}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        side={isCard ? "top" : "bottom"}
+        align={isCard ? "start" : "end"}
+        sideOffset={8}
+        className="w-44 rounded-lg border-slate-200 bg-white p-2 text-slate-900 shadow-xl shadow-slate-900/10"
+      >
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault();
+            onOpenSettings();
+          }}
+          className="h-10 cursor-pointer gap-2.5 rounded-lg px-3 text-sm font-medium text-slate-700 focus:bg-emerald-50 focus:text-emerald-700"
+        >
+          <Settings className="h-4 w-4 text-slate-500" />
+          설정
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={onLogout}
+          className="h-10 cursor-pointer gap-2.5 rounded-lg px-3 text-sm font-medium text-red-500 focus:bg-red-50 focus:text-red-600"
+        >
+          <LogOut className="h-4 w-4" />
+          로그아웃
+        </DropdownMenuItem>
+        {!isCard && displayEmail && (
+          <div className="mt-1 border-t border-slate-100 px-3 pt-2">
+            <p className="truncate text-[11px] font-medium text-slate-400">
+              {displayEmail}
+            </p>
+          </div>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 export default function AppShell({
   children,
   fullBleed = false,
   sidebarExtra,
   titleMeta,
+  headerActions,
   onSidebarCollapsedChange,
   onSidebarPreviewChange,
 }: {
@@ -65,6 +168,7 @@ export default function AppShell({
   fullBleed?: boolean;
   sidebarExtra?: ReactNode;
   titleMeta?: ReactNode;
+  headerActions?: ReactNode;
   onSidebarCollapsedChange?: (collapsed: boolean) => void;
   onSidebarPreviewChange?: (open: boolean) => void;
 }) {
@@ -73,6 +177,7 @@ export default function AppShell({
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarPreviewOpen, setSidebarPreviewOpen] = useState(false);
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
   const sidebarPreviewCloseTimeoutRef = useRef<number | null>(null);
   const [isDesktop, setIsDesktop] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -88,8 +193,14 @@ export default function AppShell({
   });
 
   const displayName = meQuery.data?.name ?? cachedUser?.name ?? "사용자";
+  const displayEmail = meQuery.data?.email ?? cachedUser?.email ?? "";
+  const profileImageUrl =
+    meQuery.data?.profile_image_url ?? cachedUser?.profile_image_url ?? null;
   const activeItem =
-    navigation.find((item) => item.to === location.pathname) ?? navigation[0];
+    location.pathname === settingsNavigationItem.to
+      ? settingsNavigationItem
+      : (navigation.find((item) => item.to === location.pathname) ??
+        navigation[0]);
   const initials = displayName.slice(0, 1).toUpperCase();
   const headerSidebarLabel = isDesktop
     ? sidebarCollapsed
@@ -98,7 +209,6 @@ export default function AppShell({
     : sidebarOpen
       ? "사이드바 닫기"
       : "사이드바 열기";
-  const showHeaderQuickActions = sidebarCollapsed;
   const showSidebarPreview = sidebarCollapsed && sidebarPreviewOpen;
   const splitSummaryHeader = fullBleed && titleMeta;
   const summaryParts =
@@ -160,6 +270,14 @@ export default function AppShell({
     [],
   );
 
+  useEffect(() => {
+    setSettingsDialogOpen(false);
+  }, [location.pathname]);
+
+  const openSettingsDialog = () => {
+    window.setTimeout(() => setSettingsDialogOpen(true), 0);
+  };
+
   const handleHeaderSidebarToggle = () => {
     if (isDesktop) {
       setSidebarCollapsed((collapsed) => !collapsed);
@@ -219,7 +337,7 @@ export default function AppShell({
             type="button"
             aria-label={headerSidebarLabel}
             title={headerSidebarLabel}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
+            className={sidebarToggleButtonClass}
             onClick={() => {
               if (isDesktop) {
                 setSidebarCollapsed((collapsed) => !collapsed);
@@ -263,10 +381,26 @@ export default function AppShell({
               >
                 <Icon className="h-4 w-4" />
                 <span>{item.label}</span>
-                </NavLink>
+              </NavLink>
             );
           })}
         </nav>
+
+        <div
+          className={`border-t border-slate-100 p-3 transition-all ${
+            sidebarCollapsed && !showSidebarPreview ? "min-[600px]:hidden" : ""
+          }`}
+        >
+          <ProfileMenu
+            variant="card"
+            displayName={displayName}
+            displayEmail={displayEmail}
+            profileImageUrl={profileImageUrl}
+            initials={initials}
+            onOpenSettings={openSettingsDialog}
+            onLogout={logout}
+          />
+        </div>
       </aside>
 
       <div
@@ -293,14 +427,14 @@ export default function AppShell({
             }`}
           >
             <div
-              className="relative z-10 flex min-w-0 items-center gap-3"
+              className="relative z-10 flex min-w-0 flex-1 items-center gap-3 overflow-hidden"
             >
               {(!splitSummaryHeader || !isDesktop || sidebarCollapsed) && (
                 <button
                   type="button"
                   aria-label={headerSidebarLabel}
                   title={headerSidebarLabel}
-                  className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 ${
+                  className={`${sidebarToggleButtonClass} ${
                     sidebarCollapsed ? "" : "min-[600px]:hidden"
                   }`}
                   onMouseEnter={openSidebarPreview}
@@ -311,7 +445,7 @@ export default function AppShell({
                 </button>
               )}
               {splitSummaryHeader ? (
-                <div className="min-w-0">
+                <div className="min-w-0 max-w-full overflow-hidden">
                   {summaryParts ? (
                     <>
                       <p className="truncate text-sm font-semibold text-slate-800 sm:text-base">
@@ -328,7 +462,7 @@ export default function AppShell({
                   )}
                 </div>
               ) : (
-                <div className="min-w-0">
+                <div className="min-w-0 max-w-full overflow-hidden">
                   <div className="flex min-w-0 items-baseline gap-2">
                     <h1
                       className={`shrink-0 font-semibold text-slate-950 ${
@@ -352,50 +486,33 @@ export default function AppShell({
               )}
             </div>
 
-            <div className="ml-auto flex min-w-0 items-center justify-end gap-3">
-              {showHeaderQuickActions && (
-                <div className="hidden items-center gap-1 rounded-lg bg-slate-50 px-2 py-1 md:flex">
-                  <span className="mr-1 text-[11px] font-semibold text-slate-500">
-                    빠른 실행
-                  </span>
-                  {quickActions.map((action) => {
-                    const ActionIcon = action.icon;
+            <div className="relative z-20 ml-auto flex min-w-0 shrink-0 items-center justify-end gap-2">
+              <ProfileMenu
+                variant="icon"
+                displayName={displayName}
+                displayEmail={displayEmail}
+                profileImageUrl={profileImageUrl}
+                initials={initials}
+                compact={fullBleed}
+                onOpenSettings={openSettingsDialog}
+                onLogout={logout}
+              />
 
-                    return (
-                      <Link
-                        key={action.to}
-                        to={action.to}
-                        title={action.label}
-                        aria-label={action.label}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 transition hover:bg-white hover:text-emerald-700 hover:shadow-sm"
-                      >
-                        <ActionIcon className="h-4 w-4" />
-                      </Link>
-                    );
-                  })}
+              <Dialog
+                open={settingsDialogOpen}
+                onOpenChange={setSettingsDialogOpen}
+              >
+                <DialogContent className="h-[min(92dvh,580px)] w-[min(96vw,820px)] max-w-none gap-0 overflow-hidden rounded-[22px] border-0 p-0 shadow-2xl shadow-slate-900/20">
+                  <DialogTitle className="sr-only">설정</DialogTitle>
+                  <SettingsPanel compact />
+                </DialogContent>
+              </Dialog>
+
+              {headerActions && (
+                <div className="hidden items-center gap-1 min-[600px]:flex">
+                  {headerActions}
                 </div>
               )}
-
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-50 text-sm font-semibold text-emerald-700 ring-1 ring-emerald-100">
-                    {initials}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="max-w-28 truncate text-sm font-semibold text-slate-900">
-                      {displayName}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={logout}
-                  aria-label="로그아웃"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
-                >
-                  <LogOut className="h-4 w-4" />
-                </button>
-              </div>
             </div>
           </div>
         </header>

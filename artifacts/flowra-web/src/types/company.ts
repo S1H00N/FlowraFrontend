@@ -67,3 +67,73 @@ export interface CompanyScheduleListQuery {
   start_from?: string;
   start_to?: string;
 }
+
+export type CompanyAdminPermission =
+  | string
+  | {
+      code?: string;
+      permission_code?: string;
+      name?: string;
+    };
+
+export interface CompanyAdminRole {
+  company_role_id?: number;
+  code?: string;
+  name?: string;
+  scope_type?: string;
+}
+
+export interface CompanyAdminMe {
+  company_admin_id: number;
+  user_id?: number | null;
+  email: string;
+  name: string;
+  status: string;
+  company: CompanyInviteCompany;
+  role?: CompanyAdminRole | string | null;
+  permissions?: CompanyAdminPermission[];
+}
+
+export interface CompanyAdminDepartment {
+  department_id: number;
+  parent_department_id?: number | null;
+  leader_company_member_id?: number | null;
+  leader?: CompanyAdminMember | null;
+  name: string;
+  code?: string | null;
+  depth_level?: number;
+  external_department_id?: string | null;
+  status?: string;
+  sort_order?: number | null;
+  children?: CompanyAdminDepartment[];
+}
+
+export interface CompanyAdminMember {
+  company_member_id: number;
+  user_id?: number | null;
+  department_id?: number | null;
+  department?: CompanyInviteDepartment | null;
+  name: string;
+  email: string;
+  job_title?: string | null;
+  status?: string;
+  joined_at?: string | null;
+  external_member_id?: string | null;
+}
+
+export type CompanyScheduleCreateTarget =
+  | { target_type: "company" }
+  | { target_type: "department"; department_id: number }
+  | { target_type: "member"; company_member_id: number };
+
+export interface CreateCompanyScheduleRequest {
+  title: string;
+  description?: string | null;
+  schedule_type: import("./schedule").ScheduleType;
+  start_datetime: string;
+  end_datetime?: string | null;
+  all_day?: boolean;
+  location?: string | null;
+  status?: "active" | "cancelled";
+  targets: CompanyScheduleCreateTarget[];
+}

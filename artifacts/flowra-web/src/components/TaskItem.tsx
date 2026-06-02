@@ -6,28 +6,23 @@ import {
   useDeleteTask,
   useUpdateTask,
 } from "@/hooks/useTasks";
-import {
-  type Schedule,
-  type Task,
-  type TaskPriority,
-} from "@/types";
+import { type Schedule, type Task } from "@/types";
 import {
   getClassificationLabel,
   getClassificationOptions,
   useClassificationSettings,
 } from "@/lib/classificationSettings";
 import { taskSchema, type TaskFormValues } from "@/lib/schemas";
-import CategorySelect, { CategoryDot } from "@/components/CategorySelect";
+import CategorySelect from "@/components/CategorySelect";
+import {
+  CategoryMetaChip,
+  ListCardMeta,
+  PriorityMetaChip,
+  TypeMetaChip,
+} from "@/components/ListCardMeta";
 import { useCategories } from "@/hooks/useCategories";
 import { CalendarClock } from "lucide-react";
 import { localInputToOffsetISOString } from "@/utils/dateUtils";
-
-const priorityBadge: Record<TaskPriority, string> = {
-  urgent: "bg-red-100 text-red-700 border-red-200",
-  high: "bg-orange-100 text-orange-700 border-orange-200",
-  medium: "bg-amber-100 text-amber-700 border-amber-200",
-  low: "bg-slate-100 text-slate-600 border-slate-200",
-};
 
 function formatDue(iso?: string | null) {
   if (!iso) return "마감 없음";
@@ -283,26 +278,26 @@ function TaskItemBase({
           >
             {task.title}
           </p>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
+          <ListCardMeta>
             <span className="inline-flex items-center gap-1 text-xs text-slate-500">
               <CalendarClock className="h-3.5 w-3.5" />
               {formatDue(task.due_datetime)}
             </span>
-            <span
-              className={`rounded-md border px-2 py-0.5 text-[11px] font-medium ${priorityBadge[task.priority]}`}
-            >
+            <TypeMetaChip label="상태">
+              {getClassificationLabel(
+                classificationSettings,
+                "taskStatuses",
+                task.status,
+              )}
+            </TypeMetaChip>
+            <PriorityMetaChip priority={task.priority}>
               {getClassificationLabel(
                 classificationSettings,
                 "taskPriorities",
                 task.priority,
               )}
-            </span>
-            {taskCategory && (
-              <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
-                <CategoryDot color={taskCategory.color} />
-                {taskCategory.name}
-              </span>
-            )}
+            </PriorityMetaChip>
+            {taskCategory && <CategoryMetaChip category={taskCategory} />}
             {schedule && (
               <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700">
                 <CalendarClock className="h-3 w-3" />
@@ -316,7 +311,7 @@ function TaskItemBase({
                 </span>
               </span>
             )}
-          </div>
+          </ListCardMeta>
         </button>
 
         <div className="flex shrink-0 opacity-0 transition group-hover:opacity-100">

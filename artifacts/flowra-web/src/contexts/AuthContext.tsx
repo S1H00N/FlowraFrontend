@@ -78,20 +78,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error(res.message || "Signup failed.");
     }
 
-    const loginRes = await authApi.login({
-      email: payload.email,
-      password: payload.password,
-    });
-    if (!loginRes.success) {
-      authStorage.setUser(res.data);
-      setUser(res.data);
-      return;
+    const { user: nextUser, access_token, refresh_token } = res.data;
+    if (!access_token || !refresh_token) {
+      throw new Error("Signup response does not include tokens.");
     }
-
-    const { user: nextUser, access_token, refresh_token } = loginRes.data;
-    if (access_token && refresh_token) {
-      authStorage.setTokens(access_token, refresh_token);
-    }
+    authStorage.setTokens(access_token, refresh_token);
     authStorage.setUser(nextUser);
     setUser(nextUser);
   }, []);

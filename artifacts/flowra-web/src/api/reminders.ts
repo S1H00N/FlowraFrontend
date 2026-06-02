@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import { compactParams, toOptionalNumber, toOptionalString } from "./normalize";
+import { compactParams, toOptionalString } from "./normalize";
 import type {
   ApiListData,
   ApiResponse,
@@ -23,14 +23,20 @@ function unwrapReminder(data: ReminderData): Reminder {
 export async function listReminders(query: ReminderListQuery = {}) {
   const res = await apiClient.get<ApiResponse<ReminderListData>>("/reminders", {
     params: compactParams({
-      ...query,
-      target_id: toOptionalNumber(query.target_id),
+      target_type: query.target_type,
+      is_sent: query.is_sent === undefined ? undefined : String(query.is_sent),
+      remind_from: query.remind_from,
+      remind_to: query.remind_to,
     }),
   });
+  const targetId = toOptionalString(query.target_id);
+  const reminders = res.data.data.items ?? res.data.data.reminders ?? [];
   return {
     ...res.data,
     data: {
-      reminders: res.data.data.items ?? res.data.data.reminders ?? [],
+      reminders: targetId
+        ? reminders.filter((reminder) => String(reminder.target_id) === targetId)
+        : reminders,
     } satisfies RemindersData,
   };
 }

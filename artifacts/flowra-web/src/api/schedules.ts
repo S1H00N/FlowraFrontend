@@ -1,5 +1,5 @@
 import apiClient from "./client";
-import { compactParams, toNullableString } from "./normalize";
+import { compactParams, toCommaParam, toNullableString } from "./normalize";
 import type {
   ApiListData,
   ApiResponse,
@@ -39,31 +39,17 @@ function normalizeSchedulePayload<
   });
 }
 
-function toDateParam(value?: string) {
-  if (!value) return undefined;
-  const date = new Date(value);
-  if (!Number.isNaN(date.getTime())) {
-    const yyyy = date.getFullYear();
-    const mm = String(date.getMonth() + 1).padStart(2, "0");
-    const dd = String(date.getDate()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
-  }
-  return value.slice(0, 10);
-}
-
 function normalizeScheduleQuery(query: ScheduleListQuery) {
   return compactParams({
-    start_date: query.start_date ?? toDateParam(query.start_from),
-    end_date: query.end_date ?? toDateParam(query.start_to),
-    view: query.view,
-    page: query.page,
-    size: query.size,
-    category_id: Array.isArray(query.category_id)
-      ? undefined
-      : query.category_id,
-    schedule_type: Array.isArray(query.schedule_type)
-      ? undefined
-      : query.schedule_type,
+    start_from: query.start_from,
+    start_to: query.start_to,
+    category_id: toCommaParam(query.category_id),
+    schedule_type: toCommaParam(query.schedule_type),
+    priority: toCommaParam(query.priority),
+    is_completed:
+      query.is_completed === undefined ? undefined : String(query.is_completed),
+    q: query.q,
+    location: query.location,
   });
 }
 

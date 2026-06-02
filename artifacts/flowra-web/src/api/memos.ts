@@ -1,7 +1,5 @@
 import apiClient from "./client";
-import { createSchedule } from "./schedules";
-import { createTask } from "./tasks";
-import { compactParams, toNullableString, toOptionalString, toOptionalNumber } from "./normalize";
+import { compactParams, toNullableString, toOptionalString } from "./normalize";
 import type {
   AiParseResult,
   ApiListData,
@@ -12,7 +10,6 @@ import type {
   Memo,
   MemoListQuery,
   MemoParseResult,
-  TaskPriority,
   UpdateMemoRequest,
 } from "@/types";
 
@@ -45,26 +42,8 @@ function normalizeMemoPayload<T extends CreateMemoRequest | UpdateMemoRequest>(
 function normalizeMemoQuery(query: MemoListQuery) {
   return compactParams({
     ...query,
-    category_id: toOptionalNumber(query.category_id),
+    category_id: toOptionalString(query.category_id),
   });
-}
-
-function isNotFoundError(error: unknown) {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "response" in error &&
-    (error as { response?: { status?: number } }).response?.status === 404
-  );
-}
-
-function normalizePriority(priority: unknown): TaskPriority {
-  return priority === "low" ||
-    priority === "medium" ||
-    priority === "high" ||
-    priority === "urgent"
-    ? priority
-    : "medium";
 }
 
 export async function listMemos(query: MemoListQuery = {}) {
@@ -108,7 +87,7 @@ export async function parseMemo(memoId: number, force = false) {
     ApiResponse<Pick<Memo, "memo_id" | "parse_status"> | { memo: Pick<Memo, "memo_id" | "parse_status"> }>
   >(
     `/memos/${memoId}/parse`,
-    force ? { force } : undefined,
+    { force },
   );
   return {
     ...res.data,
@@ -142,103 +121,14 @@ export async function getMemoParseResult(memoId: number) {
 }
 
 export async function applyMemo(memoId: number, payload: ApplyMemoRequest) {
-  const { apply_type, ...requestPayload } = payload;
-  const path =
-    apply_type === "schedule"
-      ? `/memos/${memoId}/apply/schedule`
-      : `/memos/${memoId}/apply/task`;
-  try {
-    const res = await apiClient.post<ApiResponse<Record<string, unknown>>>(
-      path,
-      compactParams({
-        ...requestPayload,
-        override_category_id: toOptionalString(payload.override_category_id),
-      }),
-    );
-    return {
-      ...res.data,
-      data: {
-        apply_type,
-        resource: res.data.data as unknown as ApplyMemoResponse["resource"],
-      } satisfies ApplyMemoResponse,
-    };
-  } catch (error) {
-    if (!isNotFoundError(error)) throw error;
-    return applyMemoByCreatingResource(memoId, payload);
-  }
-}
-
-async function applyMemoByCreatingResource(
-  memoId: number,
-  payload: ApplyMemoRequest,
-) {
-  const parseResult = await getMemoParseResult(memoId);
-  const result = parseResult.data.latest_result;
-
-  if (payload.apply_type === "schedule") {
-    const suggested = result?.suggested_schedule;
-    const title = payload.override_title ?? suggested?.title;
-    const startDatetime =
-      payload.override_start_datetime ?? suggested?.start_datetime;
-
-    if (!title || !startDatetime) {
-      throw new Error("Schedule suggestion is missing title or start time.");
-    }
-
-    const endDatetime = payload.override_end_datetime ?? suggested?.end_datetime;
-    const location = payload.override_location ?? suggested?.location;
-    const categoryId = payload.override_category_id;
-
-    const created = await createSchedule({
-      title,
-      description: suggested?.description,
-      schedule_type: "meeting",
-      start_datetime: startDatetime,
-      end_datetime: endDatetime,
-      all_day: false,
-      location,
-      category_id: categoryId,
-      visibility: "private",
-    });
-
-    return {
-      success: created.success,
-      message: created.message,
-      data: {
-        apply_type: "schedule",
-        resource: created.data.schedule,
-      },
-    } satisfies ApiResponse<ApplyMemoResponse>;
-  }
-
-  const suggested = result?.suggested_task;
-  const title = payload.override_title ?? suggested?.title;
-
-  if (!title) {
-    throw new Error("Task suggestion is missing title.");
-  }
-
-  const dueDatetime = payload.override_due_datetime ?? suggested?.due_datetime;
-  const priority = normalizePriority(
-    payload.override_priority ?? suggested?.priority,
+  const res = await apiClient.post<ApiResponse<ApplyMemoResponse>>(
+    `/memos/${memoId}/apply`,
+    compactParams({
+      ...payload,
+      ai_result_id: toOptionalString(payload.ai_result_id),
+      category_id: toOptionalString(payload.category_id),
+      schedule_id: toOptionalString(payload.schedule_id),
+    }),
   );
-  const categoryId = payload.override_category_id;
-
-  const created = await createTask({
-    title,
-    description: suggested?.description,
-    priority,
-    status: "todo",
-    due_datetime: dueDatetime,
-    category_id: categoryId,
-  });
-
-  return {
-    success: created.success,
-    message: created.message,
-    data: {
-      apply_type: "task",
-      resource: created.data.task,
-    },
-  } satisfies ApiResponse<ApplyMemoResponse>;
+  return res.data;
 }

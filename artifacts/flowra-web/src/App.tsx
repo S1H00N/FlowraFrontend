@@ -18,7 +18,7 @@ const Signup = lazy(() => import("@/pages/Signup"));
 const Tasks = lazy(() => import("@/pages/Tasks"));
 const Schedules = lazy(() => import("@/pages/Schedules"));
 const Memos = lazy(() => import("@/pages/Memos"));
-const Categories = lazy(() => import("@/pages/Categories"));
+const Settings = lazy(() => import("@/pages/Settings"));
 const CompanyInvite = lazy(() => import("@/pages/CompanyInvite"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
@@ -109,7 +109,15 @@ function App() {
                 path="/categories"
                 element={
                   <ProtectedRoute>
-                    <Categories />
+                    <Navigate to="/settings" replace />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <ProtectedRoute>
+                    <Settings />
                   </ProtectedRoute>
                 }
               />

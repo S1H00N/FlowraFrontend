@@ -134,9 +134,6 @@ export interface CreateRecurringScheduleResponse {
 export interface ScheduleListQuery {
   start_from?: string;
   start_to?: string;
-  start_date?: string;
-  end_date?: string;
-  view?: "month" | "week" | "day" | "list";
   category_id?: string | number | Array<string | number>;
   schedule_type?: ScheduleType | ScheduleType[];
   priority?: TaskPriority | TaskPriority[];

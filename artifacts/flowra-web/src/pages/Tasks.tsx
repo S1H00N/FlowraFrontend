@@ -1,900 +1,1263 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { Plus, SlidersHorizontal, X } from "lucide-react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
+import { Link } from "react-router-dom";
+import {
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Plus,
+  Search,
+  X,
+} from "lucide-react";
 import AppShell from "@/components/AppShell";
-import TaskForm from "@/components/TaskForm";
-import TaskItem from "@/components/TaskItem";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import { useCategories } from "@/hooks/useCategories";
 import { useSchedules } from "@/hooks/useSchedules";
-import { useTasks } from "@/hooks/useTasks";
+import { useCompleteTask, useCreateTask, useTasks } from "@/hooks/useTasks";
 import {
-  TASK_PRIORITIES,
-  TASK_STATUSES,
   type Schedule,
+  type ScheduleType,
   type Task,
   type TaskPriority,
-  type TaskStatus,
+  type Category,
 } from "@/types";
 import {
   getClassificationLabel,
   getClassificationOptions,
   useClassificationSettings,
 } from "@/lib/classificationSettings";
-import { toOffsetISOString } from "@/utils/dateUtils";
+import { getErrorMessage } from "@/lib/error";
+import {
+  localInputToOffsetISOString,
+  toOffsetISOString,
+} from "@/utils/dateUtils";
 
-type ScheduleFilter = "all" | "linked" | "unlinked" | number;
+type BoardFilter = "all" | "today" | "active" | "completed";
 
-interface TaskFilters {
-  statuses: TaskStatus[];
-  priorities: TaskPriority[];
-  schedule: ScheduleFilter;
-  categories: number[];
-  q: string;
-  dueFrom: string;
-  dueTo: string;
+interface ScheduleGroup {
+  key: string;
+  title: string;
+  schedules: Schedule[];
 }
 
-const defaultFilters: TaskFilters = {
-  statuses: [],
-  priorities: [],
-  schedule: "all",
-  categories: [],
-  q: "",
-  dueFrom: "",
-  dueTo: "",
+const weekdayLabels = ["일", "월", "화", "수", "목", "금", "토"];
+
+const scheduleTypeColor: Record<ScheduleType, string> = {
+  personal: "#14b8a6",
+  meeting: "#6366f1",
+  fieldwork: "#8b5cf6",
+  deadline: "#f59e0b",
+  other: "#64748b",
 };
 
-function dateToRangeStart(value: string) {
-  const date = new Date(`${value}T00:00:00`);
-  return Number.isNaN(date.getTime()) ? undefined : toOffsetISOString(date);
+const taskPriorityDot: Record<TaskPriority, string> = {
+  low: "bg-slate-300",
+  medium: "bg-indigo-400",
+  high: "bg-amber-400",
+  urgent: "bg-rose-500",
+};
+
+function pad(value: number) {
+  return String(value).padStart(2, "0");
 }
 
-function dateToRangeEnd(value: string) {
-  const date = new Date(`${value}T23:59:59.999`);
-  return Number.isNaN(date.getTime()) ? undefined : toOffsetISOString(date);
+function startOfDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
 }
 
-function parseNumberFilters(value: string | null): number[] {
-  if (!value) return [];
-  return value
-    .split(",")
-    .map((item) => Number(item))
-    .filter((item) => Number.isFinite(item));
+function endOfDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
 }
 
-function parseTaskStatusFilters(value: string | null): TaskStatus[] {
-  if (!value) return [];
-  const allowed = new Set<string>(TASK_STATUSES);
-  return value
-    .split(",")
-    .filter((item): item is TaskStatus => allowed.has(item));
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
 }
 
-function parseTaskPriorityFilters(value: string | null): TaskPriority[] {
-  if (!value) return [];
-  const allowed = new Set<string>(TASK_PRIORITIES);
-  return value
-    .split(",")
-    .filter((item): item is TaskPriority => allowed.has(item));
+function endOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
 }
 
-function parseScheduleFilter(value: string | null): ScheduleFilter {
-  if (!value) return "all";
-  if (value === "linked" || value === "unlinked") return value;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : "all";
+function addDays(date: Date, amount: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + amount);
+  return next;
 }
 
-function startOfToday() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
+function addMonths(date: Date, amount: number) {
+  return new Date(date.getFullYear(), date.getMonth() + amount, 1);
 }
 
-function endOfToday() {
-  const d = startOfToday();
-  d.setDate(d.getDate() + 1);
-  return d;
+function toDateKey(date: Date) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-function compareDue(a: Task, b: Task) {
-  const aTime = a.due_datetime ? new Date(a.due_datetime).getTime() : Infinity;
-  const bTime = b.due_datetime ? new Date(b.due_datetime).getTime() : Infinity;
-  return aTime - bTime;
+function fromDateKey(dateKey: string) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return Number.isNaN(date.getTime()) ? new Date() : date;
 }
 
-function groupTasks(items: Task[]) {
-  const todayStart = startOfToday().getTime();
-  const todayEnd = endOfToday().getTime();
-  const groups = {
-    overdue: [] as Task[],
-    today: [] as Task[],
-    upcoming: [] as Task[],
-    done: [] as Task[],
+function formatMonthTitle(date: Date) {
+  return `${date.getFullYear()}년 ${date.getMonth() + 1}월`;
+}
+
+function formatFullDate(date: Date) {
+  return date.toLocaleDateString("ko-KR", {
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+  });
+}
+
+function formatScheduleTime(schedule: Schedule) {
+  if (schedule.all_day) return "종일";
+  const start = new Date(schedule.start_datetime);
+  if (Number.isNaN(start.getTime())) return "";
+
+  return start.toLocaleTimeString("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatTaskDue(iso?: string | null) {
+  if (!iso) return "마감 없음";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "마감 없음";
+
+  return date.toLocaleString("ko-KR", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function toLocalDateTimeInput(iso?: string | null) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function defaultTaskDueLocal(schedule: Schedule) {
+  return toLocalDateTimeInput(schedule.end_datetime ?? schedule.start_datetime);
+}
+
+function scheduleOverlapsDate(schedule: Schedule, date: Date) {
+  const dayStart = startOfDay(date).getTime();
+  const dayEnd = endOfDay(date).getTime();
+  const start = new Date(schedule.start_datetime).getTime();
+  const end = schedule.end_datetime
+    ? new Date(schedule.end_datetime).getTime()
+    : start;
+
+  if (Number.isNaN(start)) return false;
+  return start <= dayEnd && (Number.isNaN(end) ? start : end) >= dayStart;
+}
+
+function buildMonthCells(month: Date) {
+  const first = startOfMonth(month);
+  const cursor = addDays(first, -first.getDay());
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = addDays(cursor, index);
+    return {
+      date,
+      key: toDateKey(date),
+      currentMonth: date.getMonth() === month.getMonth(),
+    };
+  });
+}
+
+function scheduleDateKey(schedule: Schedule) {
+  const start = new Date(schedule.start_datetime);
+  return Number.isNaN(start.getTime()) ? "" : toDateKey(start);
+}
+
+function scheduleProgress(tasks: Task[], schedule: Schedule) {
+  const done = tasks.filter((task) => task.status === "done").length;
+  const total = tasks.length;
+  const completed = total > 0 ? done === total : !!schedule.is_completed;
+
+  return {
+    done,
+    total,
+    completed,
+    percent: total > 0 ? Math.round((done / total) * 100) : 0,
   };
+}
 
-  for (const task of items) {
-    if (task.status === "done") {
-      groups.done.push(task);
-      continue;
-    }
+function sortSchedules(a: Schedule, b: Schedule) {
+  return (
+    new Date(a.start_datetime).getTime() - new Date(b.start_datetime).getTime()
+  );
+}
 
-    const dueTime = task.due_datetime
-      ? new Date(task.due_datetime).getTime()
-      : Infinity;
-
-    if (dueTime < todayStart) {
-      groups.overdue.push(task);
-    } else if (dueTime >= todayStart && dueTime < todayEnd) {
-      groups.today.push(task);
-    } else {
-      groups.upcoming.push(task);
-    }
+function groupSchedules(schedules: Schedule[], selectedDate: Date, exact: boolean) {
+  if (exact) {
+    return [
+      {
+        key: toDateKey(selectedDate),
+        title: formatFullDate(selectedDate),
+        schedules,
+      },
+    ];
   }
 
-  groups.overdue.sort(compareDue);
-  groups.today.sort(compareDue);
-  groups.upcoming.sort(compareDue);
-  groups.done.sort((a, b) => {
-    const aTime = a.completed_at
-      ? new Date(a.completed_at).getTime()
-      : new Date(a.created_at).getTime();
-    const bTime = b.completed_at
-      ? new Date(b.completed_at).getTime()
-      : new Date(b.created_at).getTime();
-    return bTime - aTime;
+  const today = startOfDay(new Date());
+  const tomorrow = addDays(today, 1);
+  const weekEnd = addDays(today, 7);
+  const buckets: ScheduleGroup[] = [
+    { key: "today", title: "오늘", schedules: [] },
+    { key: "tomorrow", title: "내일", schedules: [] },
+    { key: "week", title: "이번 주", schedules: [] },
+    { key: "later", title: "이후", schedules: [] },
+  ];
+
+  schedules.forEach((schedule) => {
+    const start = startOfDay(new Date(schedule.start_datetime));
+    if (Number.isNaN(start.getTime())) return;
+
+    if (start.getTime() === today.getTime()) {
+      buckets[0].schedules.push(schedule);
+    } else if (start.getTime() === tomorrow.getTime()) {
+      buckets[1].schedules.push(schedule);
+    } else if (start.getTime() < weekEnd.getTime()) {
+      buckets[2].schedules.push(schedule);
+    } else {
+      buckets[3].schedules.push(schedule);
+    }
   });
 
-  return groups;
+  return buckets.filter((group) => group.schedules.length > 0);
 }
 
-function TaskGroup({
-  title,
-  description,
-  items,
-  deepLinkedTaskId,
-  empty,
-  schedulesById,
+function MiniCalendar({
+  visibleMonth,
+  selectedDateKey,
+  dateMode,
+  countsByDate,
+  onMoveMonth,
+  onSelectDate,
+  onShowAll,
 }: {
-  title: string;
-  description: string;
-  items: Task[];
-  deepLinkedTaskId: number;
-  empty: string;
-  schedulesById: Map<number, Schedule>;
+  visibleMonth: Date;
+  selectedDateKey: string;
+  dateMode: boolean;
+  countsByDate: Map<string, number>;
+  onMoveMonth: (amount: number) => void;
+  onSelectDate: (date: Date) => void;
+  onShowAll: () => void;
 }) {
+  const cells = useMemo(() => buildMonthCells(visibleMonth), [visibleMonth]);
+  const todayKey = toDateKey(new Date());
+
   return (
-    <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-950">{title}</h2>
-          <p className="mt-0.5 text-xs text-slate-500">{description}</p>
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-bold text-slate-950">
+          {formatMonthTitle(visibleMonth)}
+        </h2>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onMoveMonth(-1)}
+            aria-label="이전 달"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-900"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onMoveMonth(1)}
+            aria-label="다음 달"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-900"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
         </div>
-        <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
-          {items.length}건
-        </span>
       </div>
-      <div className="p-3">
-        {items.length > 0 ? (
-          <ul className="space-y-2">
-            {items.map((task) => (
-              <TaskItem
-                key={task.task_id}
-                task={task}
-                highlighted={task.task_id === deepLinkedTaskId}
-                schedule={
-                  task.schedule_id
-                    ? schedulesById.get(task.schedule_id)
-                    : undefined
+
+      <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-slate-400">
+        {weekdayLabels.map((label, index) => (
+          <span
+            key={label}
+            className={
+              index === 0
+                ? "text-rose-500"
+                : index === 6
+                  ? "text-indigo-500"
+                  : undefined
+            }
+          >
+            {label}
+          </span>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-y-1 text-center">
+        {cells.map(({ date, key, currentMonth }) => {
+          const selected = dateMode && selectedDateKey === key;
+          const today = todayKey === key;
+          const count = countsByDate.get(key) ?? 0;
+
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onSelectDate(date)}
+              className={`relative mx-auto flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium transition ${
+                selected
+                  ? "bg-indigo-500 text-white shadow-sm"
+                  : today
+                    ? "bg-indigo-50 text-indigo-700"
+                    : currentMonth
+                      ? "text-slate-700 hover:bg-slate-100"
+                      : "text-slate-300 hover:bg-slate-50"
+              }`}
+              aria-label={`${formatFullDate(date)} 일정 ${count}개`}
+            >
+              {date.getDate()}
+              {count > 0 && (
+                <span
+                  className={`absolute bottom-0.5 h-1 w-1 rounded-full ${
+                    selected ? "bg-white" : "bg-indigo-500"
+                  }`}
+                />
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <button
+        type="button"
+        onClick={onShowAll}
+        className="inline-flex h-8 w-full items-center justify-center rounded-md border border-slate-200 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-slate-950"
+      >
+        전체 일정 보기
+      </button>
+    </div>
+  );
+}
+
+function ScheduleCard({
+  schedule,
+  category,
+  tasks,
+  expanded,
+  onToggle,
+  onOpenAddTaskPanel,
+}: {
+  schedule: Schedule;
+  category?: Category | null;
+  tasks: Task[];
+  expanded: boolean;
+  onToggle: () => void;
+  onOpenAddTaskPanel: () => void;
+}) {
+  const classificationSettings = useClassificationSettings();
+  const completeTask = useCompleteTask();
+  const [error, setError] = useState<string | null>(null);
+  const progress = scheduleProgress(tasks, schedule);
+  const accentColor =
+    category?.color || scheduleTypeColor[schedule.schedule_type] || "#64748b";
+  const classificationLabel = getClassificationLabel(
+    classificationSettings,
+    "scheduleTypes",
+    schedule.schedule_type,
+  );
+  const chipLabel = category?.name ?? classificationLabel;
+  const sortedTasks = useMemo(
+    () =>
+      [...tasks].sort((a, b) => {
+        if (a.status === "done" && b.status !== "done") return 1;
+        if (a.status !== "done" && b.status === "done") return -1;
+        const aDue = a.due_datetime ? new Date(a.due_datetime).getTime() : 0;
+        const bDue = b.due_datetime ? new Date(b.due_datetime).getTime() : 0;
+        return aDue - bDue;
+      }),
+    [tasks],
+  );
+
+  const handleComplete = async (task: Task) => {
+    if (task.status === "done") return;
+    setError(null);
+    try {
+      await completeTask.mutateAsync(task.task_id);
+    } catch (err) {
+      setError(getErrorMessage(err, "완료 처리에 실패했습니다."));
+    }
+  };
+
+  return (
+    <li className="overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-slate-200/80">
+      <div className="relative">
+        <span
+          className="absolute inset-y-4 left-4 w-1 rounded-full"
+          style={{ backgroundColor: accentColor }}
+          aria-hidden
+        />
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          className="grid min-h-[4.25rem] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-6 py-4 pl-8 text-left transition hover:bg-slate-50"
+        >
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h3
+                className={`truncate text-sm font-bold ${
+                  progress.completed ? "text-slate-500" : "text-slate-950"
+                }`}
+              >
+                {schedule.title || "제목 없음"}
+              </h3>
+              <span
+                className="rounded-md px-2 py-0.5 text-[11px] font-bold"
+                style={{
+                  backgroundColor: `${accentColor}1A`,
+                  color: accentColor,
+                }}
+              >
+                {chipLabel}
+              </span>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-400">
+              <span className="inline-flex items-center gap-1">
+                <Clock3 className="h-3.5 w-3.5" />
+                {formatScheduleTime(schedule)}
+              </span>
+              <span>{formatFullDate(new Date(schedule.start_datetime))}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="hidden items-center gap-2 sm:flex">
+              <div className="h-1 w-16 overflow-hidden rounded-full bg-slate-100">
+                <span
+                  className="block h-full rounded-full bg-indigo-500"
+                  style={{ width: `${progress.percent}%` }}
+                />
+              </div>
+              <span className="w-9 text-right text-xs font-medium text-slate-400">
+                {progress.done}/{progress.total}
+              </span>
+            </div>
+            <ChevronDown
+              className={`h-4 w-4 text-slate-400 transition ${
+                expanded ? "rotate-180" : ""
+              }`}
+            />
+          </div>
+        </button>
+      </div>
+
+      <div
+        className={`grid transition-[grid-template-rows] duration-200 ease-out ${
+          expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        }`}
+      >
+        <div className="overflow-hidden">
+          <div className="border-t border-slate-100 px-6 py-4 pl-8">
+            {sortedTasks.length > 0 ? (
+              <ul className="space-y-3">
+                {sortedTasks.map((task) => {
+                  const done = task.status === "done";
+                  return (
+                    <li key={task.task_id} className="flex items-start gap-3">
+                      <button
+                        type="button"
+                        onClick={() => handleComplete(task)}
+                        disabled={done || completeTask.isPending}
+                        aria-label={done ? "완료됨" : "완료로 표시"}
+                        className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-white transition ${
+                          done
+                            ? "border-indigo-500 bg-indigo-500"
+                            : "border-slate-300 bg-white hover:border-indigo-400"
+                        }`}
+                      >
+                        {done ? <Check className="h-3 w-3" /> : null}
+                      </button>
+                      <span
+                        className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${
+                          taskPriorityDot[task.priority]
+                        }`}
+                        aria-hidden
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className={`truncate text-sm font-medium ${
+                            done
+                              ? "text-slate-400 line-through"
+                              : "text-slate-700"
+                          }`}
+                        >
+                          {task.title}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-400">
+                          {formatTaskDue(task.due_datetime)}
+                        </p>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs font-medium text-slate-500">
+                아직 연결된 할 일이 없습니다.
+              </p>
+            )}
+
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={onOpenAddTaskPanel}
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 text-sm font-bold text-slate-500 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 sm:w-auto sm:px-4"
+              >
+                <Plus className="h-4 w-4" />
+                할 일 추가
+              </button>
+            </div>
+
+            {error && (
+              <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+                {error}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function TaskAddPanelContent({
+  schedule,
+  category,
+  tasks,
+  onClose,
+}: {
+  schedule: Schedule;
+  category?: Category | null;
+  tasks: Task[];
+  onClose: () => void;
+}) {
+  const classificationSettings = useClassificationSettings();
+  const createTask = useCreateTask();
+  const completeTask = useCompleteTask();
+  const [title, setTitle] = useState("");
+  const [priority, setPriority] = useState<TaskPriority>(
+    schedule.priority ?? "medium",
+  );
+  const [dueLocal, setDueLocal] = useState(() => defaultTaskDueLocal(schedule));
+  const [error, setError] = useState<string | null>(null);
+  const accentColor =
+    category?.color || scheduleTypeColor[schedule.schedule_type] || "#64748b";
+  const scheduleTypeLabel = getClassificationLabel(
+    classificationSettings,
+    "scheduleTypes",
+    schedule.schedule_type,
+  );
+  const chipLabel = category?.name ?? scheduleTypeLabel;
+  const priorityOptions = getClassificationOptions(
+    classificationSettings,
+    "taskPriorities",
+    { enabledOnly: true, include: priority, defaultOnly: true },
+  );
+  const sortedTasks = useMemo(
+    () =>
+      [...tasks].sort((a, b) => {
+        if (a.status === "done" && b.status !== "done") return 1;
+        if (a.status !== "done" && b.status === "done") return -1;
+        const aDue = a.due_datetime ? new Date(a.due_datetime).getTime() : 0;
+        const bDue = b.due_datetime ? new Date(b.due_datetime).getTime() : 0;
+        return aDue - bDue;
+      }),
+    [tasks],
+  );
+  const progress = scheduleProgress(tasks, schedule);
+
+  useEffect(() => {
+    setTitle("");
+    setPriority(schedule.priority ?? "medium");
+    setDueLocal(defaultTaskDueLocal(schedule));
+    setError(null);
+  }, [
+    schedule.end_datetime,
+    schedule.priority,
+    schedule.schedule_id,
+    schedule.start_datetime,
+  ]);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmedTitle = title.trim();
+    setError(null);
+
+    if (!trimmedTitle) {
+      setError("할 일 제목을 입력해 주세요.");
+      return;
+    }
+
+    try {
+      await createTask.mutateAsync({
+        title: trimmedTitle,
+        status: "todo",
+        priority,
+        schedule_id: schedule.schedule_id,
+        due_datetime: dueLocal ? localInputToOffsetISOString(dueLocal) : null,
+      });
+      setTitle("");
+      setPriority(schedule.priority ?? "medium");
+      setDueLocal(defaultTaskDueLocal(schedule));
+    } catch (err) {
+      setError(getErrorMessage(err, "할 일 추가에 실패했습니다."));
+    }
+  };
+
+  const handleComplete = async (task: Task) => {
+    if (task.status === "done") return;
+    setError(null);
+    try {
+      await completeTask.mutateAsync(task.task_id);
+    } catch (err) {
+      setError(getErrorMessage(err, "완료 처리에 실패했습니다."));
+    }
+  };
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 border-b border-slate-200 px-5 py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase text-slate-400">
+              선택한 일정
+            </p>
+            <h2 className="mt-1 truncate text-lg font-black text-slate-950">
+              {schedule.title || "제목 없음"}
+            </h2>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-500">
+              <span
+                className="rounded-md px-2 py-0.5"
+                style={{
+                  backgroundColor: `${accentColor}1A`,
+                  color: accentColor,
+                }}
+              >
+                {chipLabel}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <Clock3 className="h-3.5 w-3.5" />
+                {formatScheduleTime(schedule)}
+              </span>
+              <span>{formatFullDate(new Date(schedule.start_datetime))}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="할 일 추가 패널 닫기"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-900"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
+        <form onSubmit={handleSubmit} noValidate className="space-y-3">
+          <label className="block">
+            <span className="text-xs font-bold text-slate-500">할 일 제목</span>
+            <input
+              type="text"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="새 할 일 입력"
+              className="mt-1 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            />
+          </label>
+
+          <div className="grid gap-3 sm:grid-cols-2 min-[1100px]:grid-cols-1">
+            <label className="block">
+              <span className="text-xs font-bold text-slate-500">우선순위</span>
+              <select
+                value={priority}
+                onChange={(event) =>
+                  setPriority(event.target.value as TaskPriority)
                 }
+                className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              >
+                {priorityOptions.map((option) => (
+                  <option key={option.key} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="text-xs font-bold text-slate-500">마감시간</span>
+              <input
+                type="datetime-local"
+                value={dueLocal}
+                onChange={(event) => setDueLocal(event.target.value)}
+                className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
               />
-            ))}
-          </ul>
-        ) : (
-          <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-            {empty}
+            </label>
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => setDueLocal(defaultTaskDueLocal(schedule))}
+              className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
+            >
+              일정 시간으로 맞추기
+            </button>
+            <button
+              type="submit"
+              disabled={createTask.isPending}
+              className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-indigo-500 px-4 text-sm font-bold text-white transition hover:bg-indigo-600 disabled:opacity-60"
+            >
+              <Plus className="h-4 w-4" />
+              {createTask.isPending ? "추가 중..." : "할 일 추가"}
+            </button>
+          </div>
+        </form>
+
+        {error && (
+          <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+            {error}
           </p>
         )}
+
+        <div className="mt-6">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h3 className="text-sm font-black text-slate-950">
+              연결된 할 일
+            </h3>
+            <span className="shrink-0 text-xs font-bold text-slate-400">
+              완료 {progress.done} / 전체 {progress.total}
+            </span>
+          </div>
+
+          {sortedTasks.length > 0 ? (
+            <ul className="space-y-2">
+              {sortedTasks.map((task) => {
+                const done = task.status === "done";
+                return (
+                  <li
+                    key={task.task_id}
+                    className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleComplete(task)}
+                      disabled={done || completeTask.isPending}
+                      aria-label={done ? "완료됨" : "완료로 표시"}
+                      className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-white transition ${
+                        done
+                          ? "border-indigo-500 bg-indigo-500"
+                          : "border-slate-300 bg-white hover:border-indigo-400"
+                      }`}
+                    >
+                      {done ? <Check className="h-3 w-3" /> : null}
+                    </button>
+                    <span
+                      className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${
+                        taskPriorityDot[task.priority]
+                      }`}
+                      aria-hidden
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className={`truncate text-sm font-bold ${
+                          done
+                            ? "text-slate-400 line-through"
+                            : "text-slate-800"
+                        }`}
+                      >
+                        {task.title}
+                      </p>
+                      <p className="mt-0.5 text-xs font-medium text-slate-400">
+                        {formatTaskDue(task.due_datetime)}
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-8 text-center text-xs font-bold text-slate-500">
+              아직 연결된 할 일이 없습니다.
+            </p>
+          )}
+        </div>
       </div>
-    </section>
+    </div>
+  );
+}
+
+function TaskAddSidePanel({
+  schedule,
+  category,
+  tasks,
+  onClose,
+}: {
+  schedule: Schedule;
+  category?: Category | null;
+  tasks: Task[];
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <div className="fixed inset-0 z-50 min-[1100px]:hidden">
+        <button
+          type="button"
+          aria-label="할 일 추가 패널 닫기"
+          onClick={onClose}
+          className="absolute inset-0 h-full w-full bg-slate-950/30"
+        />
+        <aside className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col bg-white shadow-2xl">
+          <TaskAddPanelContent
+            schedule={schedule}
+            category={category}
+            tasks={tasks}
+            onClose={onClose}
+          />
+        </aside>
+      </div>
+      <aside className="hidden min-h-0 w-[26rem] shrink-0 border-l border-slate-200 bg-white shadow-sm min-[1100px]:flex">
+        <TaskAddPanelContent
+          schedule={schedule}
+          category={category}
+          tasks={tasks}
+          onClose={onClose}
+        />
+      </aside>
+    </>
+  );
+}
+
+function FilterButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex h-8 items-center justify-center rounded-lg px-3 text-xs font-bold transition ${
+        active
+          ? "bg-indigo-50 text-indigo-700"
+          : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
 export default function Tasks() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const classificationSettings = useClassificationSettings();
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [filters, setFilters] = useState<TaskFilters>(() => {
-    return {
-      statuses: parseTaskStatusFilters(searchParams.get("status")),
-      priorities: parseTaskPriorityFilters(searchParams.get("priority")),
-      schedule: parseScheduleFilter(searchParams.get("schedule")),
-      categories: parseNumberFilters(searchParams.get("category")),
-      q: searchParams.get("q") ?? "",
-      dueFrom: searchParams.get("due_from") ?? "",
-      dueTo: searchParams.get("due_to") ?? "",
-    };
-  });
-  const deepLinkedTaskId = Number(searchParams.get("task_id"));
-  const updateFilters = useCallback(
-    (patch: Partial<TaskFilters>) => {
-      setFilters((prev) => {
-        const next = { ...prev, ...patch };
-        const params = new URLSearchParams(searchParams);
-        params.delete("task_id");
-
-        if (next.statuses.length === 0) params.delete("status");
-        else params.set("status", next.statuses.join(","));
-
-        if (next.priorities.length === 0) params.delete("priority");
-        else params.set("priority", next.priorities.join(","));
-
-        if (next.schedule === "all") params.delete("schedule");
-        else params.set("schedule", String(next.schedule));
-
-        if (next.categories.length === 0) params.delete("category");
-        else params.set("category", next.categories.join(","));
-
-        if (next.q.trim()) params.set("q", next.q.trim());
-        else params.delete("q");
-
-        if (next.dueFrom) params.set("due_from", next.dueFrom);
-        else params.delete("due_from");
-
-        if (next.dueTo) params.set("due_to", next.dueTo);
-        else params.delete("due_to");
-
-        setSearchParams(params, { replace: true });
-        return next;
-      });
-    },
-    [searchParams, setSearchParams],
+  const [selectedDateKey, setSelectedDateKey] = useState(() =>
+    toDateKey(new Date()),
   );
-  const resetFilters = useCallback(() => {
-    setFilters(defaultFilters);
-    setSearchParams(new URLSearchParams(), { replace: true });
-  }, [setSearchParams]);
-
-  const query = {
-    ...(filters.statuses.length > 0 ? { status: filters.statuses } : {}),
-    ...(filters.priorities.length > 0 ? { priority: filters.priorities } : {}),
-    ...(filters.categories.length > 0
-      ? { category_id: filters.categories }
-      : {}),
-    ...(typeof filters.schedule === "number"
-      ? { schedule_id: filters.schedule }
-      : {}),
-    ...(filters.schedule === "linked" || filters.schedule === "unlinked"
-      ? { schedule_filter: filters.schedule }
-      : {}),
-    ...(filters.q.trim() ? { q: filters.q.trim() } : {}),
-    ...(filters.dueFrom ? { due_from: dateToRangeStart(filters.dueFrom) } : {}),
-    ...(filters.dueTo ? { due_to: dateToRangeEnd(filters.dueTo) } : {}),
-  };
-  const { data, isLoading, isError, error, isFetching, refetch } =
-    useTasks(query);
-  const schedulesQuery = useSchedules();
-  const categoriesQuery = useCategories("task");
-
+  const [dateMode, setDateMode] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState(() =>
+    startOfMonth(new Date()),
+  );
+  const [filter, setFilter] = useState<BoardFilter>("all");
+  const [search, setSearch] = useState("");
+  const [expandedScheduleIds, setExpandedScheduleIds] = useState<Set<number>>(
+    () => new Set(),
+  );
+  const [taskPanelScheduleId, setTaskPanelScheduleId] = useState<number | null>(
+    null,
+  );
+  const selectedDate = useMemo(
+    () => fromDateKey(selectedDateKey),
+    [selectedDateKey],
+  );
+  const queryRange = useMemo(() => {
+    const start = startOfMonth(visibleMonth);
+    const end = endOfMonth(addMonths(visibleMonth, 1));
+    return {
+      start_from: toOffsetISOString(start),
+      start_to: toOffsetISOString(end),
+    };
+  }, [visibleMonth]);
+  const schedulesQuery = useSchedules(queryRange);
+  const tasksQuery = useTasks();
+  const categoriesQuery = useCategories("schedule");
+  const classificationSettings = useClassificationSettings();
   const schedules = schedulesQuery.data ?? [];
-  const schedulesById = useMemo(
+  const tasks = tasksQuery.data ?? [];
+  const categoryById = useMemo(
     () =>
       new Map(
-        schedules.map((schedule) => [schedule.schedule_id, schedule] as const),
+        (categoriesQuery.data ?? []).map((category) => [
+          category.category_id,
+          category,
+        ]),
       ),
-    [schedules],
+    [categoriesQuery.data],
   );
-  const statusFilterOptions = getClassificationOptions(
-    classificationSettings,
-    "taskStatuses",
-    { enabledOnly: true, defaultOnly: true },
+  const tasksByScheduleId = useMemo(() => {
+    const map = new Map<number, Task[]>();
+    tasks.forEach((task) => {
+      if (!task.schedule_id) return;
+      const list = map.get(task.schedule_id) ?? [];
+      list.push(task);
+      map.set(task.schedule_id, list);
+    });
+    return map;
+  }, [tasks]);
+  const taskPanelSchedule = useMemo(
+    () =>
+      taskPanelScheduleId === null
+        ? null
+        : (schedules.find(
+            (schedule) => schedule.schedule_id === taskPanelScheduleId,
+          ) ?? null),
+    [schedules, taskPanelScheduleId],
   );
-  const priorityFilterOptions = getClassificationOptions(
-    classificationSettings,
-    "taskPriorities",
-    { enabledOnly: true, defaultOnly: true },
-  );
-  const scheduleOptions = useMemo(() => {
-    const linkedIds = new Set(
-      (data ?? []).flatMap((task) =>
-        task.schedule_id ? [task.schedule_id] : [],
-      ),
-    );
-    return schedules
-      .filter((schedule) => linkedIds.has(schedule.schedule_id))
-      .sort(
-        (a, b) =>
-          new Date(a.start_datetime).getTime() -
-          new Date(b.start_datetime).getTime(),
-      );
-  }, [data, schedules]);
-  const items = useMemo(() => {
-    const source = data ?? [];
-    const keyword = filters.q.trim().toLowerCase();
-    return source.filter((task) => {
-      if (
-        filters.statuses.length > 0 &&
-        !filters.statuses.includes(task.status)
-      ) {
-        return false;
-      }
-      if (
-        filters.priorities.length > 0 &&
-        !filters.priorities.includes(task.priority)
-      ) {
-        return false;
-      }
-      if (
-        filters.categories.length > 0 &&
-        (!task.category_id || !filters.categories.includes(task.category_id))
-      ) {
-        return false;
-      }
-      if (filters.schedule === "linked" && !task.schedule_id) return false;
-      if (filters.schedule === "unlinked" && task.schedule_id) return false;
-      if (keyword) {
-        const haystack =
-          `${task.title} ${task.description ?? ""} ${task.location ?? ""}`.toLowerCase();
-        if (!haystack.includes(keyword)) return false;
-      }
-      return true;
+  const taskPanelCategory = taskPanelSchedule?.category_id
+    ? categoryById.get(taskPanelSchedule.category_id)
+    : null;
+  const taskPanelTasks = taskPanelSchedule
+    ? (tasksByScheduleId.get(taskPanelSchedule.schedule_id) ?? [])
+    : [];
+  const countsByDate = useMemo(() => {
+    const map = new Map<string, number>();
+    buildMonthCells(visibleMonth).forEach(({ date, key }) => {
+      const count = schedules.filter((schedule) =>
+        scheduleOverlapsDate(schedule, date),
+      ).length;
+      if (count > 0) map.set(key, count);
     });
-  }, [
-    data,
-    filters.categories,
-    filters.priorities,
-    filters.q,
-    filters.schedule,
-    filters.statuses,
-  ]);
-  const activeFilterCount = useMemo(() => {
-    let count = 0;
-    if (filters.statuses.length > 0) count += 1;
-    if (filters.priorities.length > 0) count += 1;
-    if (filters.schedule !== "all") count += 1;
-    if (filters.categories.length > 0) count += 1;
-    if (filters.q.trim()) count += 1;
-    if (filters.dueFrom) count += 1;
-    if (filters.dueTo) count += 1;
-    return count;
-  }, [filters]);
-  const taskFilterChips = useMemo(() => {
-    const chips: Array<{
-      key: string;
-      label: string;
-      reset: Partial<TaskFilters>;
-    }> = [];
-    filters.statuses.forEach((status) => {
-      chips.push({
-        key: `status-${status}`,
-        label: getClassificationLabel(
-          classificationSettings,
-          "taskStatuses",
-          status,
-        ),
-        reset: {
-          statuses: filters.statuses.filter((item) => item !== status),
-        },
-      });
-    });
-    filters.priorities.forEach((priority) => {
-      chips.push({
-        key: `priority-${priority}`,
-        label: getClassificationLabel(
-          classificationSettings,
-          "taskPriorities",
-          priority,
-        ),
-        reset: {
-          priorities: filters.priorities.filter((item) => item !== priority),
-        },
-      });
-    });
-    filters.categories.forEach((categoryId) => {
-      const category = categoriesQuery.data?.find(
-        (item) => item.category_id === categoryId,
-      );
-      chips.push({
-        key: `category-${categoryId}`,
-        label: category?.name ?? `카테고리 ${categoryId}`,
-        reset: {
-          categories: filters.categories.filter((item) => item !== categoryId),
-        },
-      });
-    });
-    if (filters.schedule === "linked") {
-      chips.push({
-        key: "schedule",
-        label: "일정 연결",
-        reset: { schedule: "all" },
-      });
-    }
-    if (filters.schedule === "unlinked") {
-      chips.push({
-        key: "schedule",
-        label: "미연결",
-        reset: { schedule: "all" },
-      });
-    }
-    if (typeof filters.schedule === "number") {
-      const schedule = schedulesById.get(filters.schedule);
-      chips.push({
-        key: "schedule",
-        label: schedule?.title ?? `일정 ${filters.schedule}`,
-        reset: { schedule: "all" },
-      });
-    }
-    if (filters.q.trim()) {
-      chips.push({
-        key: "q",
-        label: `검색: ${filters.q.trim()}`,
-        reset: { q: "" },
-      });
-    }
-    if (filters.dueFrom) {
-      chips.push({
-        key: "dueFrom",
-        label: `${filters.dueFrom} 이후`,
-        reset: { dueFrom: "" },
-      });
-    }
-    if (filters.dueTo) {
-      chips.push({
-        key: "dueTo",
-        label: `${filters.dueTo} 이전`,
-        reset: { dueTo: "" },
-      });
-    }
-    return chips;
-  }, [categoriesQuery.data, classificationSettings, filters, schedulesById]);
-  const grouped = useMemo(() => groupTasks(items), [items]);
-  const selectedSchedule =
-    typeof filters.schedule === "number"
-      ? schedulesById.get(filters.schedule)
-      : undefined;
-  const [quickAddOpen, setQuickAddOpen] = useState(false);
+    return map;
+  }, [schedules, visibleMonth]);
+  const filteredSchedules = useMemo(() => {
+    const today = new Date();
+    const keyword = search.trim().toLowerCase();
 
-  useEffect(() => {
-    if (!deepLinkedTaskId || Number.isNaN(deepLinkedTaskId)) return;
-    const el = document.getElementById(`task-${deepLinkedTaskId}`);
-    el?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [deepLinkedTaskId, items.length]);
+    return schedules
+      .filter((schedule) => {
+        const linkedTasks = tasksByScheduleId.get(schedule.schedule_id) ?? [];
+        const progress = scheduleProgress(linkedTasks, schedule);
+        const useExactDate = dateMode || filter === "today";
+        const targetDate = filter === "today" ? today : selectedDate;
+
+        if (useExactDate && !scheduleOverlapsDate(schedule, targetDate)) {
+          return false;
+        }
+        if (!useExactDate && new Date(schedule.start_datetime) < startOfDay(today)) {
+          return false;
+        }
+        if (filter === "active" && progress.completed) return false;
+        if (filter === "completed" && !progress.completed) return false;
+        if (keyword) {
+          const category = schedule.category_id
+            ? categoryById.get(schedule.category_id)
+            : null;
+          const haystack = [
+            schedule.title,
+            schedule.location,
+            schedule.description,
+            category?.name,
+            getClassificationLabel(
+              classificationSettings,
+              "scheduleTypes",
+              schedule.schedule_type,
+            ),
+            ...linkedTasks.map((task) => task.title),
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+
+          if (!haystack.includes(keyword)) return false;
+        }
+        return true;
+      })
+      .sort(sortSchedules);
+  }, [
+    categoryById,
+    classificationSettings,
+    dateMode,
+    filter,
+    schedules,
+    search,
+    selectedDate,
+    tasksByScheduleId,
+  ]);
+  const groups = useMemo(
+    () => groupSchedules(filteredSchedules, selectedDate, dateMode || filter === "today"),
+    [dateMode, filter, filteredSchedules, selectedDate],
+  );
+  const visibleTasks = useMemo(
+    () =>
+      filteredSchedules.flatMap(
+        (schedule) => tasksByScheduleId.get(schedule.schedule_id) ?? [],
+      ),
+    [filteredSchedules, tasksByScheduleId],
+  );
+  const visibleDoneCount = visibleTasks.filter(
+    (task) => task.status === "done",
+  ).length;
+  const visibleTaskCount = visibleTasks.length;
+  const progressPercent =
+    visibleTaskCount > 0
+      ? Math.round((visibleDoneCount / visibleTaskCount) * 100)
+      : 0;
+  const isLoading = schedulesQuery.isLoading || tasksQuery.isLoading;
+  const error = schedulesQuery.error ?? tasksQuery.error;
+  const isError = schedulesQuery.isError || tasksQuery.isError;
+  const isFetching = schedulesQuery.isFetching || tasksQuery.isFetching;
+  const newScheduleTo = `/schedules?${new URLSearchParams({
+    date: selectedDateKey,
+    create: "1",
+  }).toString()}`;
+
+  const selectDate = (date: Date) => {
+    const key = toDateKey(date);
+    setSelectedDateKey(key);
+    setVisibleMonth(startOfMonth(date));
+    setDateMode(true);
+    if (filter === "today") setFilter("all");
+  };
+
+  const showAll = () => {
+    setDateMode(false);
+    setFilter("all");
+  };
+
+  const toggleSchedule = (scheduleId: number) => {
+    setExpandedScheduleIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(scheduleId)) next.delete(scheduleId);
+      else next.add(scheduleId);
+      return next;
+    });
+  };
+
+  const openTaskPanel = (scheduleId: number) => {
+    setExpandedScheduleIds((prev) => {
+      const next = new Set(prev);
+      next.add(scheduleId);
+      return next;
+    });
+    setTaskPanelScheduleId(scheduleId);
+  };
 
   return (
-    <AppShell>
-      <div className="space-y-6">
-        <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
-                Task board
-              </p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">
-                할 일
-              </h1>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                빠르게 추가하고, 마감 기준으로 오늘 실행할 일을 정리하세요.
-              </p>
-            </div>
-            <Link
-              to="/"
-              className="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
-            >
-              홈으로
-            </Link>
-          </div>
-        </section>
-
-        <section className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-          <button
-            type="button"
-            onClick={() => setQuickAddOpen((open) => !open)}
-            aria-expanded={quickAddOpen}
-            className="flex w-full items-center justify-between gap-3 text-left"
+    <AppShell
+      fullBleed
+      titleMeta={`완료 ${visibleDoneCount} / 전체 ${visibleTaskCount}`}
+      headerActions={
+        <div className="flex min-w-0 items-center gap-2">
+          <label className="relative hidden min-[760px]:block">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="일정 또는 할 일 검색..."
+              className="h-9 w-64 rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
+            />
+          </label>
+          <Link
+            to={newScheduleTo}
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-indigo-500 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-600"
           >
-          <div>
-            <h2 className="text-sm font-semibold text-slate-950">빠른 추가</h2>
-            <p className="mt-1 text-xs text-slate-500">
-              입력하면 기본 상태는 할 일(todo)로 저장됩니다.
-            </p>
-          </div>
-            <span
-              className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition ${
-                quickAddOpen
-                  ? "border-slate-200 bg-slate-100 text-slate-600"
-                  : "border-emerald-200 bg-emerald-50 text-emerald-700"
-              }`}
-            >
-              {quickAddOpen ? (
-                <X className="h-4 w-4" />
-              ) : (
-                <Plus className="h-4 w-4" />
-              )}
-            </span>
-          </button>
-          <div
-            className={`grid transition-[grid-template-rows] duration-200 ease-out ${
-              quickAddOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-            }`}
-          >
-            <div className="overflow-hidden">
-              <div className="mt-3 border-t border-slate-100 pt-3">
-                <TaskForm
-                  defaultScheduleId={
-                    typeof filters.schedule === "number"
-                      ? filters.schedule
-                      : undefined
-                  }
-                />
-              </div>
-            </div>
-          </div>
-          {selectedSchedule && (
-            <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
-              빠른 추가 항목은 일정{" "}
-              <Link
-                to={`/schedules?${new URLSearchParams({
-                  schedule_id: String(selectedSchedule.schedule_id),
-                  date: selectedSchedule.start_datetime.slice(0, 10),
-                })}`}
-                className="font-semibold underline"
-              >
-                {selectedSchedule.title}
-              </Link>
-              에 연결됩니다.
-            </div>
-          )}
-        </section>
-
-        <section className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-950">
-                필터
-                {activeFilterCount > 0 && (
-                  <span className="ml-2 rounded-md bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
-                    {activeFilterCount}
-                  </span>
-                )}
-              </h2>
-              <p className="mt-1 text-xs text-slate-500">
-                선택한 조건을 모두 만족하는 할 일만 보여줍니다.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setFiltersOpen((open) => !open)}
-                className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition ${
-                  filtersOpen
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                <SlidersHorizontal className="h-4 w-4" />
-                {filtersOpen ? "필터 접기" : "필터 열기"}
-              </button>
-              <button
-                type="button"
-                onClick={resetFilters}
-                disabled={activeFilterCount === 0}
-                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-              >
-                초기화
-              </button>
-            </div>
-          </div>
-
-          {filtersOpen && (
-            <>
-              <div className="mt-4 grid gap-3 xl:grid-cols-[1.2fr_1fr_1fr]">
-                <label className="block">
-                  <span className="text-xs font-medium text-slate-600">
-                    검색
-                  </span>
-                  <input
-                    type="search"
-                    value={filters.q}
-                    onChange={(event) =>
-                      updateFilters({ q: event.target.value })
-                    }
-                    placeholder="제목, 설명, 장소"
-                    className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                  />
-                </label>
-
-                <div>
-                  <span className="text-xs font-medium text-slate-600">
-                    상태
-                  </span>
-                  <div className="mt-1 flex min-h-10 flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
-                    <button
-                      type="button"
-                      onClick={() => updateFilters({ statuses: [] })}
-                      className={`h-8 rounded-md px-2 text-xs font-medium transition ${
-                        filters.statuses.length === 0
-                          ? "bg-emerald-600 text-white shadow-sm"
-                          : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                      }`}
-                    >
-                      전체
-                    </button>
-                    {statusFilterOptions.map((option) => (
-                      <button
-                        key={option.key}
-                        type="button"
-                        onClick={() => {
-                          const selected = filters.statuses.includes(
-                            option.value,
-                          );
-                          updateFilters({
-                            statuses: selected
-                              ? filters.statuses.filter(
-                                  (item) => item !== option.value,
-                                )
-                              : [...filters.statuses, option.value],
-                          });
-                        }}
-                        className={`h-8 rounded-md px-2 text-xs font-medium transition ${
-                          filters.statuses.includes(option.value)
-                            ? "bg-emerald-600 text-white shadow-sm"
-                            : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                        }`}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
+            <Plus className="h-4 w-4" />새 일정
+          </Link>
+        </div>
+      }
+      sidebarExtra={
+        <MiniCalendar
+          visibleMonth={visibleMonth}
+          selectedDateKey={selectedDateKey}
+          dateMode={dateMode || filter === "today"}
+          countsByDate={countsByDate}
+          onMoveMonth={(amount) =>
+            setVisibleMonth((prev) => addMonths(prev, amount))
+          }
+          onSelectDate={selectDate}
+          onShowAll={showAll}
+        />
+      }
+    >
+      <div className="flex h-full min-h-0 flex-col bg-[#f7f8fb]">
+        <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
+          <div className="flex flex-col gap-3 min-[900px]:flex-row min-[900px]:items-center min-[900px]:justify-between">
+            <div className="flex min-w-0 flex-wrap items-center gap-4">
+              <div className="flex items-center gap-3">
+                <h1 className="text-base font-black text-slate-950">할 일</h1>
+                <div className="flex items-center gap-2">
+                  <div className="h-1.5 w-28 overflow-hidden rounded-full bg-slate-100">
+                    <span
+                      className="block h-full rounded-full bg-indigo-500"
+                      style={{ width: `${progressPercent}%` }}
+                    />
                   </div>
-                </div>
-
-                <div>
-                  <span className="text-xs font-medium text-slate-600">
-                    우선순위
+                  <span className="text-sm font-semibold text-slate-400">
+                    완료 {visibleDoneCount} / 전체 {visibleTaskCount}
                   </span>
-                  <div className="mt-1 flex min-h-10 flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
-                    <button
-                      type="button"
-                      onClick={() => updateFilters({ priorities: [] })}
-                      className={`h-8 rounded-md px-2 text-xs font-medium transition ${
-                        filters.priorities.length === 0
-                          ? "bg-emerald-600 text-white shadow-sm"
-                          : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                      }`}
-                    >
-                      전체
-                    </button>
-                    {priorityFilterOptions.map((option) => (
-                      <button
-                        key={option.key}
-                        type="button"
-                        onClick={() => {
-                          const selected = filters.priorities.includes(
-                            option.value,
-                          );
-                          updateFilters({
-                            priorities: selected
-                              ? filters.priorities.filter(
-                                  (item) => item !== option.value,
-                                )
-                              : [...filters.priorities, option.value],
-                          });
-                        }}
-                        className={`h-8 rounded-md px-2 text-xs font-medium transition ${
-                          filters.priorities.includes(option.value)
-                            ? "bg-emerald-600 text-white shadow-sm"
-                            : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                        }`}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
                 </div>
               </div>
 
-              <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_1fr_1fr_1fr]">
-                <label className="block">
-                  <span className="text-xs font-medium text-slate-600">
-                    마감 시작
-                  </span>
-                  <input
-                    type="date"
-                    value={filters.dueFrom}
-                    onChange={(event) =>
-                      updateFilters({ dueFrom: event.target.value })
-                    }
-                    className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                  />
-                </label>
-
-                <label className="block">
-                  <span className="text-xs font-medium text-slate-600">
-                    마감 종료
-                  </span>
-                  <input
-                    type="date"
-                    value={filters.dueTo}
-                    onChange={(event) =>
-                      updateFilters({ dueTo: event.target.value })
-                    }
-                    className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                  />
-                </label>
-
-                <div>
-                  <span className="text-xs font-medium text-slate-600">
-                    카테고리
-                  </span>
-                  <div className="mt-1 flex min-h-10 flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
-                    <button
-                      type="button"
-                      onClick={() => updateFilters({ categories: [] })}
-                      className={`h-8 rounded-md px-2 text-xs font-medium transition ${
-                        filters.categories.length === 0
-                          ? "bg-emerald-600 text-white shadow-sm"
-                          : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                      }`}
-                    >
-                      전체
-                    </button>
-                    {(categoriesQuery.data ?? []).map((category) => (
-                      <button
-                        key={category.category_id}
-                        type="button"
-                        onClick={() => {
-                          const selected = filters.categories.includes(
-                            category.category_id,
-                          );
-                          updateFilters({
-                            categories: selected
-                              ? filters.categories.filter(
-                                  (item) => item !== category.category_id,
-                                )
-                              : [...filters.categories, category.category_id],
-                          });
-                        }}
-                        className={`h-8 rounded-md px-2 text-xs font-medium transition ${
-                          filters.categories.includes(category.category_id)
-                            ? "bg-emerald-600 text-white shadow-sm"
-                            : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                        }`}
-                      >
-                        {category.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <label className="block">
-                  <span className="text-xs font-medium text-slate-600">
-                    일정
-                  </span>
-                  <select
-                    value={
-                      typeof filters.schedule === "number"
-                        ? String(filters.schedule)
-                        : filters.schedule
-                    }
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      updateFilters({
-                        schedule:
-                          value === "linked" || value === "unlinked"
-                            ? value
-                            : value
-                              ? Number(value)
-                              : "all",
-                      });
-                    }}
-                    className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                    aria-label="일정별 필터"
-                  >
-                    <option value="all">모든 연결</option>
-                    <option value="linked">일정 연결</option>
-                    <option value="unlinked">미연결</option>
-                    {scheduleOptions.map((schedule) => (
-                      <option
-                        key={schedule.schedule_id}
-                        value={schedule.schedule_id}
-                      >
-                        {schedule.title}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            </>
-          )}
-
-          {taskFilterChips.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {taskFilterChips.map((chip) => (
-                <button
-                  key={chip.key}
-                  type="button"
-                  onClick={() => updateFilters(chip.reset)}
-                  className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
-                  aria-label={`${chip.label} 필터 제거`}
+              <div className="flex items-center gap-1">
+                <FilterButton active={filter === "all" && !dateMode} onClick={showAll}>
+                  전체
+                </FilterButton>
+                <FilterButton
+                  active={filter === "today"}
+                  onClick={() => {
+                    setFilter("today");
+                    setDateMode(false);
+                    setSelectedDateKey(toDateKey(new Date()));
+                    setVisibleMonth(startOfMonth(new Date()));
+                  }}
                 >
-                  <span>{chip.label}</span>
-                  <span aria-hidden className="text-emerald-500">
-                    ×
-                  </span>
-                </button>
-              ))}
+                  오늘
+                </FilterButton>
+                <FilterButton
+                  active={filter === "active"}
+                  onClick={() => setFilter("active")}
+                >
+                  미완료
+                </FilterButton>
+                <FilterButton
+                  active={filter === "completed"}
+                  onClick={() => setFilter("completed")}
+                >
+                  완료됨
+                </FilterButton>
+              </div>
             </div>
-          )}
 
-          {isFetching && (
-            <p className="mt-3 text-xs text-slate-500">새로고침 중...</p>
-          )}
-        </section>
+            <label className="relative block min-[760px]:hidden">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="일정 또는 할 일 검색..."
+                className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
+              />
+            </label>
+          </div>
 
-        <div>
-          {isLoading ? (
-            <FullSpinner message="할 일을 불러오는 중..." />
-          ) : isError ? (
-            <ErrorState
-              title="할 일을 불러오지 못했습니다"
-              message={(error as Error).message}
-              onRetry={() => refetch()}
-              retrying={isFetching}
-            />
-          ) : items.length === 0 ? (
-            <EmptyState
-              title={
-                activeFilterCount === 0
-                  ? "할 일이 없습니다"
-                  : "조건에 맞는 할 일이 없습니다"
-              }
-              description="위 입력창에서 새로운 할 일을 추가해 보세요."
-            />
-          ) : (
-            <div className="grid gap-4 xl:grid-cols-2">
-              <TaskGroup
-                title="지연"
-                description="오늘 이전에 마감된 미완료 항목"
-                items={grouped.overdue}
-                deepLinkedTaskId={deepLinkedTaskId}
-                empty="지연된 할 일이 없습니다."
-                schedulesById={schedulesById}
-              />
-              <TaskGroup
-                title="오늘"
-                description="오늘 안에 처리할 항목"
-                items={grouped.today}
-                deepLinkedTaskId={deepLinkedTaskId}
-                empty="오늘 마감인 할 일이 없습니다."
-                schedulesById={schedulesById}
-              />
-              <TaskGroup
-                title="예정"
-                description="이후 마감 또는 마감 미지정 항목"
-                items={grouped.upcoming}
-                deepLinkedTaskId={deepLinkedTaskId}
-                empty="예정된 할 일이 없습니다."
-                schedulesById={schedulesById}
-              />
-              <TaskGroup
-                title="완료"
-                description="이미 완료 처리한 항목"
-                items={grouped.done}
-                deepLinkedTaskId={deepLinkedTaskId}
-                empty="완료된 할 일이 없습니다."
-                schedulesById={schedulesById}
-              />
+          {dateMode && filter !== "today" && (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">
+              {formatFullDate(selectedDate)}
+              <button
+                type="button"
+                onClick={showAll}
+                aria-label="날짜 선택 해제"
+                className="rounded-full p-0.5 hover:bg-indigo-100"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
           )}
         </div>
 
-        {items.length > 0 && (
-          <div className="text-right text-xs text-slate-500">
-            총 {items.length}건
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <div className="flex h-full min-h-0">
+            <div className="min-h-0 flex-1 overflow-auto px-4 py-5 sm:px-6">
+              {isLoading ? (
+                <FullSpinner message="일정과 할 일을 불러오는 중..." />
+              ) : isError ? (
+                <ErrorState
+                  title="일정과 할 일을 불러오지 못했습니다"
+                  message={(error as Error).message}
+                  onRetry={() => {
+                    void schedulesQuery.refetch();
+                    void tasksQuery.refetch();
+                  }}
+                  retrying={isFetching}
+                />
+              ) : filteredSchedules.length === 0 ? (
+                <EmptyState
+                  title="표시할 일정이 없습니다"
+                  description="왼쪽 달력에서 날짜를 바꾸거나 새 일정을 추가해 보세요."
+                />
+              ) : (
+                <div className="mx-auto max-w-[82rem] space-y-6">
+                  {groups.map((group) => (
+                    <section key={group.key} className="space-y-3">
+                      <div className="flex items-center gap-2 border-b border-slate-200/70 pb-2 text-sm font-bold text-slate-500">
+                        <span>{group.title}</span>
+                        <span className="text-slate-400">
+                          - {group.schedules.length}개 일정
+                        </span>
+                      </div>
+                      <ul className="space-y-3">
+                        {group.schedules.map((schedule) => {
+                          const category = schedule.category_id
+                            ? categoryById.get(schedule.category_id)
+                            : null;
+                          const tasksForSchedule =
+                            tasksByScheduleId.get(schedule.schedule_id) ?? [];
+                          return (
+                            <div key={schedule.schedule_id} className="relative">
+                              <ScheduleCard
+                                schedule={schedule}
+                                category={category}
+                                tasks={tasksForSchedule}
+                                expanded={expandedScheduleIds.has(
+                                  schedule.schedule_id,
+                                )}
+                                onToggle={() =>
+                                  toggleSchedule(schedule.schedule_id)
+                                }
+                                onOpenAddTaskPanel={() =>
+                                  openTaskPanel(schedule.schedule_id)
+                                }
+                              />
+                            </div>
+                          );
+                        })}
+                      </ul>
+                    </section>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {taskPanelSchedule && (
+              <TaskAddSidePanel
+                schedule={taskPanelSchedule}
+                category={taskPanelCategory}
+                tasks={taskPanelTasks}
+                onClose={() => setTaskPanelScheduleId(null)}
+              />
+            )}
           </div>
-        )}
+        </div>
       </div>
     </AppShell>
   );

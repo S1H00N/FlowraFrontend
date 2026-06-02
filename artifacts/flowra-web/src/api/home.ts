@@ -11,7 +11,6 @@ import type {
   ScheduleType,
   TaskPriority,
   TaskStatus,
-  TodayBriefing,
   TodayHome,
 } from "@/types";
 
@@ -23,14 +22,16 @@ type RawHomeSummary = Partial<HomeSummary> & {
   task_count?: number;
 };
 
-type RawTodayResponse = Partial<TodayBriefing> &
-  Partial<TodayHome> & {
-    schedules?: RawSchedule[];
-    company_schedules?: HomeOrganizationSchedule[];
-    tasks?: RawTask[];
-    overdue_tasks?: RawTask[];
-    summary?: RawHomeSummary;
-  };
+type RawTodayResponse = Partial<TodayHome> & {
+  schedules?: RawSchedule[];
+  company_schedules?: HomeOrganizationSchedule[];
+  tasks?: RawTask[];
+  overdue_tasks?: RawTask[];
+  priority_tasks?: RawTask[];
+  unfinished_tasks?: number;
+  ai_summary?: string;
+  summary?: RawHomeSummary;
+};
 
 const scheduleTypes: ScheduleType[] = [
   "personal",
@@ -173,7 +174,7 @@ function briefingToHome(raw: RawTodayResponse | undefined): TodayHome {
 
 export async function getTodayHome(query: HomeTodayQuery = {}) {
   const res = await apiClient.get<ApiResponse<RawTodayResponse>>(
-    "/briefings/today",
+    "/home/today",
     {
       params: query,
     },

@@ -1,22 +1,13 @@
-import type { TaskPriority, TaskStatus } from "./task";
+import type { TaskPriority, Task } from "./task";
+import type { CompanySchedule } from "./company";
+import type { Reminder } from "./reminder";
+import type { Schedule } from "./schedule";
 
 export type Priority = TaskPriority | "low" | "medium" | "high";
 
-export interface BriefingSchedule {
-  schedule_id: number;
-  title: string;
-  start_datetime: string;
-  end_datetime?: string | null;
-  location?: string | null;
-}
+export type BriefingSchedule = Schedule;
 
-export interface BriefingTask {
-  task_id: number;
-  title: string;
-  priority: TaskPriority;
-  status?: TaskStatus;
-  due_datetime?: string | null;
-}
+export type BriefingTask = Task;
 
 export interface BriefingSummary {
   schedule_count: number;
@@ -29,10 +20,12 @@ export interface BriefingSummary {
 
 export interface TodayBriefing {
   date: string;
-  today_schedules: BriefingSchedule[];
-  priority_tasks: BriefingTask[];
-  unfinished_tasks: number;
-  ai_summary: string;
+  summary: BriefingSummary;
+  schedules: BriefingSchedule[];
+  company_schedules: CompanySchedule[];
+  tasks: BriefingTask[];
+  overdue_tasks: BriefingTask[];
+  reminders: Reminder[];
 }
 
 export type BriefingPriorityTask = BriefingTask;

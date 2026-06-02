@@ -25,6 +25,7 @@ import {
   MEMO_TYPES,
   MEMO_TYPE_LABELS,
   PARSE_STATUS_LABELS,
+  type ApplyMemoResponse,
   type Memo,
   type MemoParseResult,
   type MemoType,
@@ -36,6 +37,12 @@ import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import AppShell from "@/components/AppShell";
 import CategorySelect from "@/components/CategorySelect";
+import {
+  CategoryMetaChip,
+  ListCardMeta,
+  TypeMetaChip,
+} from "@/components/ListCardMeta";
+import { useCategories } from "@/hooks/useCategories";
 import { memoSchema, type MemoFormValues } from "@/lib/schemas";
 
 type DetectedType = "schedule" | "task" | "note" | "mixed";
@@ -248,7 +255,10 @@ function FailedPanel({
   );
 }
 
-function getAppliedLink(applyType: "schedule" | "task", resource: unknown) {
+function getAppliedLink(
+  applyType: ApplyMemoResponse["apply_type"],
+  resource: unknown,
+) {
   if (!resource || typeof resource !== "object") return null;
   const value = resource as {
     schedule_id?: number;
@@ -497,18 +507,28 @@ function MemoFeedItem({ memo }: { memo: Memo }) {
   const [isEditing, setIsEditing] = useState(false);
   const [text, setText] = useState(memo.raw_text);
   const [memoType, setMemoType] = useState<MemoType>(memo.memo_type);
+  const [categoryId, setCategoryId] = useState<number | "">(
+    memo.category_id ?? "",
+  );
   const [error, setError] = useState<string | null>(null);
 
   const updateMutation = useUpdateMemo();
   const deleteMutation = useDeleteMemo();
   const parseMutation = useParseMemo();
+  const { data: categories = [] } = useCategories("memo");
+  const category = categories.find((c) => c.category_id === memo.category_id);
 
   const handleSave = async () => {
     setError(null);
     try {
       await updateMutation.mutateAsync({
         memoId: memo.memo_id,
-        payload: { raw_text: text.trim(), memo_type: memoType },
+        payload: {
+          raw_text: text.trim(),
+          memo_type: memoType,
+          category_id:
+            typeof categoryId === "number" ? String(categoryId) : null,
+        },
       });
       setIsEditing(false);
     } catch (err) {
@@ -542,15 +562,14 @@ function MemoFeedItem({ memo }: { memo: Memo }) {
           <FileText className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600">
-              {MEMO_TYPE_LABELS[memo.memo_type]}
-            </span>
+          <ListCardMeta className="mt-0">
+            <TypeMetaChip>{MEMO_TYPE_LABELS[memo.memo_type]}</TypeMetaChip>
+            {category && <CategoryMetaChip category={category} />}
             <ParseStatusBadge status={memo.parse_status} />
             <span className="text-xs text-slate-400">
               {formatDateTime(memo.created_at)}
             </span>
-          </div>
+          </ListCardMeta>
 
           {isEditing ? (
             <div className="mt-3 space-y-2">
@@ -560,17 +579,25 @@ function MemoFeedItem({ memo }: { memo: Memo }) {
                 onChange={(e) => setText(e.target.value)}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm leading-6 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
               />
-              <select
-                value={memoType}
-                onChange={(e) => setMemoType(e.target.value as MemoType)}
-                className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-              >
-                {MEMO_TYPES.map((type) => (
-                  <option key={type} value={type}>
-                    {MEMO_TYPE_LABELS[type]}
-                  </option>
-                ))}
-              </select>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <select
+                  value={memoType}
+                  onChange={(e) => setMemoType(e.target.value as MemoType)}
+                  className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                >
+                  {MEMO_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {MEMO_TYPE_LABELS[type]}
+                    </option>
+                  ))}
+                </select>
+                <CategorySelect
+                  type="memo"
+                  value={categoryId}
+                  onChange={setCategoryId}
+                  className="h-9 py-1.5 sm:min-w-44"
+                />
+              </div>
             </div>
           ) : (
             <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-800">
@@ -606,6 +633,7 @@ function MemoFeedItem({ memo }: { memo: Memo }) {
                   setIsEditing(false);
                   setText(memo.raw_text);
                   setMemoType(memo.memo_type);
+                  setCategoryId(memo.category_id ?? "");
                 }}
                 className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
               >
@@ -631,7 +659,12 @@ function MemoFeedItem({ memo }: { memo: Memo }) {
               </button>
               <button
                 type="button"
-                onClick={() => setIsEditing(true)}
+                onClick={() => {
+                  setText(memo.raw_text);
+                  setMemoType(memo.memo_type);
+                  setCategoryId(memo.category_id ?? "");
+                  setIsEditing(true);
+                }}
                 aria-label="수정"
                 className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900"
               >

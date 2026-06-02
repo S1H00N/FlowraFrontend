@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -10,27 +11,35 @@ import {
   type PointerEvent as ReactPointerEvent,
   type Ref,
   type ReactNode,
+  type WheelEvent as ReactWheelEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import { Link, useSearchParams } from "react-router-dom";
 import {
+  Building2,
   CalendarDays,
   Check,
   CheckSquare2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Clock3,
+  Flag,
+  LockKeyhole,
   MapPin,
-  PanelLeftClose,
-  PanelLeftOpen,
+  PanelRight,
   Pencil,
   Plus,
   Repeat2,
   RotateCcw,
   Search,
-  SlidersHorizontal,
+  Shapes,
+  Tag,
   Trash2,
+  UserRound,
+  UserPlus,
+  Users,
   X,
 } from "lucide-react";
 import {
@@ -41,13 +50,25 @@ import {
   useUpdateSchedule,
 } from "@/hooks/useSchedules";
 import { useCompanySchedules } from "@/hooks/useCompanySchedules";
-import { useCompleteTask, useCreateTask, useTasks } from "@/hooks/useTasks";
+import {
+  useCompanyAdminDepartments,
+  useCompanyAdminMe,
+  useCompanyAdminMembers,
+  useCreateCompanyAdminSchedule,
+} from "@/hooks/useCompanyAdmin";
+import { useCompleteTask, useTasks } from "@/hooks/useTasks";
 import { useCategories } from "@/hooks/useCategories";
+import { useHolidaysInRange } from "@/hooks/useHolidays";
 import {
   TASK_PRIORITIES,
   SCHEDULE_TYPES,
   SCHEDULE_VISIBILITY_LABELS,
+  type CompanyAdminDepartment,
+  type CompanyAdminMember,
   type CompanySchedule,
+  type CompanyScheduleCreateTarget,
+  type CreateCompanyScheduleRequest,
+  type Holiday,
   type Schedule,
   type ScheduleType,
   type ScheduleVisibility,
@@ -59,6 +80,7 @@ import {
   getClassificationOptions,
   useClassificationSettings,
 } from "@/lib/classificationSettings";
+import { useUserSettings } from "@/lib/userSettings";
 import { getErrorMessage } from "@/lib/error";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
@@ -75,10 +97,21 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   localInputToOffsetISOString,
   toOffsetISOString,
 } from "@/utils/dateUtils";
 import { toast } from "@/lib/toast";
+import {
+  CategoryMetaChip,
+  ListCardMeta,
+  PriorityMetaChip,
+  TypeMetaChip,
+} from "@/components/ListCardMeta";
 
 const weekdayLabels = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -154,6 +187,8 @@ const prioritySelectMeta: Record<
 
 const emptyCategoryColor = "#cbd5e1";
 const fallbackCategoryColor = "#94a3b8";
+const holidayAccentColor = "#e11d48";
+const untitledScheduleTitle = "제목 없음";
 
 interface MonthCalendarCell {
   date: Date;
@@ -173,6 +208,14 @@ interface ScheduleFormState {
   category_id: number | "";
 }
 
+type ScheduleSelectPreviewPatch = Partial<
+  Pick<ScheduleFormState, "schedule_type" | "priority" | "category_id">
+>;
+
+type ScheduleSelectField = keyof ScheduleSelectPreviewPatch;
+
+type ScheduleSelectDisplayState = Record<ScheduleSelectField, boolean>;
+
 type ScheduleFormSubmitIntent = "manual" | "auto" | "repeat";
 
 interface ScheduleFormSubmitOptions {
@@ -185,8 +228,28 @@ interface ScheduleCreateDraft {
   allDay?: boolean;
 }
 
+interface OpenCreatePanelOptions {
+  selectTargetDate?: boolean;
+}
+
+type PreviewSchedule = Schedule & {
+  is_preview: true;
+};
+
 type ScheduleCompletionFilter = "all" | "active" | "completed";
 type SchedulePanelLayout = "floating" | "docked";
+type ScheduleOwnerType = "personal" | "company";
+type ScheduleOwnerFilter = "all" | ScheduleOwnerType;
+type PersonalScheduleAttendeeKind = "friend" | "email";
+
+interface PersonalScheduleAttendee {
+  id: string;
+  kind: PersonalScheduleAttendeeKind;
+  email: string;
+  name?: string;
+  status: "invited_friend" | "pending_invite";
+}
+
 type RepeatFrequencyUnit = "day" | "week" | "month" | "year";
 type RepeatEndMode = "never" | "on" | "after";
 type RepeatEndType = "never" | "until" | "count";
@@ -227,18 +290,18 @@ interface RepeatTypeOption {
 }
 
 const repeatEndOptions: Array<{ value: RepeatEndType; label: string }> = [
-  { value: "never", label: "종료 안 함" },
-  { value: "until", label: "특정 날짜까지" },
-  { value: "count", label: "반복 횟수 지정" },
+  { value: "never", label: "계속 반복" },
+  { value: "until", label: "날짜까지 반복" },
+  { value: "count", label: "횟수만큼 반복" },
 ];
 
 interface ScheduleFilters {
+  owner: ScheduleOwnerFilter;
   scheduleTypes: ScheduleType[];
   priorities: TaskPriority[];
   categories: number[];
   completion: ScheduleCompletionFilter;
   q: string;
-  location: string;
 }
 
 type FilterOptionValue = string | number;
@@ -247,6 +310,8 @@ interface InlineFilterOption<TValue extends FilterOptionValue> {
   key: string;
   value: TValue;
   label: string;
+  colorDot?: string;
+  description?: string;
 }
 
 type SchedulePanelAnchorElement =
@@ -267,6 +332,9 @@ function CompactDateInput({
   ariaLabel,
   inputRef,
   onCommit,
+  onOpen,
+  minDate,
+  calendarBoundaryRef,
   className = "",
 }: {
   value: string;
@@ -275,20 +343,33 @@ function CompactDateInput({
   ariaLabel: string;
   inputRef?: Ref<HTMLInputElement>;
   onCommit?: () => void;
+  onOpen?: () => void;
+  minDate?: string;
+  calendarBoundaryRef?: { current: HTMLElement | null };
   className?: string;
 }) {
+  const normalizedMinDate =
+    minDate && /^\d{4}-\d{2}-\d{2}$/.test(minDate) ? minDate : null;
+  const clampDateKey = (dateKey: string) =>
+    normalizedMinDate && dateKey < normalizedMinDate
+      ? normalizedMinDate
+      : dateKey;
+  const effectiveValue = clampDateKey(value);
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(formatDateInputDisplay(value));
-  const [previewDateKey, setPreviewDateKey] = useState(value);
+  const [draft, setDraft] = useState(formatDateInputDisplay(effectiveValue));
+  const [previewDateKey, setPreviewDateKey] = useState(effectiveValue);
   const [visibleMonth, setVisibleMonth] = useState(() => {
-    const date = new Date(`${value}T00:00:00`);
+    const date = new Date(`${effectiveValue}T00:00:00`);
     return Number.isNaN(date.getTime())
       ? new Date()
       : new Date(date.getFullYear(), date.getMonth(), 1);
   });
   const [calendarStyle, setCalendarStyle] = useState<CSSProperties>({});
+  const [calendarReady, setCalendarReady] = useState(false);
   const containerRef = useRef<HTMLLabelElement | null>(null);
-  const highlightedDateKey = previewDateKey || value;
+  const calendarRef = useRef<HTMLDivElement | null>(null);
+  const closingFromOutsidePointerRef = useRef(false);
+  const highlightedDateKey = previewDateKey || effectiveValue;
   const selectedDate = new Date(`${highlightedDateKey}T00:00:00`);
   const selectedKey = Number.isNaN(selectedDate.getTime())
     ? ""
@@ -299,38 +380,89 @@ function CompactDateInput({
   const canResetVisibleMonth = !isCurrentMonth(visibleMonth);
 
   useEffect(() => {
-    setDraft(formatDateInputDisplay(value));
-    setPreviewDateKey(value);
-    const date = new Date(`${value}T00:00:00`);
+    setDraft(formatDateInputDisplay(effectiveValue));
+    setPreviewDateKey(effectiveValue);
+    const date = new Date(`${effectiveValue}T00:00:00`);
     if (!Number.isNaN(date.getTime())) {
       setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
     }
-  }, [value]);
+  }, [effectiveValue]);
 
   const updateCalendarPosition = useCallback(() => {
     const container = containerRef.current;
-    if (!container || typeof window === "undefined") return;
+    if (!container || typeof window === "undefined") {
+      setCalendarReady(false);
+      return;
+    }
 
     const calendarWidth = 280;
+    const calendarHeight = 328;
     const margin = 8;
+    const gap = 10;
     const inputRect = container.getBoundingClientRect();
+    const boundaryRect = calendarBoundaryRef?.current?.getBoundingClientRect();
     const panelRect = container.closest("aside")?.getBoundingClientRect();
+    const maxLeft = window.innerWidth - calendarWidth - margin;
+    const maxTop = window.innerHeight - calendarHeight - margin;
+    const clampLeft = (left: number) =>
+      Math.max(margin, Math.min(left, maxLeft));
+    const clampTop = (top: number) => Math.max(margin, Math.min(top, maxTop));
+
+    if (boundaryRect) {
+      const topNearInput = clampTop(inputRect.top);
+      const leftNearInput = clampLeft(inputRect.left);
+      const candidates = [
+        { left: boundaryRect.right + gap, top: topNearInput },
+        { left: boundaryRect.left - calendarWidth - gap, top: topNearInput },
+        { left: leftNearInput, top: boundaryRect.bottom + gap },
+        { left: leftNearInput, top: boundaryRect.top - calendarHeight - gap },
+      ];
+      const fitsViewport = ({ left, top }: { left: number; top: number }) =>
+        left >= margin &&
+        left + calendarWidth <= window.innerWidth - margin &&
+        top >= margin &&
+        top + calendarHeight <= window.innerHeight - margin;
+      const visibleArea = ({ left, top }: { left: number; top: number }) => {
+        const visibleWidth =
+          Math.min(left + calendarWidth, window.innerWidth - margin) -
+          Math.max(left, margin);
+        const visibleHeight =
+          Math.min(top + calendarHeight, window.innerHeight - margin) -
+          Math.max(top, margin);
+        return Math.max(0, visibleWidth) * Math.max(0, visibleHeight);
+      };
+      const bestCandidate =
+        candidates.find(fitsViewport) ??
+        [...candidates].sort((a, b) => visibleArea(b) - visibleArea(a))[0];
+
+      setCalendarStyle({
+        left: Math.round(bestCandidate.left),
+        top: Math.round(bestCandidate.top),
+        width: calendarWidth,
+      });
+      setCalendarReady(true);
+      return;
+    }
+
     const availableLeft = panelRect
       ? panelRect.left - calendarWidth - margin
       : inputRect.left;
-    const left = Math.max(margin, availableLeft);
-    const maxTop = window.innerHeight - 328 - margin;
-    const top = Math.max(margin, Math.min(inputRect.top, maxTop));
+    const left = clampLeft(availableLeft);
+    const top = clampTop(inputRect.top);
 
     setCalendarStyle({
-      left,
-      top,
+      left: Math.round(left),
+      top: Math.round(top),
       width: calendarWidth,
     });
-  }, []);
+    setCalendarReady(true);
+  }, [calendarBoundaryRef]);
 
-  useEffect(() => {
-    if (!open) return;
+  useLayoutEffect(() => {
+    if (!open) {
+      setCalendarReady(false);
+      return;
+    }
 
     updateCalendarPosition();
     window.addEventListener("resize", updateCalendarPosition);
@@ -342,28 +474,67 @@ function CompactDateInput({
     };
   }, [open, updateCalendarPosition]);
 
+  useEffect(() => {
+    if (!open) return;
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        (containerRef.current?.contains(target) ||
+          calendarRef.current?.contains(target))
+      ) {
+        return;
+      }
+
+      closingFromOutsidePointerRef.current = true;
+      commitDate(draft);
+      closeCalendar();
+      window.setTimeout(() => {
+        closingFromOutsidePointerRef.current = false;
+      }, 0);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
+    };
+  }, [draft, open]);
+
+  const openCalendar = () => {
+    onOpen?.();
+    if (!open) setCalendarReady(false);
+    setOpen(true);
+  };
+
+  const closeCalendar = () => {
+    setOpen(false);
+    setCalendarReady(false);
+  };
+
   const commitDate = (nextValue: string) => {
-    const normalized = normalizeDateInput(nextValue, value);
+    const normalized = normalizeDateInput(nextValue, effectiveValue);
     if (normalized) {
-      onChange(normalized);
-      setDraft(formatDateInputDisplay(normalized));
-      setPreviewDateKey(normalized);
-      setOpen(false);
+      const nextDateKey = clampDateKey(normalized);
+      onChange(nextDateKey);
+      setDraft(formatDateInputDisplay(nextDateKey));
+      setPreviewDateKey(nextDateKey);
+      closeCalendar();
       onCommit?.();
       return;
     }
 
-    setDraft(formatDateInputDisplay(value));
-    setPreviewDateKey(value);
+    setDraft(formatDateInputDisplay(effectiveValue));
+    setPreviewDateKey(effectiveValue);
   };
 
   const selectDate = (date: Date) => {
-    const dateKey = toDateKey(date);
+    const dateKey = clampDateKey(toDateKey(date));
     onChange(dateKey);
     setDraft(formatDateInputDisplay(dateKey));
     setPreviewDateKey(dateKey);
     setVisibleMonth(getCalendarViewMonth(dateKey));
-    setOpen(false);
+    closeCalendar();
     onCommit?.();
   };
 
@@ -372,9 +543,10 @@ function CompactDateInput({
       ref={containerRef}
       className={`relative flex h-9 min-w-0 items-center gap-2 rounded-md border border-transparent bg-transparent px-2 text-sm font-medium text-slate-900 transition hover:border-slate-200 hover:bg-white focus-within:border-emerald-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-100 ${className}`}
       onBlur={(event) => {
+        if (closingFromOutsidePointerRef.current) return;
         if (event.currentTarget.contains(event.relatedTarget)) return;
         commitDate(draft);
-        setOpen(false);
+        closeCalendar();
       }}
     >
       <input
@@ -385,16 +557,17 @@ function CompactDateInput({
         onChange={(event) => {
           const nextDraft = event.target.value;
           setDraft(nextDraft);
-          const normalized = normalizeDateInput(nextDraft, value);
+          const normalized = normalizeDateInput(nextDraft, effectiveValue);
           if (normalized) {
-            setPreviewDateKey(normalized);
-            setVisibleMonth(getCalendarViewMonth(normalized));
+            const nextDateKey = clampDateKey(normalized);
+            setPreviewDateKey(nextDateKey);
+            setVisibleMonth(getCalendarViewMonth(nextDateKey));
           }
-          setOpen(true);
+          openCalendar();
         }}
         onFocus={(event) => {
-          setOpen(true);
-          setPreviewDateKey(value);
+          openCalendar();
+          setPreviewDateKey(effectiveValue);
           event.currentTarget.select();
           window.requestAnimationFrame(updateCalendarPosition);
         }}
@@ -408,108 +581,135 @@ function CompactDateInput({
           if (event.key === "ArrowUp" || event.key === "ArrowDown") {
             event.preventDefault();
             const currentDraft =
-              normalizeDateInput(draft, value) || value || toDateKey(new Date());
-            const nextDateKey = moveDateByKeyboard(
-              currentDraft,
-              event.key === "ArrowDown" ? 1 : -1,
-              event.shiftKey,
+              normalizeDateInput(draft, effectiveValue) ||
+              effectiveValue ||
+              toDateKey(new Date());
+            const nextDateKey = clampDateKey(
+              moveDateByKeyboard(
+                currentDraft,
+                event.key === "ArrowDown" ? 1 : -1,
+                event.shiftKey,
+              ),
             );
             setDraft(formatDateInputDisplay(nextDateKey));
             setPreviewDateKey(nextDateKey);
             setVisibleMonth(getCalendarViewMonth(nextDateKey));
-            setOpen(true);
+            openCalendar();
           }
           if (event.key === "Escape") {
-            setDraft(formatDateInputDisplay(value));
-            setPreviewDateKey(value);
-            setVisibleMonth(getCalendarViewMonth(value));
-            setOpen(false);
+            setDraft(formatDateInputDisplay(effectiveValue));
+            setPreviewDateKey(effectiveValue);
+            setVisibleMonth(getCalendarViewMonth(effectiveValue));
+            closeCalendar();
           }
         }}
         aria-label={ariaLabel}
         aria-expanded={open}
         className="h-full min-w-0 flex-1 bg-transparent p-0 text-sm font-medium text-slate-900 outline-none"
       />
-      {open && (
-        <div
-          style={calendarStyle}
-          className="fixed z-[70] rounded-xl border border-neutral-800 bg-neutral-900 p-3 text-slate-100 shadow-xl"
-        >
-          <div className="mb-3 flex items-center justify-between">
-            <div className="text-sm font-semibold">
-              {formatMonthTitle(visibleMonth)}
-            </div>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => setVisibleMonth(getCalendarViewMonth(toDateKey(new Date())))}
-                className={`h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white ${
-                  canResetVisibleMonth ? "inline-flex" : "hidden"
-                }`}
-                aria-label="Go to current month"
-                title="Go to current month"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() =>
-                  setVisibleMonth(
-                    (prev) =>
-                      new Date(prev.getFullYear(), prev.getMonth() - 1, 1),
-                  )
-                }
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white"
-                aria-label="Previous month"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() =>
-                  setVisibleMonth(
-                    (prev) =>
-                      new Date(prev.getFullYear(), prev.getMonth() + 1, 1),
-                  )
-                }
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white"
-                aria-label="Next month"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-          <div className="grid grid-cols-7 text-center text-[11px] font-medium text-slate-500">
-            {weekdayLabels.map((label) => (
-              <span key={label}>{label}</span>
-            ))}
-          </div>
-          <div className="mt-2 grid grid-cols-7 gap-1">
-            {buildMonthCells(visibleMonth).map((date, index) =>
-              date ? (
-                <button
-                  key={toDateKey(date)}
-                  type="button"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => selectDate(date)}
-                  className={`aspect-square rounded-md text-sm font-medium transition ${
-                    toDateKey(date) === selectedKey
-                      ? "bg-emerald-500 text-white"
-                      : "text-slate-200 hover:bg-neutral-800"
-                  }`}
-                >
-                  {date.getDate()}
-                </button>
-              ) : (
-                <div key={`blank-${index}`} className="aspect-square" />
-              ),
-            )}
-          </div>
-        </div>
-      )}
+      {open
+        ? renderFloatingPortal(
+            <div
+              ref={calendarRef}
+              style={{
+                ...calendarStyle,
+                visibility: calendarReady ? undefined : "hidden",
+              }}
+              className="schedule-date-popover fixed z-[160] rounded-xl border border-neutral-800 bg-neutral-900 p-3 text-slate-100 shadow-xl"
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <div className="text-sm font-semibold">
+                  {formatMonthTitle(visibleMonth)}
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() =>
+                      setVisibleMonth(
+                        getCalendarViewMonth(toDateKey(new Date())),
+                      )
+                    }
+                    className={`h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white ${
+                      canResetVisibleMonth ? "inline-flex" : "hidden"
+                    }`}
+                    aria-label="Go to current month"
+                    title="Go to current month"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() =>
+                      setVisibleMonth(
+                        (prev) =>
+                          new Date(prev.getFullYear(), prev.getMonth() - 1, 1),
+                      )
+                    }
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white"
+                    aria-label="Previous month"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() =>
+                      setVisibleMonth(
+                        (prev) =>
+                          new Date(prev.getFullYear(), prev.getMonth() + 1, 1),
+                      )
+                    }
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white"
+                    aria-label="Next month"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-7 text-center text-[11px] font-medium text-slate-500">
+                {weekdayLabels.map((label) => (
+                  <span key={label}>{label}</span>
+                ))}
+              </div>
+              <div className="mt-2 grid grid-cols-7 gap-1">
+                {buildMonthCells(visibleMonth).map((date, index) => {
+                  if (!date) {
+                    return (
+                      <div key={`blank-${index}`} className="aspect-square" />
+                    );
+                  }
+
+                  const dateKey = toDateKey(date);
+                  const disabled =
+                    normalizedMinDate !== null && dateKey < normalizedMinDate;
+
+                  return (
+                    <button
+                      key={dateKey}
+                      type="button"
+                      disabled={disabled}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        if (!disabled) selectDate(date);
+                      }}
+                      className={`aspect-square rounded-md text-sm font-medium transition ${
+                        dateKey === selectedKey
+                          ? "bg-emerald-500 text-white"
+                          : disabled
+                            ? "cursor-not-allowed text-slate-600"
+                            : "text-slate-200 hover:bg-neutral-800"
+                      }`}
+                    >
+                      {date.getDate()}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>,
+          )
+        : null}
     </label>
   );
 }
@@ -543,12 +743,7 @@ function buildSelectionTimeOptions(value: string) {
     return timeDropdownOptions;
   }
 
-  return Array.from(
-    new Set([
-      normalized,
-      ...timeDropdownOptions,
-    ]),
-  )
+  return Array.from(new Set([normalized, ...timeDropdownOptions]))
     .sort((a, b) => (timeToMinutes(a) ?? 0) - (timeToMinutes(b) ?? 0))
     .slice(0, timeDropdownOptions.length + 1);
 }
@@ -744,8 +939,10 @@ function CompactTimeInput({
   );
   const [dropdownStyle, setDropdownStyle] = useState<CSSProperties>({});
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const selectingOptionRef = useRef(false);
+  const closingFromOutsidePointerRef = useRef(false);
   const activeOptionSourceRef = useRef<"auto" | "keyboard" | "pointer">("auto");
 
   useEffect(() => {
@@ -839,7 +1036,9 @@ function CompactTimeInput({
     const margin = 8;
     const inputRect = container.getBoundingClientRect();
     const panelRect = container.closest("aside")?.getBoundingClientRect();
-    const availableLeft = panelRect ? panelRect.left - dropdownWidth - margin : inputRect.left;
+    const availableLeft = panelRect
+      ? panelRect.left - dropdownWidth - margin
+      : inputRect.left;
     const left = Math.max(margin, availableLeft);
     const maxTop = window.innerHeight - timeDropdownMaxHeight - margin;
     const top = Math.max(margin, Math.min(inputRect.top, maxTop));
@@ -864,6 +1063,33 @@ function CompactTimeInput({
     };
   }, [open, updateDropdownPosition]);
 
+  useEffect(() => {
+    if (!open) return;
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        (containerRef.current?.contains(target) ||
+          dropdownRef.current?.contains(target))
+      ) {
+        return;
+      }
+
+      closingFromOutsidePointerRef.current = true;
+      commitTime(draft);
+      setOpen(false);
+      window.setTimeout(() => {
+        closingFromOutsidePointerRef.current = false;
+      }, 0);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
+    };
+  }, [draft, open]);
+
   return (
     <div
       ref={containerRef}
@@ -871,11 +1097,10 @@ function CompactTimeInput({
         boxed
           ? "w-full border border-transparent bg-transparent px-2 hover:border-slate-200 hover:bg-white focus-within:border-emerald-300 focus-within:bg-white"
           : "w-auto px-0"
-      } ${
-        disabled ? "bg-slate-100 text-slate-400" : ""
-      }`}
+      } ${disabled ? "bg-slate-100 text-slate-400" : ""}`}
       onBlur={(event) => {
         if (selectingOptionRef.current) return;
+        if (closingFromOutsidePointerRef.current) return;
         if (event.currentTarget.contains(event.relatedTarget)) return;
         commitTime(draft);
         setOpen(false);
@@ -967,6 +1192,7 @@ function CompactTimeInput({
       />
       {open && !disabled && (
         <div
+          ref={dropdownRef}
           style={{ ...dropdownStyle, maxHeight: timeDropdownMaxHeight }}
           className="fixed z-[70] overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-900 p-1 shadow-xl"
           role="listbox"
@@ -994,8 +1220,8 @@ function CompactTimeInput({
                 index === activeOptionIndex
                   ? "bg-neutral-800 text-emerald-200"
                   : option === draftTimeOption || option === value
-                  ? "bg-neutral-800 text-emerald-200"
-                  : "text-slate-100 hover:bg-neutral-800"
+                    ? "bg-neutral-800 text-emerald-200"
+                    : "text-slate-100 hover:bg-neutral-800"
               }`}
               aria-selected={index === activeOptionIndex}
             >
@@ -1009,22 +1235,76 @@ function CompactTimeInput({
 }
 
 const defaultScheduleFilters: ScheduleFilters = {
+  owner: "all",
   scheduleTypes: [],
   priorities: [],
   categories: [],
   completion: "all",
   q: "",
-  location: "",
 };
 
 const COMPANY_SCHEDULE_ID_OFFSET = 1_000_000_000;
+const PREVIEW_SCHEDULE_ID_OFFSET = 2_000_000_000;
 const companyScheduleAccent = "#2563eb";
 const schedulePanelLayoutStorageKey = "flowra-schedule-panel-layout";
+const scheduleSidebarToggleButtonClass =
+  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-transparent text-slate-500 shadow-none transition hover:bg-slate-100 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300";
+type CompanyScheduleTargetType = "company" | "department" | "member";
+const scheduleOwnerOptions: Array<{ value: ScheduleOwnerType; label: string }> =
+  [
+    { value: "personal", label: "개인 일정" },
+    { value: "company", label: "회사 일정" },
+  ];
+const scheduleOwnerFilterOptions: Array<{
+  value: ScheduleOwnerFilter;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "all",
+    label: "전체 일정",
+    description: "개인 일정과 회사 일정을 함께 보기",
+  },
+  {
+    value: "personal",
+    label: "개인 일정",
+    description: "내 개인 일정만 보기",
+  },
+  {
+    value: "company",
+    label: "회사 일정",
+    description: "회사에서 공유한 일정만 보기",
+  },
+];
+const scheduleOwnerFilterColors: Record<ScheduleOwnerFilter, string> = {
+  all: "#64748b",
+  personal: "#14b8a6",
+  company: companyScheduleAccent,
+};
+const companyScheduleTargetTypeOptions: Array<{
+  value: CompanyScheduleTargetType;
+  label: string;
+}> = [
+  { value: "company", label: "회사 전체" },
+  { value: "department", label: "부서" },
+  { value: "member", label: "팀원" },
+];
+const personalAttendeeSuggestions: PersonalScheduleAttendee[] = [];
+const scheduleVisibilityScopeOptions = [
+  {
+    value: "private",
+    label: SCHEDULE_VISIBILITY_LABELS.private ?? "비공개",
+    icon: LockKeyhole,
+    disabled: false,
+  },
+  { value: "invite", label: "사용자 초대", icon: UserPlus, disabled: true },
+  { value: "group", label: "그룹", icon: Users, disabled: true },
+] as const;
 
 const defaultSchedulePanelFloatingStyle: SchedulePanelFloatingStyle = {
   "--schedule-panel-left": "calc(100vw - 402px)",
-  "--schedule-panel-top": "96px",
-  "--schedule-panel-max-height": "calc(100vh - 24px)",
+  "--schedule-panel-top": "8px",
+  "--schedule-panel-max-height": "calc(100vh - 16px)",
 };
 
 function getInitialSchedulePanelLayout(): SchedulePanelLayout {
@@ -1037,12 +1317,14 @@ function getInitialSchedulePanelLayout(): SchedulePanelLayout {
 function getSchedulePanelClassName(layout: SchedulePanelLayout) {
   const base =
     "fixed inset-y-0 right-0 z-50 flex min-h-0 w-full max-w-md flex-col overflow-hidden border-l border-slate-200 bg-white shadow-xl";
+  const inline =
+    "md:fixed md:inset-y-0 md:right-0 md:z-50 md:h-auto md:max-h-none md:w-[300px] md:max-w-none md:rounded-none md:border-y-0 md:border-l md:border-r-0 md:shadow-xl lg:w-[340px]";
   const floating =
-    "xl:inset-auto xl:left-[var(--schedule-panel-left)] xl:top-[var(--schedule-panel-top)] xl:right-auto xl:bottom-auto xl:h-auto xl:max-h-[var(--schedule-panel-max-height)] xl:w-[390px] xl:max-w-[calc(100vw-24px)] xl:rounded-2xl xl:border xl:border-slate-200 xl:shadow-2xl xl:shadow-slate-900/10";
+    "xl:fixed xl:z-50 xl:inset-auto xl:left-[var(--schedule-panel-left)] xl:top-[var(--schedule-panel-top)] xl:right-auto xl:bottom-auto xl:h-auto xl:max-h-[var(--schedule-panel-max-height)] xl:w-[390px] xl:max-w-[calc(100vw-24px)] xl:rounded-2xl xl:border xl:border-slate-200 xl:shadow-2xl xl:shadow-slate-900/10";
   const docked =
-    "xl:static xl:z-auto xl:h-full xl:max-h-none xl:w-full xl:max-w-none xl:rounded-none xl:border-y-0 xl:border-l xl:border-r-0 xl:shadow-none";
+    "md:fixed md:inset-y-0 md:right-0 md:z-50 md:h-auto md:max-h-none md:w-[300px] md:max-w-none md:rounded-none md:border-y-0 md:border-l md:border-r-0 md:shadow-xl lg:w-[340px]";
 
-  return `${base} ${layout === "floating" ? floating : docked}`;
+  return `${base} ${inline} ${layout === "floating" ? floating : docked}`;
 }
 
 function isSchedulePanelPointAnchor(
@@ -1053,6 +1335,25 @@ function isSchedulePanelPointAnchor(
 
 function isCompanySchedule(schedule: Schedule) {
   return schedule.is_company_schedule === true;
+}
+
+function scheduleOwnerType(schedule: Schedule): ScheduleOwnerType {
+  return isCompanySchedule(schedule) ? "company" : "personal";
+}
+
+function scheduleOwnerFilterLabel(value: ScheduleOwnerFilter) {
+  return (
+    scheduleOwnerFilterOptions.find((option) => option.value === value)
+      ?.label ?? "전체 일정"
+  );
+}
+
+function isPreviewSchedule(schedule: Schedule) {
+  return (schedule as Partial<PreviewSchedule>).is_preview === true;
+}
+
+function isReadonlySchedule(schedule: Schedule) {
+  return isCompanySchedule(schedule) || isPreviewSchedule(schedule);
 }
 
 function useSchedulePanelFloatingStyle(
@@ -1067,15 +1368,12 @@ function useSchedulePanelFloatingStyle(
     if (!open) return;
 
     const updatePosition = () => {
-      const margin = 12;
+      const margin = 8;
       const gap = 12;
       const panelWidth = 390;
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
-      const maxHeight = Math.max(
-        360,
-        Math.min(720, viewportHeight - margin * 2),
-      );
+      const maxHeight = Math.max(420, viewportHeight - margin * 2);
       const anchorPoint = isSchedulePanelPointAnchor(anchorElement)
         ? anchorElement
         : null;
@@ -1088,7 +1386,11 @@ function useSchedulePanelFloatingStyle(
           : null;
       const maxLeft = Math.max(margin, viewportWidth - panelWidth - margin);
 
-      let top = anchorRect ? anchorRect.top : anchorPoint ? anchorPoint.clientY : 96;
+      let top = anchorRect
+        ? anchorRect.top
+        : anchorPoint
+          ? anchorPoint.clientY
+          : 8;
       let left = anchorRect
         ? anchorRect.right + gap
         : anchorPoint
@@ -1219,13 +1521,6 @@ const weekdayDayByCode = customRepeatWeekdays.reduce(
   {} as Record<CustomRepeatWeekday, number>,
 );
 
-const taskPriorityBadge: Record<TaskPriority, string> = {
-  urgent: "border-red-200 bg-red-50 text-red-700",
-  high: "border-orange-200 bg-orange-50 text-orange-700",
-  medium: "border-amber-200 bg-amber-50 text-amber-700",
-  low: "border-slate-200 bg-slate-50 text-slate-600",
-};
-
 function pad(n: number) {
   return String(n).padStart(2, "0");
 }
@@ -1252,6 +1547,10 @@ function parseSchedulePriorityFilters(value: string | null): TaskPriority[] {
   return value
     .split(",")
     .filter((item): item is TaskPriority => allowed.has(item));
+}
+
+function parseScheduleOwnerFilter(value: string | null): ScheduleOwnerFilter {
+  return value === "personal" || value === "company" ? value : "all";
 }
 
 function toDateKey(input: Date | string): string {
@@ -1378,9 +1677,7 @@ function normalizeDateInput(value: string, baseDateKey: string) {
   let month = 0;
   let day = 0;
 
-  const fullMatch = /^(\d{4})[-/.\s]*(\d{1,2})[-/.\s]*(\d{1,2})/.exec(
-    trimmed,
-  );
+  const fullMatch = /^(\d{4})[-/.\s]*(\d{1,2})[-/.\s]*(\d{1,2})/.exec(trimmed);
   const shortMatch = /^(\d{1,2})[-/.\s]+(\d{1,2})/.exec(trimmed);
   const compactMatch = /^(\d{4})(\d{2})(\d{2})$/.exec(trimmed);
   const compactShortMatch = /^(\d{1,2})(\d{2})$/.exec(trimmed);
@@ -1415,7 +1712,11 @@ function normalizeDateInput(value: string, baseDateKey: string) {
   return toDateKey(date);
 }
 
-function moveDateByKeyboard(dateKey: string, direction: -1 | 1, weekly = false) {
+function moveDateByKeyboard(
+  dateKey: string,
+  direction: -1 | 1,
+  weekly = false,
+) {
   const base = new Date(`${dateKey}T00:00:00`);
   const date = Number.isNaN(base.getTime()) ? new Date() : base;
   date.setDate(date.getDate() + direction * (weekly ? 7 : 1));
@@ -1482,15 +1783,20 @@ function formatWeekRange(dates: Date[]): string {
   const first = dates[0];
   const last = dates[dates.length - 1];
   if (!first || !last) return "";
-  const sameMonth =
-    first.getFullYear() === last.getFullYear() &&
-    first.getMonth() === last.getMonth();
 
-  if (sameMonth) {
-    return `${first.getFullYear()}년 ${first.getMonth() + 1}월 ${first.getDate()}일 - ${last.getDate()}일`;
-  }
+  const formatRangeDate = (date: Date, includeYear: boolean) => {
+    const weekday = weekdayLabels[date.getDay()];
+    const dateText = `${pad(date.getMonth() + 1)}.${pad(date.getDate())}`;
 
-  return `${formatSelectedDate(first)} - ${formatSelectedDate(last)}`;
+    return includeYear
+      ? `${date.getFullYear()}.${dateText}(${weekday})`
+      : `${dateText}(${weekday})`;
+  };
+
+  return `${formatRangeDate(first, true)}~${formatRangeDate(
+    last,
+    first.getFullYear() !== last.getFullYear(),
+  )}`;
 }
 
 function isToday(date: Date): boolean {
@@ -1538,14 +1844,26 @@ function buildMonthCells(date: Date): Array<Date | null> {
   return cells;
 }
 
-function buildFullMonthCells(date: Date): MonthCalendarCell[] {
+function buildFullMonthCells(
+  date: Date,
+  options: { fixedWeeks?: number; startDate?: Date } = {},
+): MonthCalendarCell[] {
   const year = date.getFullYear();
   const month = date.getMonth();
   const firstOfMonth = new Date(year, month, 1);
   const totalDays = new Date(year, month + 1, 0).getDate();
-  const totalCells = Math.ceil((firstOfMonth.getDay() + totalDays) / 7) * 7;
-  const firstCell = new Date(firstOfMonth);
-  firstCell.setDate(firstOfMonth.getDate() - firstOfMonth.getDay());
+  const naturalCells = Math.ceil((firstOfMonth.getDay() + totalDays) / 7) * 7;
+  const fixedCells = options.fixedWeeks ? options.fixedWeeks * 7 : null;
+  const totalCells = fixedCells
+    ? Math.max(naturalCells, fixedCells)
+    : naturalCells;
+  const firstCell = options.startDate
+    ? new Date(options.startDate)
+    : new Date(firstOfMonth);
+  if (!options.startDate) {
+    firstCell.setDate(firstOfMonth.getDate() - firstOfMonth.getDay());
+  }
+  firstCell.setHours(0, 0, 0, 0);
 
   return Array.from({ length: totalCells }, (_, index) => {
     const cellDate = new Date(firstCell);
@@ -1555,6 +1873,38 @@ function buildFullMonthCells(date: Date): MonthCalendarCell[] {
       currentMonth: cellDate.getMonth() === month,
     };
   });
+}
+
+function monthCalendarWindowStart(date: Date) {
+  const firstOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+  firstOfMonth.setHours(0, 0, 0, 0);
+  firstOfMonth.setDate(firstOfMonth.getDate() - firstOfMonth.getDay());
+  return firstOfMonth;
+}
+
+function dominantMonthInWindow(startDate: Date, dayCount = 42) {
+  const counts = new Map<string, { date: Date; count: number }>();
+
+  for (let offset = 0; offset < dayCount; offset += 1) {
+    const day = new Date(startDate);
+    day.setDate(startDate.getDate() + offset);
+    const key = `${day.getFullYear()}-${day.getMonth()}`;
+    const existing = counts.get(key);
+    if (existing) existing.count += 1;
+    else {
+      counts.set(key, {
+        date: new Date(day.getFullYear(), day.getMonth(), 1),
+        count: 1,
+      });
+    }
+  }
+
+  return (
+    [...counts.values()].sort((first, second) => {
+      if (first.count !== second.count) return second.count - first.count;
+      return first.date.getTime() - second.date.getTime();
+    })[0]?.date ?? new Date(startDate.getFullYear(), startDate.getMonth(), 1)
+  );
 }
 
 function dateKeyToLocalInput(dateKey: string, sourceLocal: string) {
@@ -1708,6 +2058,25 @@ function normalizeDateKeys(dateKeys: string[]) {
     .sort();
 }
 
+function groupHolidaysByDate(holidays: Holiday[]) {
+  const grouped = new Map<string, Holiday[]>();
+
+  for (const holiday of holidays) {
+    if (
+      holiday.is_public_holiday === false ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(holiday.date)
+    ) {
+      continue;
+    }
+
+    const bucket = grouped.get(holiday.date);
+    if (bucket) bucket.push(holiday);
+    else grouped.set(holiday.date, [holiday]);
+  }
+
+  return grouped;
+}
+
 function buildFormsForDateKeys(form: ScheduleFormState, dateKeys: string[]) {
   return normalizeDateKeys(dateKeys).map((dateKey) => ({
     ...form,
@@ -1858,27 +2227,50 @@ function buildRepeatTypeOptions(startLocal: string): RepeatTypeOption[] {
   const start = new Date(startLocal);
   const safeStart = Number.isNaN(start.getTime()) ? new Date() : start;
   const weekday = weekdayLabels[safeStart.getDay()];
+  const weekdaySummary = `${weekday}요일`;
 
   return [
-    { value: "none", label: "반복 안 함" },
-    { value: "daily", label: "매일" },
-    { value: "weekdays", label: "평일마다", summary: "월~금" },
-    { value: "weekends", label: "주말마다", summary: "토·일" },
+    { value: "daily", label: "1일마다" },
+    {
+      value: "weekdays",
+      label: "평일마다",
+      summary: "월~금",
+      dividerBefore: true,
+    },
+    { value: "weekends", label: "주말마다", summary: "토~일" },
     {
       value: "weekly",
-      label: "매주",
-      summary: `${weekday}요일`,
+      label: "1주마다",
+      summary: weekdaySummary,
+      dividerBefore: true,
     },
-    { value: "monthly", label: "매월", summary: `${safeStart.getDate()}일` },
+    {
+      value: "biweekly",
+      label: "2주마다",
+      summary: weekdaySummary,
+    },
+    {
+      value: "monthly",
+      label: "1개월마다",
+      summary: `${safeStart.getDate()}일`,
+      dividerBefore: true,
+    },
+    {
+      value: "monthly-last-weekday",
+      label: "1개월마다",
+      summary: `마지막 ${weekdaySummary}`,
+    },
     {
       value: "yearly",
-      label: "매년",
+      label: "1년마다",
       summary: formatYearlyRepeatDay(safeStart),
+      dividerBefore: true,
     },
     {
       value: "custom",
       label: "사용자 지정",
-      summary: `2주마다 ${weekday}요일`,
+      summary: `2주마다 ${weekdaySummary}`,
+      dividerBefore: true,
     },
     {
       value: "selected-dates",
@@ -1914,7 +2306,7 @@ function formatRepeatEndSummary(
     return `${repeatCount}회 반복 후 종료`;
   }
 
-  return "종료 안 함";
+  return "계속 반복";
 }
 
 function formatKoreanDate(dateKey: string) {
@@ -2150,6 +2542,59 @@ function getRepeatOptionDisplayParts(
     };
   }
 
+  if (option.value === "daily") {
+    return {
+      label: "매일",
+      summary: undefined,
+    };
+  }
+
+  if (option.value === "weekly") {
+    return {
+      label: "매주",
+      summary: option.summary,
+    };
+  }
+
+  if (option.value === "monthly" || option.value === "monthly-last-weekday") {
+    return {
+      label: "매월",
+      summary: option.summary,
+    };
+  }
+
+  if (option.value === "yearly") {
+    return {
+      label: "매년",
+      summary: option.summary,
+    };
+  }
+
+  return {
+    label: option.label,
+    summary: option.summary,
+  };
+}
+
+function getRepeatOptionMenuParts(
+  option: RepeatTypeOption,
+  customRepeat: CustomRepeat,
+  customSelectedDates: string[],
+) {
+  if (option.value === "custom") {
+    return {
+      label: option.label,
+      summary: formatCustomRepeatSummary(customRepeat),
+    };
+  }
+
+  if (option.value === "selected-dates") {
+    return {
+      label: option.label,
+      summary: formatSelectedDatesSummary(customSelectedDates),
+    };
+  }
+
   return {
     label: option.label,
     summary: option.summary,
@@ -2248,9 +2693,14 @@ function formFromCreateDraft(draft: ScheduleCreateDraft): ScheduleFormState {
   };
 }
 
+function allDayCreateDraftForDate(date: Date): ScheduleCreateDraft {
+  const { start, end } = dayBounds(date);
+  return { start, end, allDay: true };
+}
+
 function toPayload(form: ScheduleFormState) {
   return {
-    title: form.title.trim(),
+    title: normalizeScheduleTitle(form.title),
     description: form.description.trim() || undefined,
     schedule_type: form.schedule_type,
     priority: form.priority,
@@ -2265,12 +2715,56 @@ function toPayload(form: ScheduleFormState) {
   };
 }
 
+function previewScheduleFromForm(
+  form: ScheduleFormState,
+  index: number,
+  source?: Schedule | null,
+): PreviewSchedule | null {
+  const start = new Date(form.start_local);
+  if (Number.isNaN(start.getTime())) return null;
+
+  const end =
+    form.end_local && !Number.isNaN(new Date(form.end_local).getTime())
+      ? fromLocalInputValue(form.end_local)
+      : null;
+
+  return {
+    schedule_id:
+      source?.schedule_id ?? -(PREVIEW_SCHEDULE_ID_OFFSET + index + 1),
+    user_id: source?.user_id,
+    title: normalizeScheduleTitle(form.title),
+    description: form.description.trim() || null,
+    schedule_type: form.schedule_type,
+    priority: form.priority,
+    is_completed: source?.is_completed ?? false,
+    start_datetime: fromLocalInputValue(form.start_local),
+    end_datetime: end,
+    all_day: form.all_day,
+    location: form.location.trim() || null,
+    category_id: form.category_id === "" ? null : Number(form.category_id),
+    visibility: form.visibility,
+    recurrence_group_id: source?.recurrence_group_id ?? null,
+    recurrence_sequence: source?.recurrence_sequence ?? null,
+    recurrence_rule: source?.recurrence_rule ?? null,
+    source_memo_id: source?.source_memo_id ?? null,
+    source_ai_result_id: source?.source_ai_result_id ?? null,
+    source_type: source?.source_type ?? null,
+    targets: source?.targets,
+    created_at: source?.created_at ?? fromLocalInputValue(form.start_local),
+    updated_at: source?.updated_at,
+    is_preview: true,
+  };
+}
+
 function scheduleFormSignature(form: ScheduleFormState) {
   return JSON.stringify(toPayload(form));
 }
 
+function normalizeScheduleTitle(title: string) {
+  return title.trim() || untitledScheduleTitle;
+}
+
 function validateForm(form: ScheduleFormState): string | null {
-  if (!form.title.trim()) return "일정 제목을 입력해 주세요.";
   if (!form.start_local) return "시작 일시를 선택해 주세요.";
 
   const start = new Date(form.start_local).getTime();
@@ -2334,20 +2828,16 @@ function LinkedTaskRow({
           >
             {task.title}
           </Link>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+          <ListCardMeta className="mt-1">
             <span>{formatTaskDue(task.due_datetime)}</span>
-            <span
-              className={`rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${
-                taskPriorityBadge[task.priority] ?? taskPriorityBadge.medium
-              }`}
-            >
+            <PriorityMetaChip priority={task.priority}>
               {getClassificationLabel(
                 classificationSettings,
                 "taskPriorities",
                 task.priority,
               )}
-            </span>
-          </div>
+            </PriorityMetaChip>
+          </ListCardMeta>
         </div>
       </div>
     </li>
@@ -2355,21 +2845,11 @@ function LinkedTaskRow({
 }
 
 function LinkedScheduleTasks({ schedule }: { schedule: Schedule }) {
-  const [title, setTitle] = useState("");
-  const [priority, setPriority] = useState<TaskPriority>("medium");
   const [error, setError] = useState<string | null>(null);
-  const [addOpen, setAddOpen] = useState(false);
   const tasksQuery = useTasks({
     schedule_id: schedule.schedule_id,
   });
-  const createTask = useCreateTask();
   const completeTask = useCompleteTask();
-  const classificationSettings = useClassificationSettings();
-  const priorityOptions = getClassificationOptions(
-    classificationSettings,
-    "taskPriorities",
-    { enabledOnly: true, include: priority, defaultOnly: true },
-  );
   const tasks = useMemo(
     () =>
       [...(tasksQuery.data ?? [])].sort((a, b) => {
@@ -2385,31 +2865,6 @@ function LinkedScheduleTasks({ schedule }: { schedule: Schedule }) {
       }),
     [tasksQuery.data],
   );
-
-  const handleAdd = async () => {
-    const trimmed = title.trim();
-    setError(null);
-    if (!trimmed) {
-      setError("할 일 제목을 입력해 주세요.");
-      return;
-    }
-
-    try {
-      await createTask.mutateAsync({
-        title: trimmed,
-        status: "todo",
-        priority,
-        schedule_id: schedule.schedule_id,
-        due_datetime: schedule.end_datetime ?? schedule.start_datetime,
-        category_id: undefined,
-      });
-      setTitle("");
-      setPriority("medium");
-      setAddOpen(false);
-    } catch (err) {
-      setError(getErrorMessage(err, "연결된 할 일 추가에 실패했습니다."));
-    }
-  };
 
   const handleComplete = async (taskId: number) => {
     setError(null);
@@ -2429,7 +2884,7 @@ function LinkedScheduleTasks({ schedule }: { schedule: Schedule }) {
             연결된 할 일
           </div>
           <p className="mt-1 text-xs text-slate-500">
-            이 일정에서 바로 실행 항목을 만들고 완료할 수 있습니다.
+            이 일정에 연결된 실행 항목을 확인하고 완료할 수 있습니다.
           </p>
         </div>
         <span className="rounded-md bg-white px-2 py-1 text-xs font-medium text-slate-500 ring-1 ring-slate-200">
@@ -2437,67 +2892,16 @@ function LinkedScheduleTasks({ schedule }: { schedule: Schedule }) {
         </span>
       </div>
 
-      <button
-        type="button"
-        onClick={() => setAddOpen((open) => !open)}
-        aria-expanded={addOpen}
-        className="mt-3 flex h-10 w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
-      >
-        <span className="inline-flex items-center gap-2">
-          <Plus className="h-4 w-4" />
-          할 일 추가
-        </span>
-        <span className="text-xs text-slate-400">
-          {addOpen ? "닫기" : "추가"}
-        </span>
-      </button>
-
       <div
-        className={`grid transition-[grid-template-rows] duration-200 ease-out ${
-          addOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-        }`}
+        aria-disabled="true"
+        className="mt-3 rounded-lg border border-dashed border-amber-200 bg-amber-50 px-3 py-4 text-center shadow-sm"
       >
-        <div className="overflow-hidden">
-      <div className="mt-3 grid gap-2">
-        <input
-          type="text"
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              void handleAdd();
-            }
-          }}
-          placeholder="이 일정에서 해야 할 일"
-          className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-        />
-        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-          <select
-            value={priority}
-            onChange={(event) =>
-              setPriority(event.target.value as TaskPriority)
-            }
-            className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-          >
-            {priorityOptions.map((option) => (
-              <option key={option.key} value={option.key}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={handleAdd}
-            disabled={createTask.isPending}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
-          >
-            <Plus className="h-4 w-4" />
-            {createTask.isPending ? "추가 중..." : "할 일 추가"}
-          </button>
-        </div>
-      </div>
-        </div>
+        <span className="block text-sm font-semibold text-amber-800">
+          할 일 추가는 현재 개발중...
+        </span>
+        <span className="mt-1 block text-xs text-amber-700">
+          기능이 열릴 때까지 이 영역은 사용할 수 없습니다.
+        </span>
       </div>
 
       {error && (
@@ -2528,7 +2932,7 @@ function LinkedScheduleTasks({ schedule }: { schedule: Schedule }) {
           </ul>
         ) : (
           <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-5 text-center text-xs text-slate-500">
-            아직 연결된 할 일이 없습니다. 필요한 작업을 추가해 보세요.
+            아직 연결된 할 일이 없습니다.
           </div>
         )}
       </div>
@@ -2634,13 +3038,554 @@ function InlineFilterGroup<TValue extends FilterOptionValue>({
                     title={option.label}
                   >
                     <span className="truncate">{option.label}</span>
-                    {selected ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
+                    {selected ? (
+                      <Check className="h-3.5 w-3.5 shrink-0" />
+                    ) : null}
                   </button>
                 );
               })}
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function FilterDropdown<TValue extends FilterOptionValue>({
+  label,
+  icon,
+  selectedValues,
+  options,
+  multiple = true,
+  allLabel = "전체",
+  onClear,
+  onSelect,
+}: {
+  label: string;
+  icon: ReactNode;
+  selectedValues: TValue[];
+  options: InlineFilterOption<TValue>[];
+  multiple?: boolean;
+  allLabel?: string;
+  onClear?: () => void;
+  onSelect: (value: TValue) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
+  const [previewValues, setPreviewValues] = useState<TValue[] | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const displayValues = previewValues ?? selectedValues;
+  const displaySet = useMemo(
+    () => new Set<FilterOptionValue>(displayValues),
+    [displayValues],
+  );
+  const displayOptions = options.filter((option) =>
+    displaySet.has(option.value),
+  );
+  const summary =
+    displayOptions.length === 0
+      ? allLabel
+      : displayOptions.length === 1
+        ? displayOptions[0].label
+        : `${displayOptions[0].label} 외 ${displayOptions.length - 1}`;
+
+  const updateMenuPosition = useCallback(() => {
+    if (typeof window === "undefined") return;
+
+    const button = buttonRef.current;
+    if (!button) return;
+
+    const rect = button.getBoundingClientRect();
+    const panelRect = button
+      .closest("[data-schedule-filter-panel]")
+      ?.getBoundingClientRect();
+    const margin = 10;
+    const gap = 10;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const width = Math.min(
+      Math.max(rect.width, 224),
+      Math.max(160, Math.min(280, viewportWidth - margin * 2)),
+    );
+    const maxHeight = Math.min(288, Math.max(140, viewportHeight - margin * 2));
+
+    if (viewportWidth < 768) {
+      setMenuStyle({
+        left: margin,
+        top: Math.max(margin, viewportHeight - maxHeight - margin),
+        width: viewportWidth - margin * 2,
+        maxHeight,
+      });
+      return;
+    }
+
+    const boundaryLeft = panelRect?.left ?? rect.left;
+    const boundaryRight = panelRect?.right ?? rect.right;
+    const boundaryTop = panelRect?.top ?? rect.top;
+    const boundaryBottom = panelRect?.bottom ?? rect.bottom;
+    const placementOrder: Array<"right" | "left" | "bottom" | "top"> = [
+      "right",
+      "left",
+      "bottom",
+      "top",
+    ];
+    const positionFor = (placement: "right" | "left" | "bottom" | "top") => {
+      if (placement === "right") {
+        return { left: boundaryRight + gap, top: rect.top };
+      }
+      if (placement === "left") {
+        return { left: boundaryLeft - width - gap, top: rect.top };
+      }
+      if (placement === "top") {
+        return { left: rect.left, top: boundaryTop - maxHeight - gap };
+      }
+      return { left: rect.left, top: boundaryBottom + gap };
+    };
+    const fits = ({ left, top }: { left: number; top: number }) =>
+      left >= margin &&
+      left + width <= viewportWidth - margin &&
+      top >= margin &&
+      top + maxHeight <= viewportHeight - margin;
+    const fitsHorizontally = ({ left }: { left: number }) =>
+      left >= margin && left + width <= viewportWidth - margin;
+    const preferredPosition =
+      placementOrder.map(positionFor).find(fits) ??
+      placementOrder.map(positionFor).find(fitsHorizontally) ??
+      positionFor("right");
+
+    const left = Math.min(
+      Math.max(margin, preferredPosition.left),
+      Math.max(margin, viewportWidth - width - margin),
+    );
+    const top = Math.min(
+      Math.max(margin, preferredPosition.top),
+      Math.max(margin, viewportHeight - maxHeight - margin),
+    );
+
+    setMenuStyle({
+      left: Math.round(left),
+      top: Math.round(top),
+      width: Math.round(width),
+      maxHeight: Math.round(maxHeight),
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) setPreviewValues(null);
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+
+    updateMenuPosition();
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [open, updateMenuPosition]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        (containerRef.current?.contains(target) ||
+          menuRef.current?.contains(target))
+      ) {
+        return;
+      }
+
+      setOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
+    };
+  }, [open]);
+
+  const previewOption = (value: TValue) => {
+    if (!multiple) {
+      setPreviewValues([value]);
+      return;
+    }
+
+    setPreviewValues(
+      selectedValues.includes(value)
+        ? selectedValues.filter((item) => item !== value)
+        : [...selectedValues, value],
+    );
+  };
+
+  const commitOption = (value: TValue) => {
+    onSelect(value);
+    setPreviewValues(null);
+    if (!multiple) setOpen(false);
+  };
+
+  const previewClear = () => setPreviewValues([]);
+
+  const renderOption = (
+    option: InlineFilterOption<TValue>,
+    selected: boolean,
+  ) => (
+    <button
+      key={option.key}
+      type="button"
+      onClick={() => commitOption(option.value)}
+      onMouseEnter={() => previewOption(option.value)}
+      onFocus={() => previewOption(option.value)}
+      className={`flex min-h-9 w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold outline-none transition ${
+        selected
+          ? "bg-white/10 text-white"
+          : "text-zinc-200 hover:bg-white/10 hover:text-white focus:bg-white/10 focus:text-white"
+      }`}
+      title={option.label}
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        {option.colorDot ? (
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-black/10"
+            style={{ backgroundColor: option.colorDot }}
+          />
+        ) : null}
+        <span className="min-w-0">
+          <span className="block truncate">{option.label}</span>
+          {option.description ? (
+            <span
+              className={`mt-0.5 block truncate text-[11px] font-medium ${
+                selected ? "text-zinc-300" : "text-zinc-500"
+              }`}
+            >
+              {option.description}
+            </span>
+          ) : null}
+        </span>
+      </span>
+      {selected ? (
+        <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+      ) : null}
+    </button>
+  );
+
+  const menu =
+    open && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            ref={menuRef}
+            data-schedule-filter-menu
+            style={menuStyle}
+            className="fixed z-[160] overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 p-1.5 text-zinc-100 shadow-2xl shadow-zinc-950/30 outline-none"
+            onPointerDown={(event) => event.stopPropagation()}
+            onMouseLeave={() => setPreviewValues(null)}
+          >
+            <div
+              className="scrollbar-none overflow-y-auto"
+              style={{ maxHeight: menuStyle.maxHeight }}
+            >
+              {multiple && onClear ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClear();
+                    setPreviewValues(null);
+                    setOpen(false);
+                  }}
+                  onMouseEnter={previewClear}
+                  onFocus={previewClear}
+                  className={`flex h-9 w-full items-center justify-between gap-2 rounded-lg px-2.5 text-left text-xs font-semibold outline-none transition ${
+                    displayValues.length === 0
+                      ? "bg-white/10 text-white"
+                      : "text-zinc-200 hover:bg-white/10 hover:text-white focus:bg-white/10 focus:text-white"
+                  }`}
+                >
+                  <span>{allLabel}</span>
+                  {displayValues.length === 0 ? (
+                    <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                  ) : null}
+                </button>
+              ) : null}
+              {options.map((option) =>
+                renderOption(option, displaySet.has(option.value)),
+              )}
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
+
+  return (
+    <div ref={containerRef} className="relative min-w-0">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className={`flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-md border px-2 text-left text-sm font-medium shadow-none outline-none transition ${
+          open
+            ? "border-emerald-300 bg-white ring-2 ring-emerald-100"
+            : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white"
+        }`}
+        aria-expanded={open}
+      >
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0 text-slate-400">{icon}</span>
+          <span className="shrink-0 text-slate-500">{label}</span>
+          <span className="min-w-0 truncate text-slate-900">{summary}</span>
+        </span>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-slate-400 transition ${
+            open ? "rotate-180 text-emerald-500" : ""
+          }`}
+        />
+      </button>
+      {menu}
+    </div>
+  );
+}
+
+function ScheduleOwnerViewSelector({
+  value,
+  onChange,
+}: {
+  value: ScheduleOwnerFilter;
+  onChange: (value: ScheduleOwnerFilter) => void;
+}) {
+  const selectedLabel = scheduleOwnerFilterLabel(value);
+  const renderIcon = (owner: ScheduleOwnerFilter, className: string) => {
+    if (owner === "company") return <Building2 className={className} />;
+    if (owner === "personal") return <UserRound className={className} />;
+    return <Users className={className} />;
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={`inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold shadow-sm transition hover:bg-slate-50 ${
+            value === "all"
+              ? "border-slate-200 bg-white text-slate-900"
+              : "border-blue-200 bg-blue-50 text-blue-700"
+          }`}
+          aria-label="일정 보기 선택"
+        >
+          {renderIcon(value, "h-3.5 w-3.5 shrink-0")}
+          <span className="hidden max-w-24 truncate min-[420px]:inline">
+            {selectedLabel}
+          </span>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="w-52 border-slate-800 bg-neutral-900 p-1.5 text-slate-100 shadow-xl"
+      >
+        {scheduleOwnerFilterOptions.map((option) => (
+          <DropdownMenuItem
+            key={option.value}
+            onSelect={() => onChange(option.value)}
+            className={`gap-3 rounded-md px-2.5 py-2 text-sm text-slate-200 focus:bg-neutral-800 focus:text-white ${
+              value === option.value ? "bg-neutral-800" : ""
+            }`}
+          >
+            <span className="flex h-4 w-4 items-center justify-center text-emerald-400">
+              {value === option.value ? <Check className="h-4 w-4" /> : null}
+            </span>
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-black/10"
+              style={{
+                backgroundColor: scheduleOwnerFilterColors[option.value],
+              }}
+              aria-hidden
+            />
+            <span className="min-w-0">
+              <span
+                className={`block truncate font-medium ${
+                  value === option.value
+                    ? "text-emerald-200"
+                    : "text-slate-100"
+                }`}
+              >
+                {option.label}
+              </span>
+              <span className="block truncate text-[11px] text-slate-500">
+                {option.description}
+              </span>
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function ScheduleFilterPanel({
+  filters,
+  activeCount,
+  scheduleTypeOptions,
+  priorityOptions,
+  categoryOptions,
+  onUpdate,
+  onReset,
+  onClose,
+}: {
+  filters: ScheduleFilters;
+  activeCount: number;
+  scheduleTypeOptions: InlineFilterOption<ScheduleType>[];
+  priorityOptions: InlineFilterOption<TaskPriority>[];
+  categoryOptions: InlineFilterOption<number>[];
+  onUpdate: (patch: Partial<ScheduleFilters>) => void;
+  onReset: () => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const closeOnKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    window.addEventListener("keydown", closeOnKey);
+    return () => window.removeEventListener("keydown", closeOnKey);
+  }, [onClose]);
+
+  const toggleScheduleType = (value: ScheduleType) => {
+    const selected = filters.scheduleTypes.includes(value);
+    onUpdate({
+      scheduleTypes: selected
+        ? filters.scheduleTypes.filter((item) => item !== value)
+        : [...filters.scheduleTypes, value],
+    });
+  };
+  const togglePriority = (value: TaskPriority) => {
+    const selected = filters.priorities.includes(value);
+    onUpdate({
+      priorities: selected
+        ? filters.priorities.filter((item) => item !== value)
+        : [...filters.priorities, value],
+    });
+  };
+  const toggleCategory = (value: number) => {
+    const selected = filters.categories.includes(value);
+    onUpdate({
+      categories: selected
+        ? filters.categories.filter((item) => item !== value)
+        : [...filters.categories, value],
+    });
+  };
+  const completionOptions: InlineFilterOption<ScheduleCompletionFilter>[] = [
+    { key: "all", value: "all", label: "전체" },
+    { key: "active", value: "active", label: "미완료" },
+    { key: "completed", value: "completed", label: "완료" },
+  ];
+  const ownerOptions: InlineFilterOption<ScheduleOwnerFilter>[] =
+    scheduleOwnerFilterOptions.map((option) => ({
+      key: option.value,
+      value: option.value,
+      label: option.label,
+      colorDot: scheduleOwnerFilterColors[option.value],
+      description: option.description,
+    }));
+
+  return (
+    <div className="flex max-h-[min(34rem,calc(100vh-6rem))] flex-col overflow-hidden">
+      <div className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <Search className="h-4 w-4 text-emerald-600" />
+          <h2 className="text-base font-semibold text-slate-950">필터</h2>
+          {activeCount > 0 && (
+            <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+              {activeCount}
+            </span>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={onReset}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            초기화
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="필터 패널 닫기"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      <div className="scrollbar-none min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50/70 p-4">
+        <label className="block">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="search"
+              value={filters.q}
+              onChange={(event) => onUpdate({ q: event.target.value })}
+              placeholder="검색"
+              aria-label="검색"
+              className="h-10 w-full rounded-md border border-transparent bg-transparent px-9 text-sm font-medium text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-200 hover:bg-white focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+            />
+          </div>
+        </label>
+
+        <div className="grid gap-2">
+          <FilterDropdown
+            label="보기"
+            icon={<Users className="h-4 w-4" aria-hidden="true" />}
+            selectedValues={[filters.owner]}
+            options={ownerOptions}
+            multiple={false}
+            onSelect={(value) => onUpdate({ owner: value })}
+          />
+
+          <FilterDropdown
+            label="상태"
+            icon={<CheckSquare2 className="h-4 w-4" aria-hidden="true" />}
+            selectedValues={[filters.completion]}
+            options={completionOptions}
+            multiple={false}
+            onSelect={(value) => onUpdate({ completion: value })}
+          />
+
+          <FilterDropdown
+            label="유형"
+            icon={<Shapes className="h-4 w-4" aria-hidden="true" />}
+            selectedValues={filters.scheduleTypes}
+            options={scheduleTypeOptions}
+            onClear={() => onUpdate({ scheduleTypes: [] })}
+            onSelect={toggleScheduleType}
+          />
+
+          <FilterDropdown
+            label="중요도"
+            icon={<Flag className="h-4 w-4" aria-hidden="true" />}
+            selectedValues={filters.priorities}
+            options={priorityOptions}
+            onClear={() => onUpdate({ priorities: [] })}
+            onSelect={togglePriority}
+          />
+
+          <FilterDropdown
+            label="카테고리"
+            icon={<Tag className="h-4 w-4" aria-hidden="true" />}
+            selectedValues={filters.categories}
+            options={categoryOptions}
+            onClear={() => onUpdate({ categories: [] })}
+            onSelect={toggleCategory}
+          />
+        </div>
       </div>
     </div>
   );
@@ -2655,9 +3600,11 @@ function ScheduleFormPanel({
   onDelete,
   deletePending,
   onSubmit,
+  onCompanySubmit,
+  companyName,
+  onPreviewChange,
   floatingStyle,
   panelLayout,
-  onTogglePanelLayout,
 }: {
   mode: "create" | "edit" | "repeat";
   initial: ScheduleFormState;
@@ -2670,19 +3617,37 @@ function ScheduleFormPanel({
     forms: ScheduleFormState[],
     options?: ScheduleFormSubmitOptions,
   ) => Promise<void> | void;
+  onCompanySubmit?: (
+    payload: CreateCompanyScheduleRequest,
+  ) => Promise<void> | void;
+  companyName?: string;
+  onPreviewChange?: (forms: ScheduleFormState[]) => void;
   floatingStyle: SchedulePanelFloatingStyle;
   panelLayout: SchedulePanelLayout;
-  onTogglePanelLayout: () => void;
 }) {
   const [form, setForm] = useState(initial);
   const [allDay, setAllDay] = useState(initial.all_day);
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [scheduleOwner, setScheduleOwner] =
+    useState<ScheduleOwnerType>("personal");
+  const [companyTargetType, setCompanyTargetType] =
+    useState<CompanyScheduleTargetType>("company");
+  const [companyDepartmentId, setCompanyDepartmentId] = useState("");
+  const [companyMemberId, setCompanyMemberId] = useState("");
+  const [companyTargets, setCompanyTargets] = useState<
+    CompanyScheduleCreateTarget[]
+  >([{ target_type: "company" }]);
+  const [personalAttendees, setPersonalAttendees] = useState<
+    PersonalScheduleAttendee[]
+  >([]);
+  const [personalAttendeeOpen, setPersonalAttendeeOpen] = useState(false);
+  const [personalAttendeeQuery, setPersonalAttendeeQuery] = useState("");
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoSaveState, setAutoSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
-  const onSubmitRef = useRef(onSubmit);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const descriptionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const endTimeInputRef = useRef<HTMLInputElement | null>(null);
   const startDateInputRef = useRef<HTMLInputElement | null>(null);
   const endDateInputRef = useRef<HTMLInputElement | null>(null);
@@ -2690,22 +3655,18 @@ function ScheduleFormPanel({
   const repeatEndDropdownRef = useRef<HTMLDivElement | null>(null);
   const repeatTypePopupRef = useRef<HTMLDivElement | null>(null);
   const repeatEndPopupRef = useRef<HTMLDivElement | null>(null);
-  const basicOptionsDropdownRef = useRef<HTMLDivElement | null>(null);
-  const basicOptionsPopupRef = useRef<HTMLDivElement | null>(null);
   const customRepeatPopupRef = useRef<HTMLDivElement | null>(null);
   const selectedDatesPopupRef = useRef<HTMLDivElement | null>(null);
   const repeatTypeTriggerRef = useRef<HTMLButtonElement | null>(null);
   const repeatEndTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const basicOptionsTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const repeatUntilDateButtonRef = useRef<HTMLButtonElement | null>(null);
   const repeatOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const repeatEndOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const repeatUntilInputRef = useRef<HTMLInputElement | null>(null);
   const repeatCountInputRef = useRef<HTMLInputElement | null>(null);
-  const selectedDateButtonRefs = useRef<Record<string, HTMLButtonElement | null>>(
-    {},
-  );
+  const selectedDateButtonRefs = useRef<
+    Record<string, HTMLButtonElement | null>
+  >({});
   const lastAutoSaveSignatureRef = useRef(scheduleFormSignature(initial));
-  const autoSaveSequenceRef = useRef(0);
   const syncingInitialSignatureRef = useRef<string | null>(null);
   const initialSignature = scheduleFormSignature(initial);
   const [selectedDates, setSelectedDates] = useState<string[]>([
@@ -2717,15 +3678,13 @@ function ScheduleFormPanel({
   );
   const [repeatTypeOpen, setRepeatTypeOpen] = useState(false);
   const [repeatEndOpen, setRepeatEndOpen] = useState(false);
-  const [basicOptionsOpen, setBasicOptionsOpen] = useState(false);
   const [customRepeatOpen, setCustomRepeatOpen] = useState(false);
   const [selectedDatesOpen, setSelectedDatesOpen] = useState(false);
   const [repeatTypePopupStyle, setRepeatTypePopupStyle] =
     useState<CSSProperties>({});
-  const [repeatEndPopupStyle, setRepeatEndPopupStyle] =
-    useState<CSSProperties>({});
-  const [basicOptionsPopupStyle, setBasicOptionsPopupStyle] =
-    useState<CSSProperties>({});
+  const [repeatEndPopupStyle, setRepeatEndPopupStyle] = useState<CSSProperties>(
+    {},
+  );
   const [customRepeatPopupStyle, setCustomRepeatPopupStyle] =
     useState<CSSProperties>({});
   const [selectedDatesPopupStyle, setSelectedDatesPopupStyle] =
@@ -2739,8 +3698,10 @@ function ScheduleFormPanel({
   const [activeRepeatEndOptionIndex, setActiveRepeatEndOptionIndex] =
     useState(0);
   const [repeatEnabled, setRepeatEnabled] = useState(mode === "repeat");
-  const [repeatEndType, setRepeatEndType] =
-    useState<RepeatEndType>("never");
+  const [includeHolidayRepeats, setIncludeHolidayRepeats] = useState(true);
+  const [draftIncludeHolidayRepeats, setDraftIncludeHolidayRepeats] =
+    useState(true);
+  const [repeatEndType, setRepeatEndType] = useState<RepeatEndType>("never");
   const [repeatUntilDate, setRepeatUntilDate] = useState<string | null>(null);
   const [repeatCount, setRepeatCount] = useState<number | null>(null);
   const [customRepeat, setCustomRepeat] = useState<CustomRepeat>(() =>
@@ -2750,6 +3711,9 @@ function ScheduleFormPanel({
     defaultCustomRepeat(initial.start_local.slice(0, 10)),
   );
   const [draftRepeatDates, setDraftRepeatDates] = useState<string[]>([]);
+  const [repeatUntilCalendarMonth, setRepeatUntilCalendarMonth] = useState(() =>
+    getCalendarViewMonth(initial.start_local.slice(0, 10)),
+  );
   const [selectedDatesCalendarMonth, setSelectedDatesCalendarMonth] = useState(
     () => getCalendarViewMonth(initial.start_local.slice(0, 10)),
   );
@@ -2759,8 +3723,20 @@ function ScheduleFormPanel({
   const [selectedDatesError, setSelectedDatesError] = useState<string | null>(
     null,
   );
-  const [previewStartLocal, setPreviewStartLocal] = useState<string | null>(null);
+  const [previewStartLocal, setPreviewStartLocal] = useState<string | null>(
+    null,
+  );
   const [previewEndLocal, setPreviewEndLocal] = useState<string | null>(null);
+  const [selectPreviewDisplayPatch, setSelectPreviewDisplayPatch] =
+    useState<ScheduleSelectPreviewPatch>({});
+  const [selectPreviewPatch, setSelectPreviewPatch] =
+    useState<ScheduleSelectPreviewPatch>({});
+  const [selectDisplayTouched, setSelectDisplayTouched] =
+    useState<ScheduleSelectDisplayState>({
+      schedule_type: mode !== "create",
+      priority: mode !== "create",
+      category_id: mode !== "create" && initial.category_id !== "",
+    });
   const classificationSettings = useClassificationSettings();
   const scheduleTypeOptions = getClassificationOptions(
     classificationSettings,
@@ -2772,11 +3748,23 @@ function ScheduleFormPanel({
     "taskPriorities",
     { enabledOnly: true, include: form.priority, defaultOnly: true },
   );
-  const { data: scheduleCategories = [], isLoading: scheduleCategoriesLoading } =
-    useCategories("schedule");
-  const scheduleTypeSelectOptions = useMemo<
-    CustomSelectOption<ScheduleType>[]
-  >(
+  const {
+    data: scheduleCategories = [],
+    isLoading: scheduleCategoriesLoading,
+  } = useCategories("schedule");
+  const isCompanyScheduleDraft =
+    mode === "create" && scheduleOwner === "company" && !!onCompanySubmit;
+  const departmentsQuery = useCompanyAdminDepartments(
+    isCompanyScheduleDraft &&
+      (companyTargetType === "department" ||
+        companyTargets.some((target) => target.target_type === "department")),
+  );
+  const membersQuery = useCompanyAdminMembers(
+    isCompanyScheduleDraft &&
+      (companyTargetType === "member" ||
+        companyTargets.some((target) => target.target_type === "member")),
+  );
+  const scheduleTypeSelectOptions = useMemo<CustomSelectOption<ScheduleType>[]>(
     () =>
       scheduleTypeOptions.map((option) => {
         const meta = scheduleTypeSelectMeta[option.value];
@@ -2784,7 +3772,6 @@ function ScheduleFormPanel({
           label: meta?.label ?? option.label,
           value: option.value,
           colorDot: meta?.color,
-          description: meta?.description,
         };
       }),
     [scheduleTypeOptions],
@@ -2797,14 +3784,11 @@ function ScheduleFormPanel({
           label: option.label,
           value: option.value,
           colorDot: meta?.color,
-          description: meta?.description,
         };
       }),
     [priorityOptions],
   );
-  const categorySelectOptions = useMemo<
-    CustomSelectOption<number | "">[]
-  >(
+  const categorySelectOptions = useMemo<CustomSelectOption<number | "">[]>(
     () => [
       {
         label: "카테고리 없음",
@@ -2870,75 +3854,294 @@ function ScheduleFormPanel({
       ((mode === "create" || mode === "edit") && repeatEnabled));
   const isSelectedDatesMode = repeatType === "selected-dates";
   const isBasicRepeatMode = isRuleRepeatType(repeatType);
+  const repeatHolidayRangeQuery = useMemo(() => {
+    if (!isRepeatMode || ruleRepeatDateKeys.length === 0) {
+      return null;
+    }
+
+    const normalizedDateKeys = normalizeDateKeys(ruleRepeatDateKeys);
+    if (normalizedDateKeys.length === 0) return null;
+
+    return {
+      start_date: normalizedDateKeys[0],
+      end_date: normalizedDateKeys[normalizedDateKeys.length - 1],
+      public_only: true,
+    };
+  }, [isRepeatMode, ruleRepeatDateKeys]);
+  const { data: repeatHolidays = [] } = useHolidaysInRange(
+    repeatHolidayRangeQuery,
+    { enabled: Boolean(repeatHolidayRangeQuery) },
+  );
+  const repeatHolidayDateSet = useMemo(
+    () =>
+      new Set(
+        repeatHolidays
+          .filter((holiday) => holiday.is_public_holiday !== false)
+          .map((holiday) => holiday.date),
+      ),
+    [repeatHolidays],
+  );
+  const repeatHolidayDateKeys = useMemo(() => {
+    if (!isRepeatMode || repeatHolidayDateSet.size === 0) return [];
+    return normalizeDateKeys(
+      ruleRepeatDateKeys.filter((dateKey) => repeatHolidayDateSet.has(dateKey)),
+    );
+  }, [isRepeatMode, repeatHolidayDateSet, ruleRepeatDateKeys]);
+  const repeatHolidayCount = repeatHolidayDateKeys.length;
+  const showRepeatHolidayControl =
+    isRepeatMode && ruleRepeatDateKeys.length > 0;
+  const effectiveRuleRepeatDateKeys = useMemo(() => {
+    if (!showRepeatHolidayControl || includeHolidayRepeats) {
+      return ruleRepeatDateKeys;
+    }
+
+    return ruleRepeatDateKeys.filter(
+      (dateKey) => !repeatHolidayDateSet.has(dateKey),
+    );
+  }, [
+    includeHolidayRepeats,
+    repeatHolidayDateSet,
+    ruleRepeatDateKeys,
+    showRepeatHolidayControl,
+  ]);
+  const draftCustomRepeatDateKeys = useMemo(
+    () => buildCustomRepeatDateKeys(repeatStartDate, draftCustomRepeat),
+    [draftCustomRepeat, repeatStartDate],
+  );
+  const draftCustomRepeatHolidayRangeQuery = useMemo(() => {
+    if (!customRepeatOpen || draftCustomRepeatDateKeys.length === 0) {
+      return null;
+    }
+
+    const normalizedDateKeys = normalizeDateKeys(draftCustomRepeatDateKeys);
+    if (normalizedDateKeys.length === 0) return null;
+
+    return {
+      start_date: normalizedDateKeys[0],
+      end_date: normalizedDateKeys[normalizedDateKeys.length - 1],
+      public_only: true,
+    };
+  }, [customRepeatOpen, draftCustomRepeatDateKeys]);
+  const { data: draftCustomRepeatHolidays = [] } = useHolidaysInRange(
+    draftCustomRepeatHolidayRangeQuery,
+    { enabled: Boolean(draftCustomRepeatHolidayRangeQuery) },
+  );
+  const draftCustomRepeatHolidayDateSet = useMemo(
+    () =>
+      new Set(
+        draftCustomRepeatHolidays
+          .filter((holiday) => holiday.is_public_holiday !== false)
+          .map((holiday) => holiday.date),
+      ),
+    [draftCustomRepeatHolidays],
+  );
+  const draftCustomRepeatHolidayDateKeys = useMemo(() => {
+    if (draftCustomRepeatHolidayDateSet.size === 0) return [];
+    return normalizeDateKeys(
+      draftCustomRepeatDateKeys.filter((dateKey) =>
+        draftCustomRepeatHolidayDateSet.has(dateKey),
+      ),
+    );
+  }, [draftCustomRepeatDateKeys, draftCustomRepeatHolidayDateSet]);
+  const draftCustomRepeatHolidayCount = draftCustomRepeatHolidayDateKeys.length;
+  const showDraftCustomRepeatHolidayControl =
+    customRepeatOpen && draftCustomRepeatDateKeys.length > 0;
   const customSelectedDateKeys = useMemo(
     () => normalizeDateKeys(customSelectedDates),
     [customSelectedDates],
   );
   const targetDateKeys = isRepeatMode
-    ? ruleRepeatDateKeys
+    ? effectiveRuleRepeatDateKeys
     : repeatType === "selected-dates"
       ? customSelectedDateKeys
       : mode === "create"
         ? normalizeDateKeys(selectedDates)
         : [form.start_local.slice(0, 10)];
-  const repeatControlLabel =
-    formatRepeatOptionSummary(
-      displayRepeatTypeOption,
-      customRepeat,
-      customSelectedDateKeys,
+  const previewForm = useMemo(
+    () => ({ ...form, ...selectPreviewPatch }),
+    [form, selectPreviewPatch],
+  );
+  const hasPreviewDisplayField = (field: ScheduleSelectField) =>
+    Object.prototype.hasOwnProperty.call(selectPreviewDisplayPatch, field);
+  const optionLabelOrFallback = <TValue extends string | number>(
+    options: readonly CustomSelectOption<TValue>[],
+    value: TValue,
+    fallback: string,
+  ) =>
+    options.find((option) => Object.is(option.value, value))?.label ?? fallback;
+  const getSelectTriggerLabel = <TValue extends string | number>(
+    field: ScheduleSelectField,
+    value: TValue,
+    options: readonly CustomSelectOption<TValue>[],
+    fallback: string,
+  ) => {
+    if (hasPreviewDisplayField(field)) {
+      return optionLabelOrFallback(
+        options,
+        selectPreviewDisplayPatch[field] as TValue,
+        fallback,
+      );
+    }
+
+    if (selectDisplayTouched[field]) {
+      return optionLabelOrFallback(options, value, fallback);
+    }
+
+    return fallback;
+  };
+  const getSelectTriggerColorDot = <TValue extends string | number>(
+    field: ScheduleSelectField,
+    value: TValue,
+    options: readonly CustomSelectOption<TValue>[],
+  ) => {
+    const displayValue = hasPreviewDisplayField(field)
+      ? (selectPreviewDisplayPatch[field] as TValue)
+      : selectDisplayTouched[field]
+        ? value
+        : null;
+
+    if (displayValue === null) return null;
+
+    return (
+      options.find((option) => Object.is(option.value, displayValue))
+        ?.colorDot ?? null
     );
-  const repeatControlDisplay =
-    getRepeatOptionDisplayParts(
-      displayRepeatTypeOption,
-      customRepeat,
-      customSelectedDateKeys,
+  };
+  const markSelectDisplayTouched = (field: ScheduleSelectField) => {
+    setSelectDisplayTouched((prev) =>
+      prev[field] ? prev : { ...prev, [field]: true },
     );
-  const selectedScheduleTypeLabel =
-    scheduleTypeSelectOptions.find((option) => option.value === form.schedule_type)
-      ?.label ?? scheduleTypeSelectMeta[form.schedule_type]?.label ?? "일정";
-  const selectedPriorityLabel =
-    prioritySelectOptions.find((option) => option.value === form.priority)
-      ?.label ?? "보통";
-  const basicOptionsValueLabel = `${selectedScheduleTypeLabel} · ${selectedPriorityLabel}`;
-  const basicOptionsLabel = `기본 옵션 · ${selectedScheduleTypeLabel} · ${selectedPriorityLabel}`;
-  const previewForms =
-    mode === "create" || isRepeatMode || isSelectedDatesMode
-      ? buildFormsForDateKeys(form, targetDateKeys)
-      : [form];
+  };
+  const scheduleTypeTriggerLabel = getSelectTriggerLabel(
+    "schedule_type",
+    form.schedule_type,
+    scheduleTypeSelectOptions,
+    "유형",
+  );
+  const priorityTriggerLabel = getSelectTriggerLabel(
+    "priority",
+    form.priority,
+    prioritySelectOptions,
+    "중요도",
+  );
+  const categoryTriggerLabel = getSelectTriggerLabel(
+    "category_id",
+    form.category_id,
+    categorySelectOptions,
+    "카테고리",
+  );
+  const scheduleTypeTriggerColorDot = getSelectTriggerColorDot(
+    "schedule_type",
+    form.schedule_type,
+    scheduleTypeSelectOptions,
+  );
+  const priorityTriggerColorDot = getSelectTriggerColorDot(
+    "priority",
+    form.priority,
+    prioritySelectOptions,
+  );
+  const categoryTriggerColorDot = getSelectTriggerColorDot(
+    "category_id",
+    form.category_id,
+    categorySelectOptions,
+  );
+  const repeatControlLabel = formatRepeatOptionSummary(
+    displayRepeatTypeOption,
+    customRepeat,
+    customSelectedDateKeys,
+  );
+  const repeatControlDisplay = getRepeatOptionDisplayParts(
+    displayRepeatTypeOption,
+    customRepeat,
+    customSelectedDateKeys,
+  );
+  const previewForms = isCompanyScheduleDraft
+    ? [previewForm]
+    : mode === "create" || isRepeatMode || isSelectedDatesMode
+      ? buildFormsForDateKeys(previewForm, targetDateKeys)
+      : [previewForm];
   const displayStartLocal = previewStartLocal ?? form.start_local;
   const displayEndLocal = previewEndLocal ?? form.end_local;
-  const formTimeRangeLabel = formatTimeRange(displayStartLocal, displayEndLocal);
-  const formDateRangeLabel = formatDateRange(displayStartLocal, displayEndLocal);
+  const formTimeRangeLabel = formatTimeRange(
+    displayStartLocal,
+    displayEndLocal,
+  );
+  const formDateRangeLabel = formatDateRange(
+    displayStartLocal,
+    displayEndLocal,
+  );
   const formDurationLabel = allDay
     ? ""
     : getDurationText(displayStartLocal, displayEndLocal);
-  const autoSaveSignature = useMemo(
-    () => scheduleFormSignature(form),
-    [form],
+  const autoSaveSignature = useMemo(() => scheduleFormSignature(form), [form]);
+  const hasUnsavedFormChanges = autoSaveSignature !== initialSignature;
+  const hasSelectPreview = Object.keys(selectPreviewPatch).length > 0;
+  const shouldShowFormPreview =
+    mode !== "edit" ||
+    hasUnsavedFormChanges ||
+    hasSelectPreview ||
+    isRepeatMode ||
+    isSelectedDatesMode;
+  const previewFormsSignature = previewForms
+    .map((item) => scheduleFormSignature(item))
+    .join("\n");
+
+  const syncDescriptionTextareaHeight = useCallback(
+    (textarea = descriptionTextareaRef.current) => {
+      if (!textarea) return;
+
+      if (!descriptionExpanded) {
+        textarea.style.height = "";
+        return;
+      }
+
+      textarea.style.height = "auto";
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    },
+    [descriptionExpanded],
   );
+
+  useLayoutEffect(() => {
+    syncDescriptionTextareaHeight();
+  }, [form.description, syncDescriptionTextareaHeight]);
 
   useEffect(() => {
     syncingInitialSignatureRef.current = initialSignature;
     setForm(initial);
     setAllDay(initial.all_day);
+    setScheduleOwner("personal");
+    setCompanyTargetType("company");
+    setCompanyDepartmentId("");
+    setCompanyMemberId("");
+    setCompanyTargets([{ target_type: "company" }]);
+    setPersonalAttendees([]);
+    setPersonalAttendeeOpen(false);
+    setPersonalAttendeeQuery("");
+    setDescriptionExpanded(false);
     setSelectedDates([initial.start_local.slice(0, 10)]);
     setCustomSelectedDates([]);
     setRepeatStartDate(initial.start_local.slice(0, 10));
     setRepeatTypeOpen(false);
     setRepeatEndOpen(false);
-    setBasicOptionsOpen(false);
     setCustomRepeatOpen(false);
     setSelectedDatesOpen(false);
     setPreviewRepeatOption(null);
     setSelectedRepeatOption(mode === "repeat" ? "weekly" : "none");
     setRepeatEnabled(mode === "repeat");
+    setIncludeHolidayRepeats(true);
+    setDraftIncludeHolidayRepeats(true);
     setRepeatEndType("never");
     setRepeatUntilDate(null);
     setRepeatCount(null);
-    const nextCustomRepeat = defaultCustomRepeat(initial.start_local.slice(0, 10));
+    const nextCustomRepeat = defaultCustomRepeat(
+      initial.start_local.slice(0, 10),
+    );
     setCustomRepeat(nextCustomRepeat);
     setDraftCustomRepeat(cloneCustomRepeat(nextCustomRepeat));
     setDraftRepeatDates([]);
+    setRepeatUntilCalendarMonth(
+      getCalendarViewMonth(initial.start_local.slice(0, 10)),
+    );
     setSelectedDatesCalendarMonth(
       getCalendarViewMonth(initial.start_local.slice(0, 10)),
     );
@@ -2948,12 +4151,53 @@ function ScheduleFormPanel({
     setAutoSaveState("idle");
     setPreviewStartLocal(null);
     setPreviewEndLocal(null);
+    setSelectPreviewDisplayPatch({});
+    setSelectPreviewPatch({});
+    setSelectDisplayTouched({
+      schedule_type: mode !== "create",
+      priority: mode !== "create",
+      category_id: mode !== "create" && initial.category_id !== "",
+    });
     setError(null);
   }, [initialSignature, mode]);
 
   useEffect(() => {
-    onSubmitRef.current = onSubmit;
-  }, [onSubmit]);
+    onPreviewChange?.(shouldShowFormPreview ? previewForms : []);
+  }, [onPreviewChange, previewFormsSignature, shouldShowFormPreview]);
+
+  useEffect(() => {
+    return () => {
+      onPreviewChange?.([]);
+    };
+  }, [onPreviewChange]);
+
+  const updateSelectPreview = <TField extends keyof ScheduleSelectPreviewPatch>(
+    field: TField,
+    value: ScheduleSelectPreviewPatch[TField] | null,
+  ) => {
+    setSelectPreviewDisplayPatch((prev) => {
+      const next = { ...prev };
+
+      if (value === null) {
+        delete next[field];
+      } else {
+        next[field] = value;
+      }
+
+      return next;
+    });
+    setSelectPreviewPatch((prev) => {
+      const next = { ...prev };
+
+      if (value === null || Object.is(value, form[field])) {
+        delete next[field];
+      } else {
+        next[field] = value;
+      }
+
+      return next;
+    });
+  };
 
   const updateFloatingPopupPosition = useCallback(
     (
@@ -2993,7 +4237,9 @@ function ScheduleFormPanel({
             : placement === "bottom"
               ? ["bottom", "right", "left", "top"]
               : ["top", "right", "left", "bottom"];
-      const positionFor = (nextPlacement: "right" | "left" | "bottom" | "top") => {
+      const positionFor = (
+        nextPlacement: "right" | "left" | "bottom" | "top",
+      ) => {
         if (nextPlacement === "right") {
           return { left: panelRight + gap, top: rect.top };
         }
@@ -3010,8 +4256,12 @@ function ScheduleFormPanel({
         left + width <= viewportWidth - margin &&
         top >= margin &&
         top + maxPopupHeight <= viewportHeight - margin;
+      const fitsHorizontally = ({ left }: { left: number }) =>
+        left >= margin && left + width <= viewportWidth - margin;
       const preferredPosition =
-        placementOrder.map(positionFor).find(fits) ?? positionFor(placement);
+        placementOrder.map(positionFor).find(fits) ??
+        placementOrder.map(positionFor).find(fitsHorizontally) ??
+        positionFor(placement);
 
       let left = preferredPosition.left;
       let top = preferredPosition.top;
@@ -3039,14 +4289,13 @@ function ScheduleFormPanel({
     if (
       !repeatTypeOpen &&
       !repeatEndOpen &&
-      !basicOptionsOpen &&
       !customRepeatOpen &&
       !selectedDatesOpen
     ) {
       return;
     }
 
-    const closeOnOutsideClick = (event: MouseEvent) => {
+    const closeOnOutsideClick = (event: PointerEvent) => {
       const target = event.target;
       if (
         target instanceof Node &&
@@ -3054,19 +4303,17 @@ function ScheduleFormPanel({
           repeatEndDropdownRef.current?.contains(target) ||
           repeatTypePopupRef.current?.contains(target) ||
           repeatEndPopupRef.current?.contains(target) ||
-          basicOptionsDropdownRef.current?.contains(target) ||
-          basicOptionsPopupRef.current?.contains(target) ||
           customRepeatPopupRef.current?.contains(target) ||
           selectedDatesPopupRef.current?.contains(target) ||
           (target instanceof Element &&
-            target.closest(".schedule-basic-options-select-menu")))
+            (target.closest(".schedule-basic-options-select-menu") ||
+              target.closest(".schedule-date-popover"))))
       ) {
         return;
       }
 
       setRepeatTypeOpen(false);
       setRepeatEndOpen(false);
-      setBasicOptionsOpen(false);
       setCustomRepeatOpen(false);
       setSelectedDatesOpen(false);
       setPreviewRepeatOption(null);
@@ -3076,32 +4323,23 @@ function ScheduleFormPanel({
       if (event.key !== "Escape") return;
       setRepeatTypeOpen(false);
       setRepeatEndOpen(false);
-      setBasicOptionsOpen(false);
       setCustomRepeatOpen(false);
       setSelectedDatesOpen(false);
       setPreviewRepeatOption(null);
       setSelectedDatesError(null);
-      const triggerToFocus = basicOptionsOpen
-        ? basicOptionsTriggerRef.current
-        : repeatEndOpen
-          ? repeatEndTriggerRef.current
-          : repeatTypeTriggerRef.current;
+      const triggerToFocus = repeatEndOpen
+        ? repeatEndTriggerRef.current
+        : repeatTypeTriggerRef.current;
       triggerToFocus?.focus();
     };
 
-    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("pointerdown", closeOnOutsideClick, true);
     document.addEventListener("keydown", closeOnEscape);
     return () => {
-      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("pointerdown", closeOnOutsideClick, true);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [
-    basicOptionsOpen,
-    customRepeatOpen,
-    repeatEndOpen,
-    repeatTypeOpen,
-    selectedDatesOpen,
-  ]);
+  }, [customRepeatOpen, repeatEndOpen, repeatTypeOpen, selectedDatesOpen]);
 
   useEffect(() => {
     if (!repeatTypeOpen) return;
@@ -3111,7 +4349,7 @@ function ScheduleFormPanel({
         repeatTypeTriggerRef.current,
         setRepeatTypePopupStyle,
         260,
-        420,
+        560,
         "right",
       );
 
@@ -3131,8 +4369,8 @@ function ScheduleFormPanel({
       updateFloatingPopupPosition(
         repeatEndTriggerRef.current,
         setRepeatEndPopupStyle,
-        260,
-        260,
+        repeatEndType === "until" ? 280 : 260,
+        repeatEndType === "until" ? 560 : 260,
         "right",
       );
 
@@ -3143,28 +4381,7 @@ function ScheduleFormPanel({
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
     };
-  }, [repeatEndOpen, updateFloatingPopupPosition]);
-
-  useEffect(() => {
-    if (!basicOptionsOpen) return;
-
-    const updatePosition = () =>
-      updateFloatingPopupPosition(
-        basicOptionsTriggerRef.current,
-        setBasicOptionsPopupStyle,
-        340,
-        620,
-        "right",
-      );
-
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [basicOptionsOpen, updateFloatingPopupPosition]);
+  }, [repeatEndOpen, repeatEndType, updateFloatingPopupPosition]);
 
   useEffect(() => {
     if (!customRepeatOpen) return;
@@ -3272,39 +4489,13 @@ function ScheduleFormPanel({
       return;
     }
 
-    if (autoSaveSignature === lastAutoSaveSignatureRef.current) {
-      return;
-    }
-
-    const validationError = validateForm(form);
-    if (validationError) {
-      setAutoSaveState("error");
-      setError(validationError);
-      return;
-    }
-
+    setAutoSaveState(
+      autoSaveSignature === lastAutoSaveSignatureRef.current
+        ? "idle"
+        : "saving",
+    );
     setError(null);
-    setAutoSaveState("saving");
-    const sequence = autoSaveSequenceRef.current + 1;
-    autoSaveSequenceRef.current = sequence;
-
-    const timer = window.setTimeout(() => {
-      void (async () => {
-        try {
-          await onSubmitRef.current([form], { intent: "auto" });
-          if (autoSaveSequenceRef.current !== sequence) return;
-          lastAutoSaveSignatureRef.current = autoSaveSignature;
-          setAutoSaveState("saved");
-        } catch (err) {
-          if (autoSaveSequenceRef.current !== sequence) return;
-          setAutoSaveState("error");
-          setError(getErrorMessage(err, "자동 저장에 실패했습니다."));
-        }
-      })();
-    }, 700);
-
-    return () => window.clearTimeout(timer);
-  }, [autoSaveSignature, form, mode, schedule]);
+  }, [autoSaveSignature, mode, schedule]);
 
   const closeRepeatTypeMenu = (options: { focusTrigger?: boolean } = {}) => {
     setRepeatTypeOpen(false);
@@ -3338,9 +4529,9 @@ function ScheduleFormPanel({
 
   const openCustomRepeatPopover = () => {
     setDraftCustomRepeat(cloneCustomRepeat(customRepeat));
+    setDraftIncludeHolidayRepeats(includeHolidayRepeats);
     setRepeatTypeOpen(false);
     setRepeatEndOpen(false);
-    setBasicOptionsOpen(false);
     setSelectedDatesOpen(false);
     setPreviewRepeatOption(null);
     setCustomRepeatOpen(true);
@@ -3367,7 +4558,6 @@ function ScheduleFormPanel({
     setSelectedDatesCalendarMonth(getCalendarViewMonth(initialDateKey));
     setRepeatTypeOpen(false);
     setRepeatEndOpen(false);
-    setBasicOptionsOpen(false);
     setCustomRepeatOpen(false);
     setPreviewRepeatOption(null);
     setSelectedDatesOpen(true);
@@ -3386,7 +4576,6 @@ function ScheduleFormPanel({
 
     setSelectedRepeatOption(nextType);
     setRepeatEnabled(nextType !== "none");
-    setBasicOptionsOpen(false);
     setCustomRepeatOpen(false);
     setSelectedDatesOpen(false);
     closeRepeatTypeMenu({ focusTrigger: true });
@@ -3423,7 +4612,6 @@ function ScheduleFormPanel({
           type="button"
           onClick={() => {
             setRepeatEndOpen(false);
-            setBasicOptionsOpen(false);
             setCustomRepeatOpen(false);
             setSelectedDatesOpen(false);
             if (repeatTypeOpen) {
@@ -3440,7 +4628,6 @@ function ScheduleFormPanel({
             ) {
               event.preventDefault();
               setRepeatEndOpen(false);
-              setBasicOptionsOpen(false);
               setCustomRepeatOpen(false);
               setSelectedDatesOpen(false);
               setRepeatTypeOpen(true);
@@ -3487,21 +4674,22 @@ function ScheduleFormPanel({
         onMouseLeave={() => setPreviewRepeatOption(null)}
         className="fixed z-[120] outline-none"
       >
-        <div className="max-h-[inherit] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 text-slate-900 shadow-2xl shadow-slate-200/80">
+        <div className="max-h-[inherit] overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-950 p-1.5 text-zinc-100 shadow-2xl shadow-zinc-950/30">
           <div className="space-y-0.5">
             {repeatTypeOptions.map((option, index) => {
               const selected = selectedRepeatOption === option.value;
               const previewed = displayRepeatOption === option.value;
-              const description = formatRepeatOptionMenuDescription(
+              const menuParts = getRepeatOptionMenuParts(
                 option,
                 customRepeat,
                 customSelectedDateKeys,
               );
+              const summaryBelow = option.value === "selected-dates";
 
               return (
                 <div key={option.value}>
                   {option.dividerBefore ? (
-                    <div className="my-1 border-t border-slate-100" />
+                    <div className="my-0.5 border-t border-zinc-800" />
                   ) : null}
                   <button
                     ref={(node) => {
@@ -3545,27 +4733,42 @@ function ScheduleFormPanel({
                         closeRepeatTypeMenu({ focusTrigger: true });
                       }
                     }}
-                    className={`flex min-h-11 w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm outline-none transition ${
+                    className={`grid w-full items-center rounded-lg px-3 py-1.5 text-left text-sm outline-none transition ${
+                      summaryBelow
+                        ? "min-h-11 grid-cols-[minmax(0,1fr)_1.25rem] gap-2"
+                        : "min-h-8 grid-cols-[max-content_minmax(0,1fr)_1.25rem] gap-3"
+                    } ${
                       selected
-                        ? "bg-emerald-50 text-emerald-800"
+                        ? "bg-white/10 text-white"
                         : previewed
-                          ? "bg-emerald-50/70 text-slate-950"
-                          : "text-slate-700 hover:bg-emerald-50/70 hover:text-slate-950 focus:bg-emerald-50/70 focus:text-slate-950"
+                          ? "bg-white/10 text-white"
+                          : "text-zinc-200 hover:bg-white/10 hover:text-white focus:bg-white/10 focus:text-white"
                     }`}
                   >
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-semibold">
-                        {option.label}
-                      </span>
-                      {description ? (
-                        <span className="mt-0.5 block truncate text-xs font-medium text-slate-500">
-                          {description}
+                    {summaryBelow ? (
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">
+                          {menuParts.label}
                         </span>
-                      ) : null}
-                    </span>
+                        {menuParts.summary ? (
+                          <span className="mt-0.5 block truncate text-xs font-semibold text-zinc-500">
+                            {menuParts.summary}
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : (
+                      <>
+                        <span className="whitespace-nowrap font-medium">
+                          {menuParts.label}
+                        </span>
+                        <span className="min-w-0 truncate text-right text-xs font-semibold text-zinc-500">
+                          {menuParts.summary ?? ""}
+                        </span>
+                      </>
+                    )}
                     <span
                       className={`flex h-5 w-5 shrink-0 items-center justify-center ${
-                        selected ? "text-emerald-600" : "text-transparent"
+                        selected ? "text-emerald-400" : "text-transparent"
                       }`}
                     >
                       <Check className="h-4 w-4" />
@@ -3577,243 +4780,6 @@ function ScheduleFormPanel({
           </div>
         </div>
       </div>,
-    );
-  };
-
-  const renderBasicOptionsControl = (
-    className: string,
-    options: { showIcon?: boolean; valueOnly?: boolean } = {},
-  ) => {
-    const showIcon = options.showIcon ?? true;
-    const displayLabel = options.valueOnly
-      ? basicOptionsValueLabel
-      : basicOptionsLabel;
-
-    return (
-      <div
-        ref={basicOptionsDropdownRef}
-        className="relative flex w-full min-w-0"
-      >
-        <button
-          ref={basicOptionsTriggerRef}
-          type="button"
-          onClick={() => {
-            setRepeatTypeOpen(false);
-            setRepeatEndOpen(false);
-            setCustomRepeatOpen(false);
-            setSelectedDatesOpen(false);
-            setPreviewRepeatOption(null);
-            setBasicOptionsOpen((open) => !open);
-          }}
-          onKeyDown={(event) => {
-            if (
-              event.key === "Enter" ||
-              event.key === " " ||
-              event.key === "ArrowDown"
-            ) {
-              event.preventDefault();
-              setRepeatTypeOpen(false);
-              setRepeatEndOpen(false);
-              setCustomRepeatOpen(false);
-              setSelectedDatesOpen(false);
-              setPreviewRepeatOption(null);
-              setBasicOptionsOpen(true);
-            }
-            if (event.key === "Escape") {
-              event.preventDefault();
-              setBasicOptionsOpen(false);
-            }
-          }}
-          className={className}
-          aria-haspopup="dialog"
-          aria-expanded={basicOptionsOpen}
-          aria-controls="schedule-basic-options-panel"
-          aria-label={basicOptionsLabel}
-        >
-          {showIcon ? <SlidersHorizontal className="h-4 w-4 shrink-0" /> : null}
-          <span className="min-w-0 flex-1 truncate text-left">
-            {displayLabel}
-          </span>
-          <ChevronDown
-            className={`h-4 w-4 shrink-0 transition ${
-              basicOptionsOpen ? "rotate-180" : ""
-            }`}
-          />
-        </button>
-      </div>
-    );
-  };
-
-  const renderBasicOptionsPopover = () => {
-    if (!basicOptionsOpen) return null;
-
-    return renderFloatingPortal(
-      <div
-        id="schedule-basic-options-panel"
-        ref={basicOptionsPopupRef}
-        role="dialog"
-        aria-label="기본 옵션"
-        style={basicOptionsPopupStyle}
-        className="fixed z-[120] max-h-[min(620px,calc(100vh-20px))] overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 text-slate-900 shadow-2xl shadow-slate-200/80 outline-none"
-      >
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-              <SlidersHorizontal className="h-4 w-4" />
-            </span>
-            <h3 className="text-sm font-bold text-slate-950">기본 옵션</h3>
-          </div>
-          <button
-            type="button"
-            onClick={() => setBasicOptionsOpen(false)}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-900"
-            aria-label="기본 옵션 닫기"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <span className="text-xs font-semibold text-slate-500">
-              일정 유형
-            </span>
-            <CustomSelect
-              ariaLabel="일정 유형"
-              value={form.schedule_type}
-              options={scheduleTypeSelectOptions}
-              side="right"
-              sideOffset={10}
-              contentClassName="schedule-basic-options-select-menu"
-              onChange={(value) =>
-                setForm({
-                  ...form,
-                  schedule_type: value,
-                })
-              }
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <span className="text-xs font-semibold text-slate-500">
-              우선순위
-            </span>
-            <CustomSelect
-              ariaLabel="우선순위"
-              value={form.priority}
-              options={prioritySelectOptions}
-              side="right"
-              sideOffset={10}
-              contentClassName="schedule-basic-options-select-menu"
-              onChange={(value) =>
-                setForm({
-                  ...form,
-                  priority: value,
-                })
-              }
-            />
-          </div>
-
-          <label className="block space-y-1.5">
-            <span className="text-xs font-semibold text-slate-500">장소</span>
-            <div className="relative">
-              <MapPin className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                value={form.location}
-                onChange={(event) =>
-                  setForm({ ...form, location: event.target.value })
-                }
-                placeholder="회의실, 카페, 그 외 장소"
-                className="h-11 w-full rounded-lg border border-slate-200 bg-white py-0 pl-9 pr-3.5 text-sm font-medium text-slate-900 shadow-sm shadow-slate-200/40 outline-none transition placeholder:text-slate-400 hover:border-slate-300 hover:shadow-md hover:shadow-slate-200/50 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
-              />
-            </div>
-          </label>
-
-          <div className="space-y-1.5">
-            <span className="text-xs font-semibold text-slate-500">
-              카테고리
-            </span>
-            <CustomSelect
-              ariaLabel="카테고리"
-              value={form.category_id}
-              options={categorySelectOptions}
-              disabled={scheduleCategoriesLoading}
-              placeholder="카테고리 없음"
-              side="right"
-              sideOffset={10}
-              contentClassName="schedule-basic-options-select-menu"
-              onChange={(value) => setForm({ ...form, category_id: value })}
-            />
-          </div>
-        </div>
-
-        <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-slate-50/60">
-          <button
-            type="button"
-            onClick={() => setDetailsOpen((open) => !open)}
-            className="group flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-100"
-          >
-            <span className="flex min-w-0 items-center gap-2">
-              <Pencil className="h-4 w-4 shrink-0 text-slate-400 transition group-hover:text-slate-600" />
-              <span className="text-sm font-bold text-slate-800">
-                상세 설정
-              </span>
-            </span>
-            <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-slate-500">
-              {detailsOpen ? "접기" : "펼치기"}
-              <ChevronDown
-                className={`h-4 w-4 transition ${
-                  detailsOpen ? "rotate-180 text-emerald-500" : ""
-                }`}
-              />
-            </span>
-          </button>
-
-          {detailsOpen ? (
-            <div className="space-y-3 border-t border-slate-200 bg-white p-3">
-              <label className="block space-y-1.5">
-                <span className="text-xs font-semibold text-slate-500">
-                  설명
-                </span>
-                <textarea
-                  rows={3}
-                  value={form.description}
-                  onChange={(event) =>
-                    setForm({ ...form, description: event.target.value })
-                  }
-                  placeholder="상세 설명"
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-medium leading-6 text-slate-900 shadow-sm shadow-slate-200/40 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
-                />
-              </label>
-
-              <label className="block space-y-1.5">
-                <span className="text-xs font-semibold text-slate-500">
-                  공개 범위
-                </span>
-                <select
-                  value={form.visibility}
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      visibility: event.target.value as ScheduleVisibility,
-                    })
-                  }
-                  className="h-11 w-full cursor-pointer rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-900 shadow-sm shadow-slate-200/40 outline-none transition hover:border-slate-300 hover:shadow-md hover:shadow-slate-200/50 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
-                >
-                  {Object.entries(SCHEDULE_VISIBILITY_LABELS).map(
-                    ([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ),
-                  )}
-                </select>
-              </label>
-            </div>
-          ) : null}
-        </div>
-      </div>
     );
   };
 
@@ -3841,9 +4807,13 @@ function ScheduleFormPanel({
     if (Number.isNaN(next.getTime())) return;
 
     setRepeatStartDate(nextDateKey);
-    setRepeatUntilDate((prev) =>
-      prev && prev < nextDateKey ? nextDateKey : prev,
-    );
+    if (repeatUntilDate && repeatUntilDate < nextDateKey) {
+      setRepeatUntilDate(nextDateKey);
+      setRepeatUntilCalendarMonth(getCalendarViewMonth(nextDateKey));
+      if (repeatEndType === "until") {
+        syncCustomRepeatEnd("until", nextDateKey, null);
+      }
+    }
   };
 
   const handleStartDateChange = (nextDateKey: string) => {
@@ -3910,6 +4880,55 @@ function ScheduleFormPanel({
     </label>
   );
 
+  const handleRepeatEnabledChange = (nextEnabled: boolean) => {
+    setRepeatEnabled(nextEnabled);
+    setIncludeHolidayRepeats(true);
+    setRepeatTypeOpen(false);
+    setRepeatEndOpen(false);
+    setCustomRepeatOpen(false);
+    setSelectedDatesOpen(false);
+    setPreviewRepeatOption(null);
+
+    if (nextEnabled) {
+      if (selectedRepeatOption === "none") {
+        setSelectedRepeatOption("weekly");
+      }
+      return;
+    }
+
+    setSelectedRepeatOption("none");
+    setSelectedDates([form.start_local.slice(0, 10)]);
+    setRepeatEndType("never");
+    setRepeatUntilDate(null);
+    setRepeatCount(null);
+  };
+
+  const renderRepeatEnabledControl = (className: string) => (
+    <label className={className}>
+      <input
+        type="checkbox"
+        checked={repeatEnabled}
+        onChange={(event) => handleRepeatEnabledChange(event.target.checked)}
+        className="peer sr-only"
+      />
+      <span
+        aria-hidden
+        className={`relative inline-flex h-3.5 w-7 shrink-0 items-center rounded-full border transition peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-200 ${
+          repeatEnabled
+            ? "border-emerald-500 bg-emerald-500"
+            : "border-slate-300 bg-slate-100"
+        }`}
+      >
+        <span
+          className={`absolute h-2.5 w-2.5 rounded-full bg-white shadow-sm transition ${
+            repeatEnabled ? "left-3.5" : "left-0.5"
+          }`}
+        />
+      </span>
+      반복
+    </label>
+  );
+
   const chooseRepeatEndType = (nextEndType: RepeatEndType) => {
     setRepeatEndType(nextEndType);
 
@@ -3928,11 +4947,10 @@ function ScheduleFormPanel({
           : repeatStartDate;
       setRepeatCount(null);
       setRepeatUntilDate(nextDate);
+      setRepeatUntilCalendarMonth(getCalendarViewMonth(nextDate));
       syncCustomRepeatEnd("until", nextDate, null);
       window.requestAnimationFrame(() => {
-        const input = repeatUntilInputRef.current;
-        input?.focus();
-        input?.showPicker?.();
+        repeatUntilDateButtonRef.current?.focus();
       });
       return;
     }
@@ -3942,6 +4960,22 @@ function ScheduleFormPanel({
     setRepeatCount(nextCount);
     syncCustomRepeatEnd("count", null, nextCount);
     window.requestAnimationFrame(() => repeatCountInputRef.current?.focus());
+  };
+
+  const selectRepeatUntilDate = (dateKey: string) => {
+    if (dateKey < repeatStartDate) return;
+
+    setRepeatEndType("until");
+    setRepeatCount(null);
+    setRepeatUntilDate(dateKey);
+    setRepeatUntilCalendarMonth(getCalendarViewMonth(dateKey));
+    syncCustomRepeatEnd("until", dateKey, null);
+  };
+
+  const moveRepeatUntilCalendarMonth = (offset: number) => {
+    setRepeatUntilCalendarMonth(
+      (prev) => new Date(prev.getFullYear(), prev.getMonth() + offset, 1),
+    );
   };
 
   const moveRepeatEndOption = (nextIndex: number) => {
@@ -3960,7 +4994,6 @@ function ScheduleFormPanel({
         type="button"
         onClick={() => {
           setRepeatTypeOpen(false);
-          setBasicOptionsOpen(false);
           setCustomRepeatOpen(false);
           setSelectedDatesOpen(false);
           setRepeatEndOpen((open) => !open);
@@ -3974,7 +5007,6 @@ function ScheduleFormPanel({
           ) {
             event.preventDefault();
             setRepeatTypeOpen(false);
-            setBasicOptionsOpen(false);
             setCustomRepeatOpen(false);
             setSelectedDatesOpen(false);
             setRepeatEndOpen(true);
@@ -4005,127 +5037,224 @@ function ScheduleFormPanel({
   const renderRepeatEndPopover = () => {
     if (!repeatEndOpen) return null;
 
+    const repeatUntilDateKey = repeatUntilDate ?? repeatStartDate;
+    const repeatUntilTodayKey = toDateKey(new Date());
+    const canResetRepeatUntilCalendarMonth =
+      toDateKey(repeatUntilCalendarMonth) !==
+      toDateKey(getCalendarViewMonth(repeatUntilDateKey));
+
     return renderFloatingPortal(
-        <div
-          id="repeat-end-menu"
-          ref={repeatEndPopupRef}
-          role="dialog"
-          aria-label="반복 종료"
-          style={repeatEndPopupStyle}
-          className="fixed z-[120] max-h-[inherit] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-2xl shadow-slate-200/80 outline-none"
-        >
-          <div role="menu" className="space-y-0.5">
-            {repeatEndOptions.map(({ value, label }, index) => {
-              const selected = repeatEndType === value;
-              const active = activeRepeatEndOptionIndex === index;
-              return (
-                <button
-                  key={value}
-                  ref={(node) => {
-                    repeatEndOptionRefs.current[index] = node;
-                  }}
-                  type="button"
-                  role="menuitem"
-                  aria-selected={selected}
-                  onClick={() => chooseRepeatEndType(value)}
-                  onFocus={() => setActiveRepeatEndOptionIndex(index)}
-                  onMouseEnter={() => setActiveRepeatEndOptionIndex(index)}
-                  onKeyDown={(event) => {
-                    if (event.key === "ArrowDown") {
-                      event.preventDefault();
-                      moveRepeatEndOption(index + 1);
-                    }
-                    if (event.key === "ArrowUp") {
-                      event.preventDefault();
-                      moveRepeatEndOption(index - 1);
-                    }
-                    if (event.key === "Home") {
-                      event.preventDefault();
-                      moveRepeatEndOption(0);
-                    }
-                    if (event.key === "End") {
-                      event.preventDefault();
-                      moveRepeatEndOption(repeatEndOptions.length - 1);
-                    }
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      chooseRepeatEndType(value);
-                    }
-                    if (event.key === "Escape") {
-                      event.preventDefault();
-                      closeRepeatEndMenu({ focusTrigger: true });
-                    }
-                  }}
-                  className={`flex min-h-10 w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm font-medium outline-none transition ${
-                    selected
-                      ? "bg-emerald-50 text-emerald-700"
-                      : active
-                        ? "bg-emerald-50/70 text-slate-950"
-                        : "text-slate-700 hover:bg-emerald-50/70 hover:text-slate-950 focus:bg-emerald-50/70 focus:text-slate-950"
+      <div
+        id="repeat-end-menu"
+        ref={repeatEndPopupRef}
+        role="dialog"
+        aria-label="반복 종료"
+        style={repeatEndPopupStyle}
+        className="fixed z-[120] max-h-[inherit] overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-950 p-1.5 text-zinc-100 shadow-2xl shadow-zinc-950/30 outline-none"
+      >
+        <div role="menu" className="space-y-0.5">
+          {repeatEndOptions.map(({ value, label }, index) => {
+            const selected = repeatEndType === value;
+            const active = activeRepeatEndOptionIndex === index;
+            return (
+              <button
+                key={value}
+                ref={(node) => {
+                  repeatEndOptionRefs.current[index] = node;
+                }}
+                type="button"
+                role="menuitem"
+                aria-selected={selected}
+                onClick={() => chooseRepeatEndType(value)}
+                onFocus={() => setActiveRepeatEndOptionIndex(index)}
+                onMouseEnter={() => setActiveRepeatEndOptionIndex(index)}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    moveRepeatEndOption(index + 1);
+                  }
+                  if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    moveRepeatEndOption(index - 1);
+                  }
+                  if (event.key === "Home") {
+                    event.preventDefault();
+                    moveRepeatEndOption(0);
+                  }
+                  if (event.key === "End") {
+                    event.preventDefault();
+                    moveRepeatEndOption(repeatEndOptions.length - 1);
+                  }
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    chooseRepeatEndType(value);
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    closeRepeatEndMenu({ focusTrigger: true });
+                  }
+                }}
+                className={`flex min-h-10 w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium outline-none transition ${
+                  selected
+                    ? "bg-white/10 text-white"
+                    : active
+                      ? "bg-white/10 text-white"
+                      : "text-zinc-200 hover:bg-white/10 hover:text-white focus:bg-white/10 focus:text-white"
+                }`}
+              >
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                <span
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center ${
+                    selected ? "text-emerald-400" : "text-transparent"
                   }`}
                 >
-                  {label}
-                  {selected ? <Check className="h-4 w-4" /> : null}
-                </button>
-              );
-            })}
-          </div>
+                  <Check className="h-4 w-4" />
+                </span>
+              </button>
+            );
+          })}
+        </div>
 
-          {repeatEndType === "until" ? (
-            <div className="mt-1 border-t border-slate-100 px-2 pt-2">
-              <div className="mb-1 text-xs font-semibold text-slate-500">
-                종료 날짜
+        {repeatEndType === "until" ? (
+          <div className="mt-1 border-t border-zinc-800 px-2 pt-2">
+            <div className="mb-1 text-xs font-semibold text-zinc-400">
+              종료 날짜
+            </div>
+            <button
+              ref={repeatUntilDateButtonRef}
+              type="button"
+              onClick={() =>
+                setRepeatUntilCalendarMonth(
+                  getCalendarViewMonth(repeatUntilDateKey),
+                )
+              }
+              className="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-2 text-left text-sm font-medium text-zinc-100 outline-none transition hover:border-zinc-600 hover:bg-zinc-800 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/20"
+              aria-label="반복 종료 날짜"
+            >
+              <span>{repeatUntilDateKey}</span>
+              <CalendarDays className="h-4 w-4 text-zinc-400" />
+            </button>
+            <div className="mt-2 rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-slate-100">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="text-sm font-semibold">
+                  {formatMonthTitle(repeatUntilCalendarMonth)}
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRepeatUntilCalendarMonth(
+                        getCalendarViewMonth(repeatUntilDateKey),
+                      )
+                    }
+                    className={`h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white ${
+                      canResetRepeatUntilCalendarMonth
+                        ? "inline-flex"
+                        : "hidden"
+                    }`}
+                    aria-label="선택한 날짜 월로 이동"
+                    title="선택한 날짜 월로 이동"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveRepeatUntilCalendarMonth(-1)}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white"
+                    aria-label="이전 달"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveRepeatUntilCalendarMonth(1)}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white"
+                    aria-label="다음 달"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
-              <input
-                ref={repeatUntilInputRef}
-                type="date"
-                min={repeatStartDate}
-                value={repeatUntilDate ?? repeatStartDate}
-                onChange={(event) => {
-                  const nextDate = event.target.value;
-                  const normalizedDate =
-                    nextDate && nextDate >= repeatStartDate
-                      ? nextDate
-                      : repeatStartDate;
-                  setRepeatUntilDate(normalizedDate);
-                  syncCustomRepeatEnd("until", normalizedDate, null);
-                }}
-                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-800 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
-              />
-              <div className="mt-1 text-xs font-medium text-slate-500">
-                {formatRepeatEndSummary(
-                  "until",
-                  repeatUntilDate ?? repeatStartDate,
-                  null,
+              <div className="grid grid-cols-7 text-center text-[11px] font-medium text-slate-500">
+                {weekdayLabels.map((label) => (
+                  <span key={label}>{label}</span>
+                ))}
+              </div>
+              <div className="mt-2 grid grid-cols-7 gap-1">
+                {buildMonthCells(repeatUntilCalendarMonth).map(
+                  (date, index) => {
+                    if (!date) {
+                      return (
+                        <div
+                          key={`repeat-until-blank-${index}`}
+                          className="aspect-square"
+                        />
+                      );
+                    }
+
+                    const dateKey = toDateKey(date);
+                    const selected = dateKey === repeatUntilDateKey;
+                    const today = dateKey === repeatUntilTodayKey;
+                    const disabled = dateKey < repeatStartDate;
+
+                    return (
+                      <button
+                        key={dateKey}
+                        type="button"
+                        disabled={disabled}
+                        aria-selected={selected}
+                        onClick={() => selectRepeatUntilDate(dateKey)}
+                        className={`aspect-square rounded-md text-sm font-semibold outline-none transition ${
+                          selected
+                            ? "bg-emerald-500 text-white shadow-sm"
+                            : disabled
+                              ? "cursor-not-allowed text-zinc-600"
+                              : today
+                                ? "text-emerald-300 ring-1 ring-emerald-600/60 hover:bg-neutral-800"
+                                : "text-slate-200 hover:bg-neutral-800 hover:text-white"
+                        }`}
+                      >
+                        {date.getDate()}
+                      </button>
+                    );
+                  },
                 )}
               </div>
             </div>
-          ) : null}
-
-          {repeatEndType === "count" ? (
-            <div className="mt-1 border-t border-slate-100 px-2 pt-2">
-              <div className="mb-1 text-xs font-semibold text-slate-500">
-                반복 횟수
-              </div>
-              <input
-                ref={repeatCountInputRef}
-                type="number"
-                min={1}
-                max={100}
-                value={repeatCount ?? 10}
-                onChange={(event) => {
-                  const nextCount = Math.max(1, Number(event.target.value) || 1);
-                  setRepeatCount(nextCount);
-                  syncCustomRepeatEnd("count", null, nextCount);
-                }}
-                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-800 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
-              />
-              <div className="mt-1 text-xs font-medium text-slate-500">
-                {formatRepeatEndSummary("count", null, repeatCount ?? 10)}
-              </div>
+            <div className="mt-1 text-xs font-medium text-zinc-400">
+              {formatRepeatEndSummary(
+                "until",
+                repeatUntilDate ?? repeatStartDate,
+                null,
+              )}
             </div>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
+
+        {repeatEndType === "count" ? (
+          <div className="mt-1 border-t border-zinc-800 px-2 pt-2">
+            <div className="mb-1 text-xs font-semibold text-zinc-400">
+              반복 횟수
+            </div>
+            <input
+              ref={repeatCountInputRef}
+              type="number"
+              min={1}
+              max={100}
+              value={repeatCount ?? 10}
+              onChange={(event) => {
+                const nextCount = Math.max(1, Number(event.target.value) || 1);
+                setRepeatCount(nextCount);
+                syncCustomRepeatEnd("count", null, nextCount);
+              }}
+              className="h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 text-sm text-zinc-100 outline-none transition [color-scheme:dark] focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/20"
+            />
+            <div className="mt-1 text-xs font-medium text-zinc-400">
+              {formatRepeatEndSummary("count", null, repeatCount ?? 10)}
+            </div>
+          </div>
+        ) : null}
+      </div>,
     );
   };
 
@@ -4154,6 +5283,7 @@ function ScheduleFormPanel({
   const cancelCustomRepeat = () => {
     setCustomRepeatOpen(false);
     setDraftCustomRepeat(cloneCustomRepeat(customRepeat));
+    setDraftIncludeHolidayRepeats(includeHolidayRepeats);
     repeatTypeTriggerRef.current?.focus();
   };
 
@@ -4172,7 +5302,7 @@ function ScheduleFormPanel({
           : [...draftCustomRepeat.weekdays],
       endDate:
         draftCustomRepeat.endType === "until"
-          ? draftCustomRepeat.endDate ?? repeatStartDate
+          ? (draftCustomRepeat.endDate ?? repeatStartDate)
           : null,
       count:
         draftCustomRepeat.endType === "count"
@@ -4181,6 +5311,7 @@ function ScheduleFormPanel({
     };
 
     setCustomRepeat(normalized);
+    setIncludeHolidayRepeats(draftIncludeHolidayRepeats);
     setSelectedRepeatOption("custom");
     setRepeatEnabled(true);
     setRepeatEndType(normalized.endType);
@@ -4352,41 +5483,27 @@ function ScheduleFormPanel({
               className="h-4 w-4 accent-blue-500"
               aria-label="날짜에 종료"
             />
-            <div
-              className={`relative h-9 w-32 rounded-md border px-3 text-sm leading-9 transition ${
-                draftCustomRepeat.endType === "until"
-                  ? "border-slate-200 bg-white text-slate-800"
-                  : "border-slate-100 bg-slate-50 text-slate-300"
-              }`}
-            >
-              {formatRepeatEndDateDisplay(
-                draftCustomRepeat.endDate ?? repeatStartDate,
-              )}
-              <input
-                type="date"
-                min={repeatStartDate}
-                value={draftCustomRepeat.endDate ?? repeatStartDate}
-                onClick={() =>
-                  updateDraftCustomRepeat({
-                    endType: "until",
-                    endDate: draftCustomRepeat.endDate ?? repeatStartDate,
-                    count: null,
-                  })
-                }
-                onChange={(event) =>
-                  updateDraftCustomRepeat({
-                    endType: "until",
-                    endDate:
-                      event.target.value && event.target.value >= repeatStartDate
-                        ? event.target.value
-                        : repeatStartDate,
-                    count: null,
-                  })
-                }
-                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                aria-label="반복 종료 날짜"
-              />
-            </div>
+            <CompactDateInput
+              value={draftCustomRepeat.endDate ?? repeatStartDate}
+              minDate={repeatStartDate}
+              calendarBoundaryRef={customRepeatPopupRef}
+              ariaLabel="반복 종료 날짜"
+              className="w-32"
+              onOpen={() =>
+                updateDraftCustomRepeat({
+                  endType: "until",
+                  endDate: draftCustomRepeat.endDate ?? repeatStartDate,
+                  count: null,
+                })
+              }
+              onChange={(dateKey) =>
+                updateDraftCustomRepeat({
+                  endType: "until",
+                  endDate: dateKey,
+                  count: null,
+                })
+              }
+            />
             <span className="text-sm font-medium text-slate-600">
               종료일 지정
             </span>
@@ -4433,6 +5550,44 @@ function ScheduleFormPanel({
           </label>
         </div>
 
+        {showDraftCustomRepeatHolidayControl ? (
+          <div className="mt-5 flex items-start justify-between gap-4 border-t border-slate-100 pt-4">
+            <div className="text-sm font-medium text-slate-700">
+              공휴일에도 반복
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={draftIncludeHolidayRepeats}
+              onClick={() =>
+                setDraftIncludeHolidayRepeats((current) => !current)
+              }
+              className="group flex min-w-[7rem] flex-col items-end rounded-md text-right outline-none focus-visible:ring-2 focus-visible:ring-blue-100"
+            >
+              <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                {draftIncludeHolidayRepeats ? "켬" : "끔"}
+                <span
+                  className={`flex h-5 w-9 items-center rounded-full p-0.5 transition ${
+                    draftIncludeHolidayRepeats ? "bg-blue-500" : "bg-slate-200"
+                  }`}
+                >
+                  <span
+                    className={`h-4 w-4 rounded-full bg-white shadow-sm transition ${
+                      draftIncludeHolidayRepeats
+                        ? "translate-x-4"
+                        : "translate-x-0"
+                    }`}
+                  />
+                </span>
+              </span>
+              <span className="mt-1 text-xs font-medium text-slate-500">
+                공휴일 {draftCustomRepeatHolidayCount}개{" "}
+                {draftIncludeHolidayRepeats ? "포함" : "제외"}
+              </span>
+            </button>
+          </div>
+        ) : null}
+
         <div className="mt-7 flex justify-end gap-2">
           <button
             type="button"
@@ -4449,7 +5604,7 @@ function ScheduleFormPanel({
             완료
           </button>
         </div>
-      </div>
+      </div>,
     );
   };
 
@@ -4548,11 +5703,7 @@ function ScheduleFormPanel({
                       : today
                         ? "text-emerald-300 ring-1 ring-emerald-600/60 hover:bg-neutral-800"
                         : "text-slate-200 hover:bg-neutral-800 hover:text-white"
-                  } ${
-                    active && !selected
-                      ? "ring-2 ring-emerald-500/40"
-                      : ""
-                  }`}
+                  } ${active && !selected ? "ring-2 ring-emerald-500/40" : ""}`}
                 >
                   {date.getDate()}
                 </button>
@@ -4566,13 +5717,201 @@ function ScheduleFormPanel({
             {selectedDatesError}
           </p>
         ) : null}
-      </div>
+      </div>,
     );
   };
+
+  const normalizeAttendeeEmail = (value: string) =>
+    value.trim().toLowerCase();
+
+  const isValidAttendeeEmail = (value: string) =>
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+
+  const personalAttendeeKey = (attendee: PersonalScheduleAttendee) =>
+    `${attendee.kind}:${normalizeAttendeeEmail(attendee.email)}`;
+
+  const personalAttendeeLabel = (attendee: PersonalScheduleAttendee) =>
+    attendee.name || attendee.email;
+
+  const filteredPersonalAttendeeSuggestions = personalAttendeeSuggestions.filter(
+    (attendee) => {
+      const query = personalAttendeeQuery.trim().toLowerCase();
+      const selected = personalAttendees.some(
+        (item) =>
+          normalizeAttendeeEmail(item.email) ===
+          normalizeAttendeeEmail(attendee.email),
+      );
+
+      if (selected) return false;
+      if (!query) return true;
+
+      return (
+        attendee.name?.toLowerCase().includes(query) ||
+        attendee.email.toLowerCase().includes(query)
+      );
+    },
+  );
+
+  const addPersonalAttendee = (attendee: PersonalScheduleAttendee) => {
+    setError(null);
+    setPersonalAttendees((prev) => {
+      const attendeeEmail = normalizeAttendeeEmail(attendee.email);
+      if (
+        prev.some(
+          (item) => normalizeAttendeeEmail(item.email) === attendeeEmail,
+        )
+      ) {
+        return prev;
+      }
+
+      return [...prev, attendee];
+    });
+    setPersonalAttendeeQuery("");
+  };
+
+  const addPersonalEmailInvite = () => {
+    const email = personalAttendeeQuery.trim();
+    if (!isValidAttendeeEmail(email)) {
+      setError("초대할 이메일을 입력해 주세요.");
+      return;
+    }
+
+    addPersonalAttendee({
+      id: `email:${normalizeAttendeeEmail(email)}`,
+      kind: "email",
+      email,
+      status: "pending_invite",
+    });
+    setPersonalAttendeeOpen(false);
+  };
+
+  const removePersonalAttendee = (attendee: PersonalScheduleAttendee) => {
+    const attendeeEmail = normalizeAttendeeEmail(attendee.email);
+    setPersonalAttendees((prev) =>
+      prev.filter((item) => normalizeAttendeeEmail(item.email) !== attendeeEmail),
+    );
+  };
+
+  const companyTargetKey = (target: CompanyScheduleCreateTarget) => {
+    if (target.target_type === "company") return "company";
+    if (target.target_type === "department") {
+      return `department:${target.department_id}`;
+    }
+
+    return `member:${target.company_member_id}`;
+  };
+
+  const getCompanyTargetLabel = (target: CompanyScheduleCreateTarget) => {
+    if (target.target_type === "company") {
+      return companyName ?? "회사 전체";
+    }
+
+    if (target.target_type === "department") {
+      const department = (departmentsQuery.data ?? []).find(
+        (item) => item.department_id === target.department_id,
+      );
+      return department
+        ? renderDepartmentLabel(department)
+        : `부서 ${target.department_id}`;
+    }
+
+    const member = (membersQuery.data ?? []).find(
+      (item) => item.company_member_id === target.company_member_id,
+    );
+    return member ? renderMemberLabel(member) : `팀원 ${target.company_member_id}`;
+  };
+
+  const buildCompanyTargetDraft = (): CompanyScheduleCreateTarget | null => {
+    if (companyTargetType === "company") return { target_type: "company" };
+
+    if (companyTargetType === "department") {
+      const numericDepartmentId = Number(companyDepartmentId);
+      return Number.isFinite(numericDepartmentId) && numericDepartmentId > 0
+        ? {
+            target_type: "department",
+            department_id: numericDepartmentId,
+          }
+        : null;
+    }
+
+    const numericMemberId = Number(companyMemberId);
+    return Number.isFinite(numericMemberId) && numericMemberId > 0
+      ? {
+          target_type: "member",
+          company_member_id: numericMemberId,
+        }
+      : null;
+  };
+
+  const addCompanyTarget = () => {
+    const target = buildCompanyTargetDraft();
+    if (!target) {
+      setError("참석자를 선택해 주세요.");
+      return;
+    }
+
+    setError(null);
+    setCompanyTargets((prev) => {
+      if (target.target_type === "company") return [target];
+
+      const next = prev.filter((item) => item.target_type !== "company");
+      const nextKey = companyTargetKey(target);
+      if (next.some((item) => companyTargetKey(item) === nextKey)) {
+        return next;
+      }
+
+      return [...next, target];
+    });
+  };
+
+  const removeCompanyTarget = (target: CompanyScheduleCreateTarget) => {
+    const targetKey = companyTargetKey(target);
+    setCompanyTargets((prev) =>
+      prev.filter((item) => companyTargetKey(item) !== targetKey),
+    );
+  };
+
+  const renderDepartmentLabel = (department: CompanyAdminDepartment) =>
+    `${department.name}${department.code ? ` (${department.code})` : ""}`;
+
+  const renderMemberLabel = (member: CompanyAdminMember) =>
+    `${member.name} · ${member.email}`;
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
+
+    if (isCompanyScheduleDraft) {
+      const validationError = validateForm(form);
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
+
+      if (companyTargets.length === 0) {
+        setError("참석자를 선택해 주세요.");
+        return;
+      }
+
+      try {
+        await onCompanySubmit({
+          title: normalizeScheduleTitle(form.title),
+          description: form.description.trim() || undefined,
+          schedule_type: form.schedule_type,
+          start_datetime: fromLocalInputValue(form.start_local),
+          end_datetime: form.end_local
+            ? fromLocalInputValue(form.end_local)
+            : undefined,
+          all_day: form.all_day,
+          location: form.location.trim() || undefined,
+          status: "active",
+          targets: companyTargets,
+        });
+      } catch (err) {
+        setError(getErrorMessage(err, "회사 일정 추가에 실패했습니다."));
+      }
+      return;
+    }
 
     if (mode === "create" && !isRepeatMode && targetDateKeys.length === 0) {
       setError("추가할 날짜를 하나 이상 선택해 주세요.");
@@ -4588,7 +5927,11 @@ function ScheduleFormPanel({
       return;
     }
 
-    if ((mode === "create" || isRepeatMode) && !isSelectedDatesMode && targetDateKeys.length > 100) {
+    if (
+      (mode === "create" || isRepeatMode) &&
+      !isSelectedDatesMode &&
+      targetDateKeys.length > 100
+    ) {
       setError("한 번에 추가할 수 있는 일정은 최대 100개입니다.");
       return;
     }
@@ -4603,7 +5946,14 @@ function ScheduleFormPanel({
 
     try {
       await onSubmit(previewForms, { intent: "manual" });
+      if (mode === "edit") {
+        lastAutoSaveSignatureRef.current = scheduleFormSignature(form);
+        setAutoSaveState("saved");
+      }
     } catch (err) {
+      if (mode === "edit") {
+        setAutoSaveState("error");
+      }
       setError(getErrorMessage(err, "저장에 실패했습니다."));
     }
   };
@@ -4611,7 +5961,10 @@ function ScheduleFormPanel({
   const handleApplyRepeat = async () => {
     setError(null);
 
-    if ((!isRepeatMode && !isSelectedDatesMode) || targetDateKeys.length === 0) {
+    if (
+      (!isRepeatMode && !isSelectedDatesMode) ||
+      targetDateKeys.length === 0
+    ) {
       setError(
         isSelectedDatesMode
           ? "날짜를 하나 이상 선택해 주세요."
@@ -4699,14 +6052,281 @@ function ScheduleFormPanel({
   };
 
   const settingsRowButtonClass =
-    "flex h-9 w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-md border border-transparent px-2.5 text-sm font-semibold text-slate-900 outline-none transition hover:border-slate-200 hover:bg-white focus-visible:border-emerald-300 focus-visible:bg-white focus-visible:ring-2 focus-visible:ring-emerald-100";
-  const settingsRowLabelClass =
-    "px-2 text-xs font-semibold text-slate-500";
+    "flex h-9 w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-md border border-transparent px-2.5 text-xs font-medium text-slate-900 outline-none transition hover:border-slate-200 hover:bg-white focus-visible:border-emerald-300 focus-visible:bg-white focus-visible:ring-2 focus-visible:ring-emerald-100";
+  const settingsRowLabelClass = "px-2 text-xs font-medium text-slate-500";
+  const compactFieldGroupClass = "border-b border-slate-200/70 pb-2";
+  const compactSelectClass =
+    "h-9 rounded-md border-transparent bg-transparent px-2 shadow-none hover:border-slate-200 hover:bg-white hover:shadow-none focus-visible:border-emerald-300 focus-visible:bg-white focus-visible:ring-2 focus-visible:ring-emerald-100 data-[state=open]:border-emerald-300 data-[state=open]:bg-white data-[state=open]:ring-2 data-[state=open]:ring-emerald-100 disabled:bg-transparent disabled:shadow-none";
+  const compactFieldFrameClass =
+    "rounded-md border border-transparent bg-transparent px-2 transition hover:border-slate-200 hover:bg-white focus-within:border-emerald-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-100";
+  const compactInnerInputClass =
+    "h-9 w-full min-w-0 bg-transparent p-0 text-xs font-medium text-slate-900 outline-none placeholder:text-slate-400";
+  const handleScheduleOwnerChange = (value: ScheduleOwnerType) => {
+    setScheduleOwner(value);
+    setForm((prev) =>
+      value === "company" && prev.schedule_type === "personal"
+        ? { ...prev, schedule_type: "meeting" }
+        : prev,
+    );
+    setCompanyTargetType("company");
+    setCompanyDepartmentId("");
+    setCompanyMemberId("");
+    setCompanyTargets([{ target_type: "company" }]);
+    setPersonalAttendees([]);
+    setPersonalAttendeeOpen(false);
+    setPersonalAttendeeQuery("");
+  };
+  const scheduleOwnerSelect =
+    mode === "create" && onCompanySubmit ? (
+      <CustomSelect
+        ariaLabel="일정 종류"
+        triggerLabel={
+          scheduleOwnerOptions.find((option) => option.value === scheduleOwner)
+            ?.label
+        }
+        value={scheduleOwner}
+        options={scheduleOwnerOptions}
+        className="h-9 w-auto rounded-md border-transparent bg-transparent px-2.5 text-sm shadow-none hover:border-slate-200 hover:bg-slate-50 hover:shadow-none focus-visible:border-emerald-300 focus-visible:bg-white focus-visible:ring-2 focus-visible:ring-emerald-100 data-[state=open]:border-emerald-300 data-[state=open]:bg-white data-[state=open]:ring-2 data-[state=open]:ring-emerald-100 disabled:bg-transparent disabled:shadow-none"
+        side="right"
+        sideOffset={10}
+        floatingBoundary="panel"
+        menuTone="dark"
+        contentClassName="schedule-basic-options-select-menu z-[160] border-0"
+        onChange={handleScheduleOwnerChange}
+      />
+    ) : null;
+
+  const renderCompanyAttendeeControl = () => {
+    const canAddCompanyTarget =
+      companyTargetType === "company" ||
+      (companyTargetType === "department" && companyDepartmentId !== "") ||
+      (companyTargetType === "member" && companyMemberId !== "");
+
+    return (
+      <div className={compactFieldGroupClass}>
+        <div className={settingsRowLabelClass}>참석자</div>
+        <div className="mt-1 space-y-2">
+          <div className="grid grid-cols-[5.75rem_minmax(0,1fr)_2.25rem] gap-1.5">
+            <select
+              value={companyTargetType}
+              onChange={(event) => {
+                setCompanyTargetType(
+                  event.target.value as CompanyScheduleTargetType,
+                );
+                setCompanyDepartmentId("");
+                setCompanyMemberId("");
+              }}
+              className="h-9 w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 pr-7 text-xs font-semibold text-slate-900 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+              aria-label="참석자 유형"
+            >
+              {companyScheduleTargetTypeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+
+            {companyTargetType === "company" ? (
+              <div className="flex h-9 min-w-0 items-center overflow-hidden rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700">
+                <Users className="mr-2 h-3.5 w-3.5 shrink-0 text-slate-400" />
+                <span className="truncate">{companyName ?? "회사 전체"}</span>
+              </div>
+            ) : companyTargetType === "department" ? (
+              <select
+                value={companyDepartmentId}
+                disabled={departmentsQuery.isLoading}
+                onChange={(event) => setCompanyDepartmentId(event.target.value)}
+                className="h-9 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-900 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100 disabled:text-slate-400"
+                aria-label="참석 부서"
+              >
+                <option value="">
+                  {departmentsQuery.isLoading
+                    ? "부서 불러오는 중"
+                    : "부서 선택"}
+                </option>
+                {(departmentsQuery.data ?? []).map((department) => (
+                  <option
+                    key={department.department_id}
+                    value={department.department_id}
+                  >
+                    {renderDepartmentLabel(department)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <select
+                value={companyMemberId}
+                disabled={membersQuery.isLoading}
+                onChange={(event) => setCompanyMemberId(event.target.value)}
+                className="h-9 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-900 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100 disabled:text-slate-400"
+                aria-label="참석 팀원"
+              >
+                <option value="">
+                  {membersQuery.isLoading ? "팀원 불러오는 중" : "팀원 선택"}
+                </option>
+                {(membersQuery.data ?? []).map((member) => (
+                  <option
+                    key={member.company_member_id}
+                    value={member.company_member_id}
+                  >
+                    {renderMemberLabel(member)}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <button
+              type="button"
+              onClick={addCompanyTarget}
+              disabled={!canAddCompanyTarget}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
+              aria-label="참석자 추가"
+              title="참석자 추가"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
+
+          {companyTargets.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {companyTargets.map((target) => {
+                const label = getCompanyTargetLabel(target);
+                return (
+                  <span
+                    key={companyTargetKey(target)}
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-emerald-100 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700"
+                  >
+                    <span className="truncate">{label}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeCompanyTarget(target)}
+                      className="-mr-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-emerald-600 transition hover:bg-emerald-100 hover:text-emerald-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
+                      aria-label={`${label} 제거`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+
+  const renderPersonalAttendeeControl = () => {
+    const canInviteByEmail = isValidAttendeeEmail(personalAttendeeQuery);
+
+    return (
+      <div className={compactFieldGroupClass}>
+        <div className={settingsRowLabelClass}>참석자</div>
+        <Popover
+          open={personalAttendeeOpen}
+          onOpenChange={setPersonalAttendeeOpen}
+        >
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className={`${compactFieldFrameClass} mt-1 flex h-9 w-full min-w-0 items-center gap-2.5 text-left outline-none`}
+              aria-label="참석자 선택"
+            >
+              <UserPlus className="h-4 w-4 shrink-0 text-slate-400" />
+              <span className="min-w-0 flex-1" aria-hidden="true" />
+              <Plus className="h-4 w-4 shrink-0 text-slate-400" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            side="left"
+            sideOffset={8}
+            className="z-[170] w-72 rounded-lg border border-slate-200 bg-white p-2 shadow-xl"
+          >
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={personalAttendeeQuery}
+                onChange={(event) =>
+                  setPersonalAttendeeQuery(event.target.value)
+                }
+                placeholder="이름 또는 이메일"
+                className="h-9 w-full rounded-md border border-slate-200 bg-white px-8 text-xs font-medium text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+              />
+            </div>
+
+            <div className="mt-2">
+              <div className="px-1.5 text-[11px] font-semibold text-slate-500">
+                초대된 친구
+              </div>
+              <div className="mt-1 max-h-32 overflow-y-auto">
+                {filteredPersonalAttendeeSuggestions.length > 0 ? (
+                  filteredPersonalAttendeeSuggestions.map((attendee) => (
+                    <button
+                      key={personalAttendeeKey(attendee)}
+                      type="button"
+                      onClick={() => addPersonalAttendee(attendee)}
+                      className="flex h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs font-medium text-slate-700 transition hover:bg-slate-50 hover:text-slate-950"
+                    >
+                      <Users className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      <span className="min-w-0 flex-1 truncate">
+                        {personalAttendeeLabel(attendee)}
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <div className="px-2 py-3 text-xs font-medium text-slate-400">
+                    초대된 친구가 없습니다.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-2 border-t border-slate-100 pt-2">
+              <button
+                type="button"
+                onClick={addPersonalEmailInvite}
+                disabled={!canInviteByEmail}
+                className="flex h-9 w-full items-center justify-center gap-2 rounded-md bg-emerald-600 px-3 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+              >
+                <UserPlus className="h-3.5 w-3.5" />
+                새 이메일 초대
+              </button>
+            </div>
+          </PopoverContent>
+        </Popover>
+
+        {personalAttendees.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {personalAttendees.map((attendee) => {
+              const label = personalAttendeeLabel(attendee);
+              return (
+                <span
+                  key={personalAttendeeKey(attendee)}
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-emerald-100 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700"
+                >
+                  <span className="truncate">{label}</span>
+                  <button
+                    type="button"
+                    onClick={() => removePersonalAttendee(attendee)}
+                    className="-mr-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-emerald-600 transition hover:bg-emerald-100 hover:text-emerald-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
+                    aria-label={`${label} 제거`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <>
       <div
-        className="fixed inset-0 z-40 bg-zinc-950/20 xl:hidden"
+        className="fixed inset-0 z-40 bg-zinc-950/20 md:hidden"
         onClick={onClose}
         aria-hidden
       />
@@ -4714,47 +6334,29 @@ function ScheduleFormPanel({
         style={floatingStyle}
         className={getSchedulePanelClassName(panelLayout)}
       >
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-5 py-4">
-          <div>
-            <p className="text-xs font-semibold text-slate-500">
-              {mode === "edit"
-                ? "일정 수정"
-                : mode === "repeat"
-                  ? "반복 일정"
-                  : "새 일정"}
-            </p>
-            <h2 className="mt-1 text-lg font-semibold text-slate-950">
-              {mode === "edit"
-                ? "일정 수정"
-                : mode === "repeat"
-                  ? "반복 일정 추가"
-                  : "일정 추가"}
-            </h2>
+        <div className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-5">
+          <div className="min-w-0">
+            {scheduleOwnerSelect ??
+              (mode !== "create" ? (
+                <>
+                  <p className="text-xs font-semibold text-emerald-700">
+                    개인 일정
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-slate-950">
+                    {mode === "edit" ? "일정 수정" : "반복 일정 추가"}
+                  </h2>
+                </>
+              ) : null)}
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <button
               type="button"
-              onClick={onTogglePanelLayout}
-              aria-label={
-                panelLayout === "docked" ? "패널 도킹 해제" : "패널 도킹"
-              }
-              title={panelLayout === "docked" ? "패널 도킹 해제" : "패널 도킹"}
-              className="hidden h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-white hover:text-slate-900 xl:inline-flex"
+              onClick={onClose}
+              aria-label="일정 추가 패널 닫기"
+              className={`order-2 ${scheduleSidebarToggleButtonClass}`}
             >
-              {panelLayout === "docked" ? (
-                <PanelLeftOpen className="h-4 w-4" />
-              ) : (
-                <PanelLeftClose className="h-4 w-4" />
-              )}
+              <PanelRight className="h-4 w-4" />
             </button>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="닫기"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-white hover:text-slate-900"
-          >
-            <X className="h-4 w-4" />
-          </button>
           </div>
         </div>
 
@@ -4767,106 +6369,104 @@ function ScheduleFormPanel({
               <input
                 ref={titleInputRef}
                 type="text"
-                required
                 value={form.title}
                 onChange={(event) =>
                   setForm({ ...form, title: event.target.value })
                 }
                 placeholder="일정 제목"
-                className="h-11 w-full rounded-md border border-transparent bg-transparent px-2 text-lg font-semibold text-slate-950 outline-none transition-[border-color,background-color,opacity,box-shadow] duration-150 placeholder:text-slate-400 hover:border-slate-200 hover:bg-white/60 focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                className="h-11 w-full rounded-md border border-transparent bg-transparent px-2 text-base font-medium text-slate-950 outline-none transition-[border-color,background-color,opacity,box-shadow] duration-150 placeholder:text-slate-400 hover:border-slate-200 hover:bg-white/60 focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
               />
             </label>
 
-              <div className="flex items-start gap-3 px-1 py-1">
-                <Clock3 className="hidden" />
-                <div className="min-w-0 flex-1">
-                  {!allDay ? (
+            <div className="flex items-start gap-3 px-1 py-1">
+              <Clock3 className="hidden" />
+              <div className="min-w-0 flex-1">
+                {!allDay ? (
                   <div
                     className="grid max-w-full grid-cols-[1.5rem_7.25rem_1.1rem_minmax(0,1fr)] items-center gap-1.5"
                     title={formTimeRangeLabel}
                   >
-                    <span className="hidden">
-                      시간
-                    </span>
+                    <span className="hidden">시간</span>
                     <span className="flex h-9 items-center justify-center text-slate-400">
                       <Clock3 className="h-4 w-4" />
                     </span>
                     <div className="w-[4.75rem] min-w-0">
-                    <CompactTimeInput
-                      required={!allDay}
-                      disabled={allDay}
-                      value={timeFromLocalInput(form.start_local)}
-                      ariaLabel="시작 시간"
-                      onCommit={() => endTimeInputRef.current?.focus()}
-                      onValidDraftChange={(value) => {
-                        const nextStartLocal = localInputWithTime(
-                          form.start_local,
-                          value,
-                          dateFromLocalInput(form.start_local),
-                        );
-                        setPreviewStartLocal(nextStartLocal);
-                        setPreviewEndLocal(
-                          endLocalAfterStartChange(
-                            nextStartLocal,
-                            form.end_local,
-                            form.start_local,
-                          ),
-                        );
-                      }}
-                      onChange={(value) =>
-                        updateStartLocal(
-                          localInputWithTime(
+                      <CompactTimeInput
+                        required={!allDay}
+                        disabled={allDay}
+                        value={timeFromLocalInput(form.start_local)}
+                        ariaLabel="시작 시간"
+                        onCommit={() => endTimeInputRef.current?.focus()}
+                        onValidDraftChange={(value) => {
+                          const nextStartLocal = localInputWithTime(
                             form.start_local,
                             value,
                             dateFromLocalInput(form.start_local),
-                          ),
-                          { defaultEndFromStart: true },
-                        )
-                      }
-                    />
-                    </div>
-                    <span className="whitespace-nowrap text-center text-slate-300">→</span>
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <div className="w-[4.75rem] min-w-0">
-                      <CompactTimeInput
-                        disabled={allDay}
-                        value={timeFromLocalInput(form.end_local)}
-                        ariaLabel="종료 시간"
-                        inputRef={endTimeInputRef}
-                        onCommit={() => startDateInputRef.current?.focus()}
-                        onValidDraftChange={(value) =>
+                          );
+                          setPreviewStartLocal(nextStartLocal);
                           setPreviewEndLocal(
-                            endLocalWithTimeAfterEndTimeChange(
-                              previewStartLocal ?? form.start_local,
+                            endLocalAfterStartChange(
+                              nextStartLocal,
                               form.end_local,
-                              value,
+                              form.start_local,
                             ),
-                          )
-                        }
+                          );
+                        }}
                         onChange={(value) =>
-                          updateEndLocal(
-                            value
-                              ? endLocalWithTimeAfterEndTimeChange(
-                                  form.start_local,
-                                  form.end_local,
-                                  value,
-                                )
-                              : "",
+                          updateStartLocal(
+                            localInputWithTime(
+                              form.start_local,
+                              value,
+                              dateFromLocalInput(form.start_local),
+                            ),
+                            { defaultEndFromStart: true },
                           )
                         }
                       />
                     </div>
-                    {formDurationLabel && (
-                      <span className="block min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-xs font-normal text-slate-400 opacity-80">
-                        {formDurationLabel}
-                      </span>
-                    )}
+                    <span className="whitespace-nowrap text-center text-slate-300">
+                      →
+                    </span>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <div className="w-[4.75rem] min-w-0">
+                        <CompactTimeInput
+                          disabled={allDay}
+                          value={timeFromLocalInput(form.end_local)}
+                          ariaLabel="종료 시간"
+                          inputRef={endTimeInputRef}
+                          onValidDraftChange={(value) =>
+                            setPreviewEndLocal(
+                              endLocalWithTimeAfterEndTimeChange(
+                                previewStartLocal ?? form.start_local,
+                                form.end_local,
+                                value,
+                              ),
+                            )
+                          }
+                          onChange={(value) =>
+                            updateEndLocal(
+                              value
+                                ? endLocalWithTimeAfterEndTimeChange(
+                                    form.start_local,
+                                    form.end_local,
+                                    value,
+                                  )
+                                : "",
+                            )
+                          }
+                        />
+                      </div>
+                      {formDurationLabel && (
+                        <span className="block min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-xs font-normal text-slate-400 opacity-80">
+                          {formDurationLabel}
+                        </span>
+                      )}
                     </div>
                   </div>
-                  ) : null}
+                ) : null}
 
-                  {false && (
-                    <div className="hidden">
+                {false && (
+                  <div className="hidden">
                     <div className="mt-2 flex max-w-full justify-start">
                       <CompactDateInput
                         required
@@ -4878,68 +6478,79 @@ function ScheduleFormPanel({
                       />
                     </div>
                   </div>
-                  )}
-                  <div
-                    className="mt-2 grid max-w-full grid-cols-[1.5rem_7.25rem_1.1rem_minmax(0,1fr)] items-center gap-1.5"
-                    title={formDateRangeLabel}
+                )}
+                <div
+                  className="mt-2 grid max-w-full grid-cols-[1.5rem_7.25rem_1.1rem_minmax(0,1fr)] items-center gap-1.5"
+                  title={formDateRangeLabel}
+                >
+                  <span
+                    className={
+                      allDay
+                        ? "flex h-9 items-center justify-center text-slate-400"
+                        : "invisible h-9"
+                    }
                   >
-                      <span
-                        className={
-                          allDay
-                            ? "flex h-9 items-center justify-center text-slate-400"
-                            : "invisible h-9"
-                        }
-                      >
-                        {allDay ? <CalendarDays className="h-4 w-4" /> : "날짜"}
-                      </span>
-                      <CompactDateInput
-                        required
-                        value={formStartDateKey}
-                        ariaLabel="시작 날짜"
-                        inputRef={startDateInputRef}
-                        className="w-[7.25rem]"
-                        onCommit={() => {
-                          window.requestAnimationFrame(() =>
-                            endDateInputRef.current?.focus(),
-                          );
-                        }}
-                        onChange={handleStartDateChange}
-                      />
-                      <span className="whitespace-nowrap text-center text-slate-300">→</span>
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <CompactDateInput
-                          value={formEndDateKey}
-                          ariaLabel="종료 날짜"
-                          inputRef={endDateInputRef}
-                          className="w-[7.25rem]"
-                          onChange={(value) =>
-                            updateEndLocal(
-                              localInputWithDate(
-                                form.end_local || form.start_local,
-                                value,
-                                timeFromLocalInput(form.end_local) ||
-                                  timeFromLocalInput(form.start_local) ||
-                                  "10:00",
-                              ),
-                            )
-                          }
-                        />
-                      </div>
+                    {allDay ? <CalendarDays className="h-4 w-4" /> : "날짜"}
+                  </span>
+                  <CompactDateInput
+                    required
+                    value={formStartDateKey}
+                    ariaLabel="시작 날짜"
+                    inputRef={startDateInputRef}
+                    className="w-[7.25rem]"
+                    onCommit={() => {
+                      window.requestAnimationFrame(() =>
+                        endDateInputRef.current?.focus(),
+                      );
+                    }}
+                    onChange={handleStartDateChange}
+                  />
+                  <span className="whitespace-nowrap text-center text-slate-300">
+                    →
+                  </span>
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <CompactDateInput
+                      value={formEndDateKey}
+                      ariaLabel="종료 날짜"
+                      inputRef={endDateInputRef}
+                      className="w-[7.25rem]"
+                      onChange={(value) =>
+                        updateEndLocal(
+                          localInputWithDate(
+                            form.end_local || form.start_local,
+                            value,
+                            timeFromLocalInput(form.end_local) ||
+                              timeFromLocalInput(form.start_local) ||
+                              "10:00",
+                          ),
+                        )
+                      }
+                    />
                   </div>
-                  <div className="mt-3 space-y-2">
-                    <div className="px-1">
-                      {renderAllDayControl(
-                        `inline-flex h-8 shrink-0 items-center gap-2 rounded-md px-2 text-sm font-semibold transition ${
-                          allDay
-                            ? "bg-blue-50 text-blue-700 ring-1 ring-blue-100"
+                </div>
+                <div className="mt-3 space-y-2">
+                  <div className="flex flex-wrap gap-2 px-1">
+                    {renderAllDayControl(
+                      `inline-flex h-8 shrink-0 items-center gap-2 rounded-md px-2 text-xs font-medium transition ${
+                        allDay
+                          ? "bg-blue-50 text-blue-700 ring-1 ring-blue-100"
+                          : "text-slate-700 hover:bg-slate-50"
+                      }`,
+                    )}
+                    {!isCompanyScheduleDraft &&
+                      renderRepeatEnabledControl(
+                        `inline-flex h-8 shrink-0 items-center gap-2 rounded-md px-2 text-xs font-medium transition ${
+                          repeatEnabled
+                            ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"
                             : "text-slate-700 hover:bg-slate-50"
                         }`,
                       )}
-                    </div>
+                  </div>
 
+                  {repeatEnabled && !isCompanyScheduleDraft ? (
                     <div className="space-y-1">
                       <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-center gap-2">
-                        <div className={settingsRowLabelClass}>반복</div>
+                        <div className={settingsRowLabelClass}>반복 주기</div>
                         {renderRepeatTypeControl(
                           `${settingsRowButtonClass} ${
                             repeatTypeOpen
@@ -4962,24 +6573,248 @@ function ScheduleFormPanel({
                           }`,
                         )}
                       </div>
+
+                      {showRepeatHolidayControl ? (
+                        <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-2">
+                          <div
+                            className={`${settingsRowLabelClass} whitespace-nowrap pt-2.5`}
+                          >
+                            공휴일에도 반복
+                          </div>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={includeHolidayRepeats}
+                            onClick={() =>
+                              setIncludeHolidayRepeats((current) => !current)
+                            }
+                            className="flex min-h-9 w-full items-start justify-between gap-3 rounded-md px-2.5 py-1.5 text-left outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-emerald-100"
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate text-xs font-medium text-slate-900">
+                                {includeHolidayRepeats ? "켬" : "끔"}
+                              </span>
+                              <span className="mt-0.5 block text-xs font-medium text-slate-500">
+                                공휴일 {repeatHolidayCount}개{" "}
+                                {includeHolidayRepeats ? "포함" : "제외"}
+                              </span>
+                            </span>
+                            <span
+                              aria-hidden="true"
+                              className={`mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition ${
+                                includeHolidayRepeats
+                                  ? "bg-emerald-500"
+                                  : "bg-slate-200"
+                              }`}
+                            >
+                              <span
+                                className={`h-4 w-4 rounded-full bg-white shadow-sm transition ${
+                                  includeHolidayRepeats
+                                    ? "translate-x-4"
+                                    : "translate-x-0"
+                                }`}
+                              />
+                            </span>
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  <div className="space-y-2 border-t border-slate-200/70 pt-2">
+                    <div
+                      className={`grid grid-cols-2 gap-2 ${compactFieldGroupClass}`}
+                    >
+                      <div className="min-w-0">
+                        <CustomSelect
+                          ariaLabel="유형"
+                          triggerLabel={scheduleTypeTriggerLabel}
+                          triggerColorDot={scheduleTypeTriggerColorDot}
+                          triggerIcon={
+                            <Shapes className="h-4 w-4" aria-hidden="true" />
+                          }
+                          value={form.schedule_type}
+                          options={scheduleTypeSelectOptions}
+                          className={compactSelectClass}
+                          side="right"
+                          sideOffset={10}
+                          floatingBoundary="panel"
+                          menuTone="dark"
+                          contentClassName="schedule-basic-options-select-menu z-[160]"
+                          onPreviewChange={(value) =>
+                            updateSelectPreview("schedule_type", value)
+                          }
+                          onChange={(value) => {
+                            markSelectDisplayTouched("schedule_type");
+                            setForm({
+                              ...form,
+                              schedule_type: value,
+                            });
+                          }}
+                        />
+                      </div>
+
+                      <div className="min-w-0">
+                        <CustomSelect
+                          ariaLabel="중요도"
+                          triggerLabel={priorityTriggerLabel}
+                          triggerColorDot={priorityTriggerColorDot}
+                          triggerIcon={
+                            <Flag className="h-4 w-4" aria-hidden="true" />
+                          }
+                          value={form.priority}
+                          options={prioritySelectOptions}
+                          className={compactSelectClass}
+                          side="right"
+                          sideOffset={10}
+                          floatingBoundary="panel"
+                          menuTone="dark"
+                          contentClassName="schedule-basic-options-select-menu z-[160]"
+                          onPreviewChange={(value) =>
+                            updateSelectPreview("priority", value)
+                          }
+                          onChange={(value) => {
+                            markSelectDisplayTouched("priority");
+                            setForm({
+                              ...form,
+                              priority: value,
+                            });
+                          }}
+                        />
+                      </div>
                     </div>
 
-                    <div className="border-t border-slate-100 pt-2">
-                      <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-center gap-2">
-                        <div className={settingsRowLabelClass}>기본 옵션</div>
-                        {renderBasicOptionsControl(
-                          `${settingsRowButtonClass} ${
-                            basicOptionsOpen
-                              ? "border-emerald-200 bg-white text-slate-900 shadow-sm shadow-emerald-100/70"
-                              : "text-slate-700 hover:bg-slate-50"
-                          }`,
-                          { showIcon: false, valueOnly: true },
-                        )}
+                    <div className={compactFieldGroupClass}>
+                      <CustomSelect
+                        ariaLabel="카테고리"
+                        triggerLabel={categoryTriggerLabel}
+                        triggerColorDot={categoryTriggerColorDot}
+                        triggerIcon={
+                          <Tag className="h-4 w-4" aria-hidden="true" />
+                        }
+                        value={form.category_id}
+                        options={categorySelectOptions}
+                        disabled={scheduleCategoriesLoading}
+                        placeholder="카테고리 없음"
+                        className={compactSelectClass}
+                        side="right"
+                        sideOffset={10}
+                        floatingBoundary="panel"
+                        menuTone="dark"
+                        contentClassName="schedule-basic-options-select-menu z-[160]"
+                        onPreviewChange={(value) =>
+                          updateSelectPreview("category_id", value)
+                        }
+                        onChange={(value) => {
+                          markSelectDisplayTouched("category_id");
+                          setForm({ ...form, category_id: value });
+                        }}
+                      />
+                    </div>
+
+                    {mode === "create"
+                      ? isCompanyScheduleDraft
+                        ? renderCompanyAttendeeControl()
+                        : renderPersonalAttendeeControl()
+                      : null}
+
+                    <label className={`block ${compactFieldGroupClass}`}>
+                      <div className={compactFieldFrameClass}>
+                        <div className="flex min-w-0 items-center gap-2.5">
+                          <MapPin className="h-4 w-4 shrink-0 text-slate-400" />
+                          <input
+                            type="text"
+                            value={form.location}
+                            onChange={(event) =>
+                              setForm({
+                                ...form,
+                                location: event.target.value,
+                              })
+                            }
+                            placeholder="장소"
+                            className={compactInnerInputClass}
+                          />
+                        </div>
+                      </div>
+                    </label>
+
+                    <label className={`block ${compactFieldGroupClass}`}>
+                      <div className={compactFieldFrameClass}>
+                        <textarea
+                          ref={descriptionTextareaRef}
+                          rows={descriptionExpanded ? 3 : 1}
+                          value={form.description}
+                          onFocus={() => setDescriptionExpanded(true)}
+                          onChange={(event) => {
+                            setForm({
+                              ...form,
+                              description: event.target.value,
+                            });
+                            syncDescriptionTextareaHeight(event.currentTarget);
+                          }}
+                          placeholder="설명"
+                          className={`w-full bg-transparent font-medium text-slate-900 outline-none transition-[height,min-height,padding] duration-150 placeholder:text-slate-400 ${
+                            descriptionExpanded
+                              ? "min-h-[4.5rem] resize-none overflow-hidden py-2 text-sm leading-6"
+                              : "h-9 min-h-9 resize-none overflow-hidden py-0 text-xs leading-9"
+                          }`}
+                        />
+                      </div>
+                    </label>
+
+                    <div className={compactFieldGroupClass}>
+                      <div className={settingsRowLabelClass}>공개 범위</div>
+                      <div className="relative mt-1">
+                        <div
+                          role="radiogroup"
+                          aria-label="공개 범위"
+                          aria-disabled="true"
+                          aria-hidden="true"
+                          className="grid grid-cols-3 gap-1 rounded-md border border-slate-200 bg-white p-1"
+                        >
+                          {scheduleVisibilityScopeOptions.map((option) => {
+                            const Icon = option.icon;
+                            const selected = option.value === form.visibility;
+
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                role="radio"
+                                aria-checked={selected}
+                                disabled
+                                onClick={() => {
+                                  if (option.value === "private") {
+                                    setForm({
+                                      ...form,
+                                      visibility: option.value,
+                                    });
+                                  }
+                                }}
+                                className={`inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded px-2 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-100 disabled:cursor-not-allowed disabled:text-slate-400 ${
+                                  selected
+                                    ? "bg-emerald-50 text-emerald-700 shadow-sm ring-1 ring-emerald-100"
+                                    : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 disabled:hover:bg-transparent"
+                                }`}
+                              >
+                                <Icon className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">{option.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div
+                          role="status"
+                          className="absolute inset-0 z-10 flex items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 text-xs font-semibold text-slate-500 shadow-inner"
+                        >
+                          현재 개발중...
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
+            </div>
 
             {mode === "edit" && (isRepeatMode || isSelectedDatesMode) ? (
               <div className="border-t border-slate-200/70 px-1 pt-3">
@@ -4992,7 +6827,7 @@ function ScheduleFormPanel({
                       ? targetDateKeys.length === 0
                       : targetDateKeys.length <= 1)
                   }
-                  className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-emerald-600 px-3 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isPending
                     ? "반복 일정 생성 중..."
@@ -5021,7 +6856,7 @@ function ScheduleFormPanel({
               type="button"
               onClick={handleDelete}
               disabled={deletePending}
-              className="rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-60"
+              className="rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-60"
             >
               {deletePending ? "삭제 중..." : "삭제"}
             </button>
@@ -5040,42 +6875,39 @@ function ScheduleFormPanel({
                 }`}
               >
                 {autoSaveState === "saving"
-                  ? "자동 저장 중..."
+                  ? "미리보기 중"
                   : autoSaveState === "error"
-                    ? "자동 저장 실패"
+                    ? "저장 실패"
                     : autoSaveState === "saved"
-                      ? "자동 저장됨"
-                      : "변경 시 자동 저장"}
+                      ? "저장됨"
+                      : "저장 전 미리보기"}
               </span>
             ) : null}
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
             >
               닫기
             </button>
-            {mode !== "edit" ? (
-              <button
-                type="submit"
-                disabled={isPending}
-                onClick={(event) => {
-                  const formEl = event.currentTarget
-                    .closest("aside")
-                    ?.querySelector("form");
-                  formEl?.requestSubmit();
-                }}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60"
-              >
-                {isPending ? "저장 중..." : "추가"}
-              </button>
-            ) : null}
+            <button
+              type="submit"
+              disabled={isPending}
+              onClick={(event) => {
+                const formEl = event.currentTarget
+                  .closest("aside")
+                  ?.querySelector("form");
+                formEl?.requestSubmit();
+              }}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {isPending ? "저장 중..." : mode === "edit" ? "저장" : "추가"}
+            </button>
           </div>
         </div>
       </aside>
       {renderRepeatTypePopover()}
       {renderRepeatEndPopover()}
-      {renderBasicOptionsPopover()}
       {renderCustomRepeatPopover()}
       {renderSelectedDatesPopover()}
     </>
@@ -5086,6 +6918,7 @@ function MiniCalendar({
   visibleMonth,
   selectedKey,
   dateMeta,
+  holidaysByDate,
   weekDates,
   onMoveMonth,
   onResetMonth,
@@ -5094,6 +6927,7 @@ function MiniCalendar({
   visibleMonth: Date;
   selectedKey: string;
   dateMeta: Map<string, DayMeta>;
+  holidaysByDate: Map<string, Holiday[]>;
   weekDates: Date[];
   onMoveMonth: (offset: number) => void;
   onResetMonth: () => void;
@@ -5186,44 +7020,45 @@ function MiniCalendar({
         </div>
         <div className="mt-2 grid grid-cols-7 gap-y-1 overflow-hidden rounded-xl text-center">
           {compactCells.map(({ date: day, currentMonth }, index) => {
-              const key = toDateKey(day);
-              const selected = key === selectedKey;
-              const meta = dateMeta.get(key);
-              const today = isToday(day);
-              const selectedWeek = selectedWeekSet.has(key);
-              const column = index % 7;
+            const key = toDateKey(day);
+            const selected = key === selectedKey;
+            const meta = dateMeta.get(key);
+            const today = isToday(day);
+            const isHoliday = (holidaysByDate.get(key)?.length ?? 0) > 0;
+            const selectedWeek = selectedWeekSet.has(key);
+            const column = index % 7;
 
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => onSelectDate(day)}
-                  className={`relative flex h-8 items-center justify-center text-xs font-semibold leading-none transition ${
-                    selectedWeek && !selected && column === 0
-                      ? "rounded-l-xl"
-                      : ""
-                  } ${
-                    selectedWeek && !selected && column === 6
-                      ? "rounded-r-xl"
-                      : ""
-                  } ${
-                    selectedWeek && !selected ? "bg-slate-100" : ""
-                  } ${
-                    selected
-                      ? "z-10 rounded-lg !bg-red-500 !text-white shadow-sm"
-                      : currentMonth
-                        ? today
-                          ? "rounded-lg !bg-red-500 !text-white shadow-sm"
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => onSelectDate(day)}
+                className={`relative flex h-8 items-center justify-center text-xs font-semibold leading-none transition ${
+                  selectedWeek && !selected && column === 0
+                    ? "rounded-l-xl"
+                    : ""
+                } ${
+                  selectedWeek && !selected && column === 6
+                    ? "rounded-r-xl"
+                    : ""
+                } ${selectedWeek && !selected ? "bg-slate-100" : ""} ${
+                  selected
+                    ? "z-10 rounded-lg !bg-red-500 !text-white shadow-sm"
+                    : currentMonth
+                      ? today
+                        ? "rounded-lg !bg-red-500 !text-white shadow-sm"
+                        : isHoliday
+                          ? "rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700"
                           : "text-slate-700 hover:bg-slate-100 hover:text-slate-950"
-                        : "text-slate-300 hover:bg-slate-100 hover:text-slate-500"
-                  }`}
-                  aria-label={`${formatCompactDate(day)} schedule count ${meta?.count ?? 0}`}
-                >
-                  {day.getDate()}
-                  {currentMonth ? renderMarker(meta, selected) : null}
-                </button>
-              );
-            })}
+                      : "text-slate-300 hover:bg-slate-100 hover:text-slate-500"
+                }`}
+                aria-label={`${formatCompactDate(day)} schedule count ${meta?.count ?? 0}`}
+              >
+                {day.getDate()}
+                {currentMonth ? renderMarker(meta, selected) : null}
+              </button>
+            );
+          })}
         </div>
       </div>
     </aside>
@@ -5254,24 +7089,27 @@ function TimelineItem({
   const category = categories.find(
     (c) => c.category_id === schedule.category_id,
   );
-  const readOnly = isCompanySchedule(schedule);
-  const accentColor =
-    (readOnly ? companyScheduleAccent : category?.color) ??
-    (schedule.schedule_type === "deadline" ? "#f43f5e" : "#10b981");
+  const preview = isPreviewSchedule(schedule);
+  const company = isCompanySchedule(schedule);
+  const readOnly = company || preview;
+  const accentColor = scheduleAccentColor(schedule);
+  const cardColor =
+    (company ? companyScheduleAccent : category?.color) ?? fallbackCategoryColor;
 
   return (
     <li
       id={`schedule-${schedule.schedule_id}`}
-      onClick={
-        readOnly ? (event) => onEdit(event.currentTarget) : undefined
-      }
+      onClick={company ? (event) => onEdit(event.currentTarget) : undefined}
       className={`group relative overflow-hidden rounded-lg border bg-white p-4 shadow-sm shadow-slate-200/60 transition hover:border-emerald-200 hover:shadow-md ${
-        readOnly ? "cursor-pointer" : ""
+        company ? "cursor-pointer" : ""
       } ${
         highlighted
           ? "border-emerald-300 ring-2 ring-emerald-100"
-          : "border-slate-200"
+          : preview
+            ? "border-dashed border-emerald-300"
+            : "border-slate-200"
       }`}
+      style={{ backgroundColor: colorWithAlpha(cardColor, "10") }}
     >
       <span
         className="absolute inset-y-0 left-0 w-1"
@@ -5309,9 +7147,10 @@ function TimelineItem({
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <PriorityDot schedule={schedule} />
             <h3
-              className={`truncate text-sm font-semibold ${
+              className={`min-w-[10rem] max-w-full flex-1 truncate text-sm font-semibold ${
                 schedule.is_completed
                   ? "text-slate-400 line-through"
                   : "text-slate-950"
@@ -5324,44 +7163,52 @@ function TimelineItem({
                 완료
               </span>
             )}
-            {readOnly && (
-              <span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
-                회사
+            <span
+              className={`rounded-md border px-2 py-0.5 text-[11px] font-medium ${
+                company
+                  ? "border-blue-200 bg-blue-50 text-blue-700"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-700"
+              }`}
+            >
+              {company ? "회사" : "개인"}
+            </span>
+            {preview && (
+              <span
+                className={`rounded-md border px-2 py-0.5 text-[11px] font-medium ${
+                  preview
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-blue-200 bg-blue-50 text-blue-700"
+                }`}
+              >
+                {preview ? "미리보기" : "회사"}
               </span>
             )}
-            {schedule.company?.name && (
+            {company && schedule.company?.name && (
               <span className="rounded-md border border-blue-100 bg-blue-50/70 px-2 py-0.5 text-[11px] text-blue-700">
                 {schedule.company.name}
               </span>
             )}
-            <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
+          </div>
+
+          <ListCardMeta className="mt-2">
+            <TypeMetaChip>
               {getClassificationLabel(
                 classificationSettings,
                 "scheduleTypes",
                 schedule.schedule_type,
               )}
-            </span>
+            </TypeMetaChip>
             {schedule.priority && (
-              <span
-                className={`rounded-md border px-2 py-0.5 text-[11px] font-medium ${
-                  taskPriorityBadge[schedule.priority] ??
-                  taskPriorityBadge.medium
-                }`}
-              >
+              <PriorityMetaChip priority={schedule.priority}>
                 {getClassificationLabel(
                   classificationSettings,
                   "taskPriorities",
                   schedule.priority,
                 )}
-              </span>
+              </PriorityMetaChip>
             )}
-            {category && (
-              <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
-                <CategoryDot color={category.color} />
-                {category.name}
-              </span>
-            )}
-          </div>
+            {category && <CategoryMetaChip category={category} />}
+          </ListCardMeta>
 
           {(schedule.location || schedule.description) && (
             <div className="mt-2 space-y-1 text-xs text-slate-500">
@@ -5382,7 +7229,7 @@ function TimelineItem({
 
         {readOnly ? (
           <span className="shrink-0 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-500">
-            조회 전용
+            {preview ? "저장 전" : "조회 전용"}
           </span>
         ) : (
           <div className="flex shrink-0 gap-1">
@@ -5415,13 +7262,11 @@ function ScheduleReadonlyPanel({
   onClose,
   floatingStyle,
   panelLayout,
-  onTogglePanelLayout,
 }: {
   schedule: Schedule;
   onClose: () => void;
   floatingStyle: SchedulePanelFloatingStyle;
   panelLayout: SchedulePanelLayout;
-  onTogglePanelLayout: () => void;
 }) {
   const classificationSettings = useClassificationSettings();
   const { start, end } = scheduleDateRange(schedule);
@@ -5438,7 +7283,7 @@ function ScheduleReadonlyPanel({
   return (
     <>
       <div
-        className="fixed inset-0 z-40 bg-zinc-950/20 xl:hidden"
+        className="fixed inset-0 z-40 bg-zinc-950/20 md:hidden"
         onClick={onClose}
         aria-hidden
       />
@@ -5446,86 +7291,448 @@ function ScheduleReadonlyPanel({
         style={floatingStyle}
         className={getSchedulePanelClassName(panelLayout)}
       >
-      <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold text-blue-700">회사 일정</p>
-          <h2 className="mt-1 truncate text-base font-semibold text-slate-950">
-            {schedule.title}
-          </h2>
+        <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-5">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-blue-700">회사 일정</p>
+            <h2 className="mt-1 truncate text-base font-semibold text-slate-950">
+              {schedule.title}
+            </h2>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="일정 패널 닫기"
+              title="일정 패널 닫기"
+              className={`order-2 ${scheduleSidebarToggleButtonClass}`}
+            >
+              <PanelRight className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Edit"
+              className="order-1 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+
+        <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
+          <dl className="space-y-4 text-sm">
+            <div>
+              <dt className="text-xs font-medium text-slate-500">회사</dt>
+              <dd className="mt-1 font-medium text-slate-900">
+                {schedule.company?.name ?? "회사 일정"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-slate-500">
+                날짜와 시간
+              </dt>
+              <dd className="mt-1 text-slate-900">
+                {dateLabel}
+                <span className="ml-2 rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                  {timeLabel}
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-slate-500">Type</dt>
+              <dd className="mt-1 text-slate-900">
+                {getClassificationLabel(
+                  classificationSettings,
+                  "scheduleTypes",
+                  schedule.schedule_type,
+                )}
+              </dd>
+            </div>
+            {schedule.location && (
+              <div>
+                <dt className="text-xs font-medium text-slate-500">장소</dt>
+                <dd className="mt-1 flex items-center gap-1 text-slate-900">
+                  <MapPin className="h-4 w-4 text-slate-400" />
+                  {schedule.location}
+                </dd>
+              </div>
+            )}
+            {schedule.description && (
+              <div>
+                <dt className="text-xs font-medium text-slate-500">설명</dt>
+                <dd className="mt-1 whitespace-pre-wrap leading-6 text-slate-700">
+                  {schedule.description}
+                </dd>
+              </div>
+            )}
+          </dl>
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function CompanyScheduleFormPanel({
+  initial,
+  companyName,
+  isPending,
+  onClose,
+  onSubmit,
+  floatingStyle,
+  panelLayout,
+}: {
+  initial: ScheduleFormState;
+  companyName?: string;
+  isPending?: boolean;
+  onClose: () => void;
+  onSubmit: (payload: CreateCompanyScheduleRequest) => Promise<void> | void;
+  floatingStyle: SchedulePanelFloatingStyle;
+  panelLayout: SchedulePanelLayout;
+}) {
+  const [form, setForm] = useState(initial);
+  const [targetType, setTargetType] =
+    useState<CompanyScheduleTargetType>("company");
+  const [departmentId, setDepartmentId] = useState("");
+  const [memberId, setMemberId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const classificationSettings = useClassificationSettings();
+  const departmentsQuery = useCompanyAdminDepartments(
+    targetType === "department",
+  );
+  const membersQuery = useCompanyAdminMembers(targetType === "member");
+  const scheduleTypeOptions = getClassificationOptions(
+    classificationSettings,
+    "scheduleTypes",
+    { enabledOnly: true, include: form.schedule_type, defaultOnly: true },
+  );
+
+  useEffect(() => {
+    setForm(initial);
+    setTargetType("company");
+    setDepartmentId("");
+    setMemberId("");
+    setError(null);
+  }, [initial]);
+
+  const buildTarget = (): CompanyScheduleCreateTarget | null => {
+    if (targetType === "company") return { target_type: "company" };
+
+    if (targetType === "department") {
+      const numericDepartmentId = Number(departmentId);
+      return Number.isFinite(numericDepartmentId) && numericDepartmentId > 0
+        ? {
+            target_type: "department",
+            department_id: numericDepartmentId,
+          }
+        : null;
+    }
+
+    const numericMemberId = Number(memberId);
+    return Number.isFinite(numericMemberId) && numericMemberId > 0
+      ? {
+          target_type: "member",
+          company_member_id: numericMemberId,
+        }
+      : null;
+  };
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    setError(null);
+
+    const validationError = validateForm(form);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    const target = buildTarget();
+    if (!target) {
+      setError("회사 일정 대상을 선택해 주세요.");
+      return;
+    }
+
+    try {
+      await onSubmit({
+        title: normalizeScheduleTitle(form.title),
+        description: form.description.trim() || undefined,
+        schedule_type: form.schedule_type,
+        start_datetime: fromLocalInputValue(form.start_local),
+        end_datetime: form.end_local
+          ? fromLocalInputValue(form.end_local)
+          : undefined,
+        all_day: form.all_day,
+        location: form.location.trim() || undefined,
+        status: "active",
+        targets: [target],
+      });
+    } catch (err) {
+      setError(getErrorMessage(err, "회사 일정 추가에 실패했습니다."));
+    }
+  };
+
+  const renderDepartmentLabel = (department: CompanyAdminDepartment) =>
+    `${department.name}${department.code ? ` (${department.code})` : ""}`;
+
+  const renderMemberLabel = (member: CompanyAdminMember) =>
+    `${member.name} · ${member.email}`;
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-40 bg-zinc-950/20 md:hidden"
+        onClick={onClose}
+        aria-hidden
+      />
+      <aside
+        style={floatingStyle}
+        className={getSchedulePanelClassName(panelLayout)}
+      >
+        <div className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-5">
+          <div className="min-w-0">
+            <p className="truncate text-xs font-semibold text-blue-700">
+              {companyName ?? "회사"}
+            </p>
+            <h2 className="mt-1 text-base font-semibold text-slate-950">
+              회사 일정 추가
+            </h2>
+          </div>
           <button
             type="button"
-            onClick={onTogglePanelLayout}
-            aria-label={
-              panelLayout === "docked" ? "Undock panel" : "Dock panel"
-            }
-            title={panelLayout === "docked" ? "Undock panel" : "Dock panel"}
-            className="hidden h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 xl:inline-flex"
+            onClick={onClose}
+            aria-label="회사 일정 패널 닫기"
+            title="회사 일정 패널 닫기"
+            className={scheduleSidebarToggleButtonClass}
           >
-            {panelLayout === "docked" ? (
-              <PanelLeftOpen className="h-4 w-4" />
-            ) : (
-              <PanelLeftClose className="h-4 w-4" />
-            )}
+            <PanelRight className="h-4 w-4" />
           </button>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Edit"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
-        >
-          <X className="h-4 w-4" />
-        </button>
         </div>
-      </div>
 
-      <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
-        <dl className="space-y-4 text-sm">
-          <div>
-            <dt className="text-xs font-medium text-slate-500">회사</dt>
-            <dd className="mt-1 font-medium text-slate-900">
-              {schedule.company?.name ?? "회사 일정"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium text-slate-500">날짜와 시간</dt>
-            <dd className="mt-1 text-slate-900">
-              {dateLabel}
-              <span className="ml-2 rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
-                {timeLabel}
-              </span>
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium text-slate-500">Type</dt>
-            <dd className="mt-1 text-slate-900">
-              {getClassificationLabel(
-                classificationSettings,
-                "scheduleTypes",
-                schedule.schedule_type,
+        <form
+          onSubmit={handleSubmit}
+          className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-slate-50/70 p-4"
+        >
+          {error ? (
+            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+              {error}
+            </p>
+          ) : null}
+
+          <label className="block">
+            <span className="px-1 text-xs font-semibold text-slate-500">
+              제목
+            </span>
+            <input
+              type="text"
+              value={form.title}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, title: event.target.value }))
+              }
+              className="mt-1 h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+              placeholder="회사 일정 제목"
+            />
+          </label>
+
+          <label className="block">
+            <span className="px-1 text-xs font-semibold text-slate-500">
+              대상
+            </span>
+            <div className="mt-1 grid grid-cols-[120px_minmax(0,1fr)] gap-2">
+              <select
+                value={targetType}
+                onChange={(event) => {
+                  setTargetType(
+                    event.target.value as CompanyScheduleTargetType,
+                  );
+                  setDepartmentId("");
+                  setMemberId("");
+                }}
+                className="h-10 rounded-md border border-slate-200 bg-white px-2 text-sm font-medium text-slate-900 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+              >
+                {companyScheduleTargetTypeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
+              {targetType === "company" ? (
+                <div className="flex h-10 min-w-0 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700">
+                  <span className="truncate">{companyName ?? "회사 전체"}</span>
+                </div>
+              ) : targetType === "department" ? (
+                <select
+                  value={departmentId}
+                  disabled={departmentsQuery.isLoading}
+                  onChange={(event) => setDepartmentId(event.target.value)}
+                  className="h-10 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-sm font-medium text-slate-900 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100 disabled:text-slate-400"
+                >
+                  <option value="">
+                    {departmentsQuery.isLoading
+                      ? "부서 불러오는 중"
+                      : "부서 선택"}
+                  </option>
+                  {(departmentsQuery.data ?? []).map((department) => (
+                    <option
+                      key={department.department_id}
+                      value={department.department_id}
+                    >
+                      {renderDepartmentLabel(department)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <select
+                  value={memberId}
+                  disabled={membersQuery.isLoading}
+                  onChange={(event) => setMemberId(event.target.value)}
+                  className="h-10 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-sm font-medium text-slate-900 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100 disabled:text-slate-400"
+                >
+                  <option value="">
+                    {membersQuery.isLoading ? "팀원 불러오는 중" : "팀원 선택"}
+                  </option>
+                  {(membersQuery.data ?? []).map((member) => (
+                    <option
+                      key={member.company_member_id}
+                      value={member.company_member_id}
+                    >
+                      {renderMemberLabel(member)}
+                    </option>
+                  ))}
+                </select>
               )}
-            </dd>
+            </div>
+          </label>
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="px-1 text-xs font-semibold text-slate-500">
+                유형
+              </span>
+              <select
+                value={form.schedule_type}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    schedule_type: event.target.value as ScheduleType,
+                  }))
+                }
+                className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-sm font-medium text-slate-900 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+              >
+                {scheduleTypeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {scheduleTypeSelectMeta[option.value]?.label ??
+                      option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex items-end">
+              <span className="flex h-10 w-full items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={form.all_day}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      all_day: event.target.checked,
+                    }))
+                  }
+                  className="h-4 w-4 accent-emerald-600"
+                />
+                종일
+              </span>
+            </label>
           </div>
-          {schedule.location && (
-            <div>
-              <dt className="text-xs font-medium text-slate-500">장소</dt>
-              <dd className="mt-1 flex items-center gap-1 text-slate-900">
-                <MapPin className="h-4 w-4 text-slate-400" />
-                {schedule.location}
-              </dd>
-            </div>
-          )}
-          {schedule.description && (
-            <div>
-              <dt className="text-xs font-medium text-slate-500">설명</dt>
-              <dd className="mt-1 whitespace-pre-wrap leading-6 text-slate-700">
-                {schedule.description}
-              </dd>
-            </div>
-          )}
-        </dl>
-      </div>
+
+          <div className="grid grid-cols-1 gap-2">
+            <label className="block">
+              <span className="px-1 text-xs font-semibold text-slate-500">
+                시작
+              </span>
+              <input
+                type="datetime-local"
+                required
+                value={form.start_local}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    start_local: event.target.value,
+                  }))
+                }
+                className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+              />
+            </label>
+
+            <label className="block">
+              <span className="px-1 text-xs font-semibold text-slate-500">
+                종료
+              </span>
+              <input
+                type="datetime-local"
+                required
+                value={form.end_local}
+                onChange={(event) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    end_local: event.target.value,
+                  }))
+                }
+                className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+              />
+            </label>
+          </div>
+
+          <label className="block">
+            <span className="px-1 text-xs font-semibold text-slate-500">
+              장소
+            </span>
+            <input
+              type="text"
+              value={form.location}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, location: event.target.value }))
+              }
+              className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+              placeholder="Zoom, 회의실 등"
+            />
+          </label>
+
+          <label className="block">
+            <span className="px-1 text-xs font-semibold text-slate-500">
+              설명
+            </span>
+            <textarea
+              value={form.description}
+              onChange={(event) =>
+                setForm((prev) => ({
+                  ...prev,
+                  description: event.target.value,
+                }))
+              }
+              rows={4}
+              className="mt-1 w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+            />
+          </label>
+
+          <div className="flex items-center justify-end gap-2 border-t border-slate-200 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-10 items-center justify-center rounded-md px-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
+            >
+              취소
+            </button>
+            <button
+              type="submit"
+              disabled={isPending}
+              className="inline-flex h-10 items-center justify-center rounded-md bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isPending ? "추가 중" : "추가"}
+            </button>
+          </div>
+        </form>
       </aside>
     </>
   );
@@ -5542,7 +7749,9 @@ function SchedulePreviewButton({
   categoryColors: Map<number, string>;
   muted?: boolean;
 }) {
-  const color = scheduleAccentColor(schedule, categoryColors);
+  const accentColor = scheduleAccentColor(schedule);
+  const cardColor = scheduleCardColor(schedule, categoryColors);
+  const preview = isPreviewSchedule(schedule);
 
   return (
     <button
@@ -5553,24 +7762,284 @@ function SchedulePreviewButton({
       }}
       className={`flex min-h-6 w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-left text-xs transition hover:brightness-95 hover:ring-1 hover:ring-emerald-200 ${
         schedule.is_completed ? "opacity-70" : ""
-      } ${muted ? "opacity-60" : ""}`}
+      } ${muted ? "opacity-60" : ""} ${preview ? "border border-dashed" : ""}`}
       style={{
-        backgroundColor: colorWithAlpha(color, "18"),
-        color,
-        boxShadow: `inset 3px 0 0 ${color}`,
+        backgroundColor: colorWithAlpha(cardColor, "18"),
+        borderColor: preview ? colorWithAlpha(cardColor, "80") : undefined,
+        color: accentColor,
+        boxShadow: `inset 3px 0 0 ${accentColor}`,
       }}
     >
       <span className="shrink-0 font-medium">
         {schedule.all_day ? "종일" : formatTime(schedule.start_datetime)}
       </span>
+      <PriorityDot schedule={schedule} />
       {isCompanySchedule(schedule) && (
         <span className="shrink-0 rounded bg-white/60 px-1 text-[10px] font-semibold">
           회사
         </span>
       )}
+      {preview && (
+        <span className="shrink-0 rounded bg-white/70 px-1 text-[10px] font-semibold">
+          미리보기
+        </span>
+      )}
+      {preview && <PreviewPriorityBadge schedule={schedule} />}
       <span className="truncate">{schedule.title}</span>
     </button>
   );
+}
+
+function HolidayMonthPreview({
+  holiday,
+  muted = false,
+  className = "",
+  style,
+}: {
+  holiday: Holiday;
+  muted?: boolean;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  return (
+    <div
+      className={`relative flex h-5 w-full min-w-0 items-center overflow-hidden rounded-md bg-rose-50 px-2 text-left text-[11px] font-semibold leading-5 text-rose-700 ${
+        muted ? "opacity-60" : ""
+      } ${className}`}
+      style={{
+        boxShadow: `inset 3px 0 0 ${holidayAccentColor}, 0 0 0 1px rgba(225,29,72,0.18)`,
+        ...style,
+      }}
+      aria-label={`공휴일 ${holiday.name}`}
+    >
+      <span className="truncate">{holiday.name}</span>
+    </div>
+  );
+}
+
+const monthScheduleTopOffset = 36;
+const monthScheduleLaneHeight = 24;
+const monthGridMinHeight = "36rem";
+const monthPreviewCardLimit = 2;
+
+interface MonthScheduleSegment {
+  schedule: Schedule;
+  rowIndex: number;
+  startIndex: number;
+  endIndex: number;
+  lane: number;
+  continuesBefore: boolean;
+  continuesAfter: boolean;
+}
+
+function layoutMonthScheduleSegments(
+  schedules: Schedule[],
+  cells: MonthCalendarCell[],
+  holidaysByDate: Map<string, Holiday[]>,
+): MonthScheduleSegment[] {
+  const rowCount = Math.max(1, Math.ceil(cells.length / 7));
+  const segmentsByRow = Array.from(
+    { length: rowCount },
+    () => [] as Array<Omit<MonthScheduleSegment, "lane">>,
+  );
+  const sortedSchedules = [...schedules].sort((first, second) => {
+    const firstRange = scheduleDateRange(first);
+    const secondRange = scheduleDateRange(second);
+    const startDelta = firstRange.start.getTime() - secondRange.start.getTime();
+    if (startDelta !== 0) return startDelta;
+
+    const firstDuration = firstRange.end.getTime() - firstRange.start.getTime();
+    const secondDuration =
+      secondRange.end.getTime() - secondRange.start.getTime();
+    if (firstDuration !== secondDuration) return secondDuration - firstDuration;
+
+    return first.schedule_id - second.schedule_id;
+  });
+
+  for (const schedule of sortedSchedules) {
+    const range = scheduleDateRange(schedule);
+
+    for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+      const rowStartIndex = rowIndex * 7;
+      const rowEndIndex = Math.min(rowStartIndex + 6, cells.length - 1);
+      let startIndex = -1;
+      let endIndex = -1;
+
+      for (let index = rowStartIndex; index <= rowEndIndex; index += 1) {
+        const cell = cells[index];
+        if (!cell || !dateRangeOverlapsDay(range.start, range.end, cell.date)) {
+          continue;
+        }
+
+        if (startIndex < 0) startIndex = index;
+        endIndex = index;
+      }
+
+      if (startIndex < 0 || endIndex < 0) continue;
+
+      const startCell = cells[startIndex];
+      const endCell = cells[endIndex];
+      const startBounds = dayBounds(startCell.date);
+      const endBounds = dayBounds(endCell.date);
+
+      segmentsByRow[rowIndex].push({
+        schedule,
+        rowIndex,
+        startIndex,
+        endIndex,
+        continuesBefore: range.start < startBounds.start,
+        continuesAfter: range.end > endBounds.end,
+      });
+    }
+  }
+
+  const preferredLaneByScheduleId = new Map<number, number>();
+  const result: MonthScheduleSegment[] = [];
+
+  segmentsByRow.forEach((rowSegments, rowIndex) => {
+    const rowStartIndex = rowIndex * 7;
+    const rowEndIndex = Math.min(rowStartIndex + 6, cells.length - 1);
+    const occupiedLanesByIndex = new Map<number, Set<number>>();
+
+    for (let index = rowStartIndex; index <= rowEndIndex; index += 1) {
+      const cell = cells[index];
+      if (!cell) continue;
+
+      const holidayLaneCount = Math.min(
+        holidaysByDate.get(toDateKey(cell.date))?.length ?? 0,
+        monthPreviewCardLimit,
+      );
+      const occupiedLanes = new Set<number>();
+
+      for (let lane = 0; lane < holidayLaneCount; lane += 1) {
+        occupiedLanes.add(lane);
+      }
+
+      occupiedLanesByIndex.set(index, occupiedLanes);
+    }
+
+    const isLaneAvailable = (
+      segment: Omit<MonthScheduleSegment, "lane">,
+      lane: number,
+    ) => {
+      for (
+        let index = segment.startIndex;
+        index <= segment.endIndex;
+        index += 1
+      ) {
+        if (occupiedLanesByIndex.get(index)?.has(lane)) {
+          return false;
+        }
+      }
+
+      return true;
+    };
+
+    const occupyLane = (
+      segment: Omit<MonthScheduleSegment, "lane">,
+      lane: number,
+    ) => {
+      for (
+        let index = segment.startIndex;
+        index <= segment.endIndex;
+        index += 1
+      ) {
+        let occupiedLanes = occupiedLanesByIndex.get(index);
+        if (!occupiedLanes) {
+          occupiedLanes = new Set<number>();
+          occupiedLanesByIndex.set(index, occupiedLanes);
+        }
+        occupiedLanes.add(lane);
+      }
+    };
+
+    const sortedRowSegments = [...rowSegments].sort((first, second) => {
+      if (first.startIndex !== second.startIndex) {
+        return first.startIndex - second.startIndex;
+      }
+
+      const firstSpan = first.endIndex - first.startIndex;
+      const secondSpan = second.endIndex - second.startIndex;
+      if (firstSpan !== secondSpan) return secondSpan - firstSpan;
+
+      return first.schedule.schedule_id - second.schedule.schedule_id;
+    });
+
+    for (const segment of sortedRowSegments) {
+      const preferredLane = preferredLaneByScheduleId.get(
+        segment.schedule.schedule_id,
+      );
+      let targetLane =
+        preferredLane !== undefined && isLaneAvailable(segment, preferredLane)
+          ? preferredLane
+          : -1;
+
+      if (targetLane < 0) {
+        targetLane = 0;
+        while (!isLaneAvailable(segment, targetLane)) {
+          targetLane += 1;
+        }
+      }
+
+      occupyLane(segment, targetLane);
+      preferredLaneByScheduleId.set(segment.schedule.schedule_id, targetLane);
+      result.push({ ...segment, lane: targetLane });
+    }
+  });
+
+  return result.sort((first, second) => {
+    if (first.rowIndex !== second.rowIndex) {
+      return first.rowIndex - second.rowIndex;
+    }
+    if (first.lane !== second.lane) return first.lane - second.lane;
+    return first.startIndex - second.startIndex;
+  });
+}
+
+function countVisibleMonthSchedulesByDate(
+  segments: MonthScheduleSegment[],
+  cells: MonthCalendarCell[],
+  contentCapacitiesByDate: Map<string, number>,
+) {
+  const counts = new Map<string, number>();
+
+  for (const segment of segments) {
+    if (
+      !isMonthScheduleSegmentVisible(segment, cells, contentCapacitiesByDate)
+    ) {
+      continue;
+    }
+
+    for (
+      let index = segment.startIndex;
+      index <= segment.endIndex;
+      index += 1
+    ) {
+      const cell = cells[index];
+      if (!cell) continue;
+
+      const key = toDateKey(cell.date);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+
+  return counts;
+}
+
+function isMonthScheduleSegmentVisible(
+  segment: MonthScheduleSegment,
+  cells: MonthCalendarCell[],
+  contentCapacitiesByDate: Map<string, number>,
+) {
+  for (let index = segment.startIndex; index <= segment.endIndex; index += 1) {
+    const cell = cells[index];
+    if (!cell) return false;
+
+    const contentCapacity = contentCapacitiesByDate.get(toDateKey(cell.date));
+    if (segment.lane >= (contentCapacity ?? 0)) return false;
+  }
+
+  return true;
 }
 
 function MonthSchedulePreview({
@@ -5579,6 +8048,12 @@ function MonthSchedulePreview({
   active,
   muted = false,
   readOnly = false,
+  continuesBefore = false,
+  continuesAfter = false,
+  canResizeStart = true,
+  canResizeEnd = true,
+  className = "",
+  style,
   onOpen,
   onPointerDown,
   onPointerMove,
@@ -5590,6 +8065,12 @@ function MonthSchedulePreview({
   active?: boolean;
   muted?: boolean;
   readOnly?: boolean;
+  continuesBefore?: boolean;
+  continuesAfter?: boolean;
+  canResizeStart?: boolean;
+  canResizeEnd?: boolean;
+  className?: string;
+  style?: CSSProperties;
   onOpen: (anchorElement?: SchedulePanelAnchorElement) => void;
   onPointerDown: (
     event: ReactPointerEvent<HTMLElement>,
@@ -5599,7 +8080,16 @@ function MonthSchedulePreview({
   onPointerUp: (event: ReactPointerEvent<HTMLElement>) => void;
   onPointerCancel: () => void;
 }) {
-  const color = scheduleAccentColor(schedule, categoryColors);
+  const accentColor = scheduleAccentColor(schedule);
+  const cardColor = scheduleCardColor(schedule, categoryColors);
+  const title = normalizeScheduleTitle(schedule.title);
+  const preview = isPreviewSchedule(schedule);
+  const barShadow = [
+    continuesBefore ? null : `inset 3px 0 0 ${accentColor}`,
+    `0 0 0 1px ${colorWithAlpha(cardColor, "24")}`,
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   return (
     <div
@@ -5627,48 +8117,52 @@ function MonthSchedulePreview({
       onPointerMove={readOnly ? undefined : onPointerMove}
       onPointerUp={readOnly ? undefined : onPointerUp}
       onPointerCancel={readOnly ? undefined : onPointerCancel}
-      className={`relative flex min-h-6 w-full min-w-0 touch-none items-center gap-2 overflow-hidden rounded-lg px-2 py-1 text-left text-xs transition hover:brightness-95 ${
+      className={`relative flex h-5 w-full min-w-0 touch-none items-center gap-1.5 overflow-hidden rounded-md px-2 text-left text-[11px] font-semibold leading-5 transition hover:brightness-95 ${
         readOnly ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
       } ${
         schedule.is_completed ? "opacity-70" : ""
       } ${muted ? "opacity-60" : ""} ${
-        active ? "ring-2 ring-emerald-400 ring-offset-1" : "hover:ring-1 hover:ring-emerald-200"
-      }`}
+        active
+          ? "ring-2 ring-emerald-400 ring-offset-1"
+          : "hover:ring-1 hover:ring-emerald-200"
+      } ${preview ? "border border-dashed" : ""} ${
+        continuesBefore ? "rounded-l-none pl-1" : ""
+      } ${continuesAfter ? "rounded-r-none pr-1" : ""} ${className}`}
       style={{
-        backgroundColor: colorWithAlpha(color, "18"),
-        color,
-        boxShadow: `inset 3px 0 0 ${color}`,
+        backgroundColor: colorWithAlpha(cardColor, "18"),
+        borderColor: preview ? colorWithAlpha(cardColor, "80") : undefined,
+        color: accentColor,
+        boxShadow: barShadow,
+        ...style,
       }}
     >
       {!readOnly && (
         <>
-          <span
-            role="presentation"
-            className="absolute inset-y-0 left-0 z-10 w-2 cursor-ew-resize"
-            onPointerDown={(event) => onPointerDown(event, "resize-left")}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerCancel}
-          />
-          <span
-            role="presentation"
-            className="absolute inset-y-0 right-0 z-10 w-2 cursor-ew-resize"
-            onPointerDown={(event) => onPointerDown(event, "resize-right")}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerCancel}
-          />
+          {canResizeStart && (
+            <span
+              role="presentation"
+              className="absolute inset-y-0 left-0 z-10 w-2 cursor-ew-resize"
+              onPointerDown={(event) => onPointerDown(event, "resize-left")}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerCancel}
+            />
+          )}
+          {canResizeEnd && (
+            <span
+              role="presentation"
+              className="absolute inset-y-0 right-0 z-10 w-2 cursor-ew-resize"
+              onPointerDown={(event) => onPointerDown(event, "resize-right")}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerCancel}
+            />
+          )}
         </>
       )}
-      <span className="shrink-0 font-medium">
-        {schedule.all_day ? "종일" : formatTime(schedule.start_datetime)}
-      </span>
-      {isCompanySchedule(schedule) && (
-        <span className="shrink-0 rounded bg-white/60 px-1 text-[10px] font-semibold">
-          회사
-        </span>
-      )}
-      <span className="truncate">{schedule.title}</span>
+      <PriorityDot schedule={schedule} />
+      {preview && <PreviewPriorityBadge schedule={schedule} />}
+      <span className="truncate">{title}</span>
     </div>
   );
 }
@@ -5676,6 +8170,7 @@ function MonthSchedulePreview({
 function MonthScheduleGrid({
   cells,
   schedulesByDate,
+  holidaysByDate,
   selectedKey,
   categoryColors,
   activeScheduleId,
@@ -5683,9 +8178,11 @@ function MonthScheduleGrid({
   onOpenSchedule,
   onCreateDay,
   onScheduleTimeChange,
+  onMoveWeek,
 }: {
   cells: MonthCalendarCell[];
   schedulesByDate: Map<string, Schedule[]>;
+  holidaysByDate: Map<string, Holiday[]>;
   selectedKey: string;
   categoryColors: Map<number, string>;
   activeScheduleId?: number | null;
@@ -5700,18 +8197,180 @@ function MonthScheduleGrid({
     draft?: ScheduleCreateDraft,
   ) => void;
   onScheduleTimeChange: ScheduleTimeChangeHandler;
+  onMoveWeek: (offset: number) => void;
 }) {
   const gridRef = useRef<HTMLDivElement | null>(null);
+  const wheelAccumulatorRef = useRef(0);
+  const wheelResetTimeoutRef = useRef<number | null>(null);
   const [interaction, setInteraction] =
     useState<WeekScheduleInteraction | null>(null);
   const rowCount = Math.max(1, Math.ceil(cells.length / 7));
+  const [maxVisibleItems, setMaxVisibleItems] = useState(3);
+
+  useEffect(() => {
+    return () => {
+      if (wheelResetTimeoutRef.current !== null) {
+        window.clearTimeout(wheelResetTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const grid = gridRef.current;
+    if (!grid) return;
+
+    const updateVisibleItemCapacity = () => {
+      const rowHeight = grid.getBoundingClientRect().height / rowCount;
+      const rawSlots = Math.floor(
+        (rowHeight - monthScheduleTopOffset + 4) / monthScheduleLaneHeight,
+      );
+      const nextSlots = Math.max(
+        1,
+        Math.min(4, Number.isFinite(rawSlots) ? rawSlots : 3),
+      );
+      setMaxVisibleItems((current) =>
+        current === nextSlots ? current : nextSlots,
+      );
+    };
+
+    updateVisibleItemCapacity();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateVisibleItemCapacity);
+      return () => {
+        window.removeEventListener("resize", updateVisibleItemCapacity);
+      };
+    }
+
+    const resizeObserver = new ResizeObserver(updateVisibleItemCapacity);
+    resizeObserver.observe(grid);
+    return () => resizeObserver.disconnect();
+  }, [rowCount]);
+
+  const monthSchedules = useMemo(
+    () => uniqueSchedulesFromMap(schedulesByDate),
+    [schedulesByDate],
+  );
+  const displayMonthSchedules = useMemo(() => {
+    if (!interaction) return monthSchedules;
+
+    const changeOptions = {
+      allDay: interaction.targetAllDay ?? interaction.schedule.all_day,
+    };
+
+    return monthSchedules.map((schedule) =>
+      schedule.schedule_id === interaction.scheduleId
+        ? scheduleWithDraftTime(
+            schedule,
+            interaction.start,
+            interaction.end,
+            changeOptions,
+          )
+        : schedule,
+    );
+  }, [interaction, monthSchedules]);
+  const monthScheduleSegments = useMemo(
+    () =>
+      layoutMonthScheduleSegments(
+        displayMonthSchedules,
+        cells,
+        holidaysByDate,
+      ),
+    [cells, displayMonthSchedules, holidaysByDate],
+  );
+  const maxPreviewContentSlots = Math.min(
+    maxVisibleItems,
+    monthPreviewCardLimit,
+  );
+  const contentCapacitiesByDate = useMemo(
+    () => {
+      let capacities = new Map(
+        cells.map((cell) => [toDateKey(cell.date), maxPreviewContentSlots]),
+      );
+      const hiddenContentCapacity = Math.max(
+        0,
+        Math.min(maxPreviewContentSlots, maxVisibleItems - 1),
+      );
+
+      for (let pass = 0; pass < cells.length; pass += 1) {
+        const visibleScheduleCounts = countVisibleMonthSchedulesByDate(
+          monthScheduleSegments,
+          cells,
+          capacities,
+        );
+        let changed = false;
+
+        for (const cell of cells) {
+          const key = toDateKey(cell.date);
+          const holidays = holidaysByDate.get(key) ?? [];
+          const schedules = schedulesByDate.get(key) ?? [];
+          const contentCapacity = capacities.get(key) ?? maxPreviewContentSlots;
+          const visibleHolidayCount = Math.min(
+            holidays.length,
+            contentCapacity,
+          );
+          const visibleScheduleCount = visibleScheduleCounts.get(key) ?? 0;
+          const hasHiddenItems =
+            holidays.length + schedules.length >
+            visibleHolidayCount + visibleScheduleCount;
+
+          if (!hasHiddenItems || contentCapacity <= hiddenContentCapacity) {
+            continue;
+          }
+
+          capacities.set(key, hiddenContentCapacity);
+          changed = true;
+        }
+
+        if (!changed) {
+          break;
+        }
+      }
+
+      return capacities;
+    },
+    [
+      cells,
+      holidaysByDate,
+      maxPreviewContentSlots,
+      maxVisibleItems,
+      monthScheduleSegments,
+      schedulesByDate,
+    ],
+  );
+  const visibleMonthScheduleCountByDate = useMemo(
+    () =>
+      countVisibleMonthSchedulesByDate(
+        monthScheduleSegments,
+        cells,
+        contentCapacitiesByDate,
+      ),
+    [cells, contentCapacitiesByDate, monthScheduleSegments],
+  );
+
+  const isInteractiveCellTarget = (target: EventTarget | null) =>
+    target instanceof HTMLElement &&
+    Boolean(
+      target.closest("button,a,input,textarea,select,[role='button']"),
+    );
+
+  const handleDayCellDoubleClick = (
+    event: ReactMouseEvent<HTMLDivElement>,
+    date: Date,
+  ) => {
+    if (isInteractiveCellTarget(event.target)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    onCreateDay(date, event.currentTarget);
+  };
 
   const beginMonthInteraction = (
     event: ReactPointerEvent<HTMLElement>,
     kind: WeekScheduleInteractionKind,
     schedule: Schedule,
   ) => {
-    if (isCompanySchedule(schedule)) {
+    if (isReadonlySchedule(schedule)) {
       event.stopPropagation();
       onOpenSchedule(schedule, event.currentTarget);
       return;
@@ -5768,12 +8427,16 @@ function MonthScheduleGrid({
       end = addDays(interaction.originalEnd, dayDelta);
     } else if (interaction.kind === "resize-left") {
       const nextStart = addDays(interaction.originalStart, dayDelta);
-      const maxStart = new Date(interaction.originalEnd.getTime() - minDurationMs);
+      const maxStart = new Date(
+        interaction.originalEnd.getTime() - minDurationMs,
+      );
       start = nextStart > maxStart ? maxStart : nextStart;
       end = interaction.originalEnd;
     } else {
       const nextEnd = addDays(interaction.originalEnd, dayDelta);
-      const minEnd = new Date(interaction.originalStart.getTime() + minDurationMs);
+      const minEnd = new Date(
+        interaction.originalStart.getTime() + minDurationMs,
+      );
       start = interaction.originalStart;
       end = nextEnd < minEnd ? minEnd : nextEnd;
     }
@@ -5832,13 +8495,51 @@ function MonthScheduleGrid({
     }
   };
 
+  const handleMonthWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (event.ctrlKey || event.metaKey) return;
+
+    const rawDelta = event.deltaY;
+    if (rawDelta === 0) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const normalizedDelta =
+      event.deltaMode === 1
+        ? rawDelta * 40
+        : event.deltaMode === 2
+          ? rawDelta * window.innerHeight
+          : rawDelta;
+    const wheelStepThreshold = 48;
+
+    wheelAccumulatorRef.current += normalizedDelta;
+
+    if (wheelResetTimeoutRef.current !== null) {
+      window.clearTimeout(wheelResetTimeoutRef.current);
+    }
+
+    if (Math.abs(wheelAccumulatorRef.current) >= wheelStepThreshold) {
+      onMoveWeek(wheelAccumulatorRef.current > 0 ? 1 : -1);
+      wheelAccumulatorRef.current = 0;
+    }
+
+    wheelResetTimeoutRef.current = window.setTimeout(() => {
+      wheelAccumulatorRef.current = 0;
+      wheelResetTimeoutRef.current = null;
+    }, 160);
+  };
+
   return (
-    <div className="overflow-hidden bg-white">
-      <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50/70 text-center text-xs font-medium text-slate-500">
+    <div
+      className="flex h-full min-h-[36rem] flex-col overflow-hidden bg-white"
+      style={{ minHeight: monthGridMinHeight }}
+      onWheel={handleMonthWheel}
+    >
+      <div className="grid shrink-0 grid-cols-7 border-b border-slate-100 bg-slate-50/95 text-center text-xs font-medium text-slate-500">
         {weekdayLabels.map((label, index) => (
           <span
             key={`${label}-${index}`}
-            className={`py-3 ${
+            className={`py-2.5 ${
               index === 0 ? "text-rose-500" : index === 6 ? "text-sky-500" : ""
             }`}
           >
@@ -5846,25 +8547,51 @@ function MonthScheduleGrid({
           </span>
         ))}
       </div>
-      <div ref={gridRef} className="grid grid-cols-7">
+      <div
+        ref={gridRef}
+        className="relative grid min-h-0 flex-1 grid-cols-7"
+        style={{
+          gridTemplateRows: `repeat(${rowCount}, minmax(0, 1fr))`,
+        }}
+      >
         {cells.map(({ date: day, currentMonth }, index) => {
           const key = toDateKey(day);
+          const holidays = holidaysByDate.get(key) ?? [];
+          const isHoliday = holidays.length > 0;
           const schedules = schedulesByDate.get(key) ?? [];
           const selected = key === selectedKey;
           const today = isToday(day);
-          const visibleSchedules = schedules.slice(0, 4);
-          const hiddenCount = Math.max(
-            0,
-            schedules.length - visibleSchedules.length,
+          const contentCapacity = contentCapacitiesByDate.get(key) ?? 0;
+          const visibleHolidayCount = Math.min(
+            holidays.length,
+            contentCapacity,
           );
+          const visibleScheduleCount =
+            visibleMonthScheduleCountByDate.get(key) ?? 0;
+          const hiddenCount =
+            Math.max(0, holidays.length - visibleHolidayCount) +
+            Math.max(0, schedules.length - visibleScheduleCount);
+          const moreButtonToneClass = selected
+            ? "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+            : currentMonth
+              ? isHoliday
+                ? "bg-rose-50/30 text-rose-800 hover:bg-rose-50"
+                : "bg-white text-slate-700 hover:bg-slate-50"
+              : "bg-slate-50/70 text-slate-500 hover:bg-slate-100";
 
           return (
             <div
               key={key}
-              onClick={() => onOpenDay(day)}
-              className={`group min-h-[144px] cursor-pointer border-b border-r border-slate-100 p-2.5 transition hover:bg-emerald-50/40 sm:p-3 ${
+              onDoubleClick={(event) => handleDayCellDoubleClick(event, day)}
+              className={`relative min-h-0 cursor-default overflow-hidden border-b border-r border-slate-100 p-1.5 transition hover:bg-emerald-50/40 sm:p-2 ${
                 (index + 1) % 7 === 0 ? "border-r-0" : ""
-              } ${currentMonth ? "bg-white" : "bg-slate-50/70 text-slate-300"} ${
+              } ${
+                currentMonth
+                  ? isHoliday && !selected
+                    ? "bg-rose-50/30"
+                    : "bg-white"
+                  : "bg-slate-50/70 text-slate-300"
+              } ${
                 selected
                   ? "bg-emerald-50 ring-2 ring-inset ring-emerald-400"
                   : ""
@@ -5876,68 +8603,136 @@ function MonthScheduleGrid({
                   event.stopPropagation();
                   onOpenDay(day);
                 }}
-                className={`ml-auto flex h-7 min-w-7 items-center justify-center rounded-full px-2 text-xs font-semibold transition ${
+                className={`ml-auto flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-xs font-semibold transition ${
                   selected
                     ? "bg-emerald-600 text-white"
                     : today
                       ? "bg-emerald-600 text-white"
                       : currentMonth
-                        ? "text-slate-800 hover:bg-slate-100"
+                        ? isHoliday
+                          ? "bg-rose-50 text-rose-700 hover:bg-rose-100"
+                          : "text-slate-800 hover:bg-slate-100"
                         : "text-slate-300 hover:bg-slate-100"
                 }`}
               >
                 {day.getDate()}
               </button>
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onCreateDay(day, event.currentTarget);
-                }}
-                className="mt-2 inline-flex items-center rounded-lg px-2 py-1 text-xs font-semibold text-emerald-700 opacity-100 transition hover:bg-emerald-50 sm:opacity-0 sm:group-hover:opacity-100"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                추가
-              </button>
-              <div className="mt-2 space-y-1.5">
-                {visibleSchedules.map((schedule) => (
-                  <MonthSchedulePreview
-                    key={schedule.schedule_id}
-                    schedule={schedule}
-                    categoryColors={categoryColors}
-                    active={
-                      activeScheduleId === schedule.schedule_id ||
-                      interaction?.scheduleId === schedule.schedule_id
-                    }
-                    muted={!currentMonth}
-                    readOnly={isCompanySchedule(schedule)}
-                    onOpen={(anchorElement) =>
-                      onOpenSchedule(schedule, anchorElement)
-                    }
-                    onPointerDown={(event, kind) =>
-                      beginMonthInteraction(event, kind, schedule)
-                    }
-                    onPointerMove={updateMonthInteraction}
-                    onPointerUp={endMonthInteraction}
-                    onPointerCancel={() => setInteraction(null)}
-                  />
-                ))}
-                {hiddenCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onOpenDay(day);
-                    }}
-                    className="w-full rounded-lg px-2 py-1 text-left text-xs font-semibold text-slate-500 transition hover:bg-white hover:text-slate-800"
-                  >
-                    +{hiddenCount}??
-                  </button>
-                )}
-        </div>
-      </div>
-    );
+              <div className="group/month-add-zone absolute left-1.5 right-10 top-1.5 z-10 h-6 sm:left-2 sm:top-2">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onCreateDay(day, event.currentTarget);
+                  }}
+                  className="inline-flex h-6 w-6 items-center justify-center overflow-hidden rounded-md px-0 text-xs font-semibold text-emerald-700 opacity-100 transition hover:bg-emerald-50 focus-visible:opacity-100 sm:w-auto sm:px-2 sm:opacity-0 sm:group-hover/month-add-zone:opacity-100"
+                >
+                  <Plus className="h-3.5 w-3.5 shrink-0" />
+                  추가
+                </button>
+              </div>
+              {hiddenCount > 0 && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenDay(day);
+                  }}
+                  className={`absolute bottom-1.5 left-1.5 right-1.5 z-30 truncate rounded px-1 py-0.5 text-left text-xs font-medium transition sm:left-2 sm:right-2 ${moreButtonToneClass}`}
+                >
+                  +{hiddenCount}개 더보기
+                </button>
+              )}
+            </div>
+          );
         })}
+        <div
+          className="pointer-events-none absolute inset-0 z-20 grid grid-cols-7"
+          style={{
+            gridTemplateRows: `repeat(${rowCount}, minmax(0, 1fr))`,
+          }}
+        >
+          {cells.flatMap(({ date: day, currentMonth }, index) => {
+            const key = toDateKey(day);
+            const holidays = holidaysByDate.get(key) ?? [];
+            const contentCapacity = contentCapacitiesByDate.get(key) ?? 0;
+            const visibleHolidays = holidays.slice(0, contentCapacity);
+
+            return visibleHolidays.map((holiday, holidayIndex) => (
+              <HolidayMonthPreview
+                key={`month-holiday-${holiday.holiday_id}-${key}`}
+                holiday={holiday}
+                muted={!currentMonth}
+                className="pointer-events-none z-20"
+                style={{
+                  alignSelf: "start",
+                  gridColumn: `${(index % 7) + 1} / span 1`,
+                  gridRow: `${Math.floor(index / 7) + 1} / span 1`,
+                  marginLeft: 4,
+                  marginRight: 4,
+                  marginTop:
+                    monthScheduleTopOffset +
+                    holidayIndex * monthScheduleLaneHeight,
+                  width: "auto",
+                }}
+              />
+            ));
+          })}
+          {monthScheduleSegments.map((segment) => {
+            if (
+              !isMonthScheduleSegmentVisible(
+                segment,
+                cells,
+                contentCapacitiesByDate,
+              )
+            ) {
+              return null;
+            }
+
+            const { schedule } = segment;
+            const startColumn = segment.startIndex % 7;
+            const span = segment.endIndex - segment.startIndex + 1;
+            const top =
+              monthScheduleTopOffset + segment.lane * monthScheduleLaneHeight;
+            const firstCell = cells[segment.startIndex];
+            const selected =
+              activeScheduleId === schedule.schedule_id ||
+              interaction?.scheduleId === schedule.schedule_id;
+
+            return (
+              <MonthSchedulePreview
+                key={`${schedule.schedule_id}-${segment.rowIndex}-${segment.startIndex}`}
+                schedule={schedule}
+                categoryColors={categoryColors}
+                active={selected}
+                muted={!firstCell?.currentMonth}
+                readOnly={isReadonlySchedule(schedule)}
+                continuesBefore={segment.continuesBefore}
+                continuesAfter={segment.continuesAfter}
+                canResizeStart={!segment.continuesBefore}
+                canResizeEnd={!segment.continuesAfter}
+                className={`pointer-events-auto ${selected ? "z-30" : "z-20"}`}
+                style={{
+                  alignSelf: "start",
+                  gridColumn: `${startColumn + 1} / span ${span}`,
+                  gridRow: `${segment.rowIndex + 1} / span 1`,
+                  marginLeft: 4,
+                  marginRight: 4,
+                  marginTop: top,
+                  width: "auto",
+                }}
+                onOpen={(anchorElement) =>
+                  onOpenSchedule(schedule, anchorElement)
+                }
+                onPointerDown={(event, kind) =>
+                  beginMonthInteraction(event, kind, schedule)
+                }
+                onPointerMove={updateMonthInteraction}
+                onPointerUp={endMonthInteraction}
+                onPointerCancel={() => setInteraction(null)}
+              />
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -5986,6 +8781,7 @@ interface WeekCreateInteraction {
   pointerId: number;
   startClientX: number;
   startClientY: number;
+  dragged: boolean;
   anchorStart: Date;
   start: Date;
   end: Date;
@@ -6060,7 +8856,6 @@ function formatHourLabel(hour: number) {
   return `${pad(hour)}:00`;
 }
 
-
 function formatTimezoneLabel() {
   const offset = -new Date().getTimezoneOffset();
   const sign = offset >= 0 ? "+" : "-";
@@ -6079,6 +8874,18 @@ function colorWithAlpha(color: string, alphaHex: string) {
 
 function scheduleAccentColor(
   schedule: Schedule,
+  _categoryColors?: Map<number, string>,
+) {
+  if (isCompanySchedule(schedule)) return companyScheduleAccent;
+
+  return (
+    scheduleTypeSelectMeta[schedule.schedule_type]?.color ??
+    (schedule.schedule_type === "deadline" ? "#f43f5e" : "#10b981")
+  );
+}
+
+function scheduleCardColor(
+  schedule: Schedule,
   categoryColors: Map<number, string>,
 ) {
   if (isCompanySchedule(schedule)) return companyScheduleAccent;
@@ -6087,33 +8894,76 @@ function scheduleAccentColor(
     (schedule.category_id
       ? categoryColors.get(schedule.category_id)
       : undefined) ??
-    (schedule.schedule_type === "deadline" ? "#f43f5e" : "#10b981")
+    fallbackCategoryColor
   );
 }
 
-function weekdayToneClass(day: Date, selected = false) {
+function schedulePriorityColor(schedule: Schedule) {
+  const priority = schedule.priority ?? "medium";
+  return prioritySelectMeta[priority]?.color ?? prioritySelectMeta.medium.color;
+}
+
+function PriorityDot({
+  schedule,
+  className = "",
+}: {
+  schedule: Schedule;
+  className?: string;
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`inline-block h-2 w-2 shrink-0 rounded-full ring-1 ring-black/10 ${className}`}
+      style={{ backgroundColor: schedulePriorityColor(schedule) }}
+    />
+  );
+}
+
+function PreviewPriorityBadge({
+  schedule,
+  className = "",
+}: {
+  schedule: Schedule;
+  className?: string;
+}) {
+  const classificationSettings = useClassificationSettings();
+  const priority = schedule.priority ?? "medium";
+  const label = getClassificationLabel(
+    classificationSettings,
+    "taskPriorities",
+    priority,
+  );
+
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center rounded bg-white/75 px-1 text-[10px] font-semibold ${className}`}
+    >
+      중요도 {label}
+    </span>
+  );
+}
+
+function weekdayToneClass(day: Date, selected = false, holiday = false) {
   if (isToday(day)) {
     return "bg-emerald-50/95 text-emerald-800 shadow-[inset_0_-2px_0_rgba(16,185,129,0.45)]";
   }
-  if (day.getDay() === 0) {
+  if (holiday || day.getDay() === 0) {
     return selected
       ? "bg-rose-50/90 text-rose-700"
       : "bg-rose-50/45 text-rose-600";
   }
   if (day.getDay() === 6) {
-    return selected
-      ? "bg-sky-50/90 text-sky-700"
-      : "bg-sky-50/45 text-sky-600";
+    return selected ? "bg-sky-50/90 text-sky-700" : "bg-sky-50/45 text-sky-600";
   }
   return selected ? "bg-emerald-50/80 text-slate-950" : "text-slate-500";
 }
 
-function weekdayColumnClass(day: Date, selected = false) {
+function weekdayColumnClass(day: Date, selected = false, holiday = false) {
   if (isToday(day)) {
     return "bg-emerald-50/35 shadow-[inset_2px_0_0_rgba(16,185,129,0.18),inset_-2px_0_0_rgba(16,185,129,0.18)]";
   }
   if (selected) return "bg-emerald-50/20";
-  if (day.getDay() === 0) return "bg-rose-50/20";
+  if (holiday || day.getDay() === 0) return "bg-rose-50/20";
   if (day.getDay() === 6) return "bg-sky-50/20";
   return "";
 }
@@ -6220,6 +9070,38 @@ function uniqueSchedulesFromMap(schedulesByDate: Map<string, Schedule[]>) {
   return [...byId.values()];
 }
 
+function groupSchedulesByOverlappingDate(schedules: Schedule[]) {
+  const grouped = new Map<string, Schedule[]>();
+
+  for (const schedule of schedules) {
+    const { start, end } = scheduleDateRange(schedule);
+    const cursor = dayBounds(start).start;
+    const lastDay = dayBounds(end).start;
+    let guard = 0;
+
+    while (cursor <= lastDay && guard < 370) {
+      const key = toDateKey(cursor);
+      const bucket = grouped.get(key);
+      if (bucket) bucket.push(schedule);
+      else grouped.set(key, [schedule]);
+
+      cursor.setDate(cursor.getDate() + 1);
+      guard += 1;
+    }
+  }
+
+  for (const bucket of grouped.values()) {
+    bucket.sort(
+      (first, second) =>
+        new Date(first.start_datetime).getTime() -
+          new Date(second.start_datetime).getTime() ||
+        first.schedule_id - second.schedule_id,
+    );
+  }
+
+  return grouped;
+}
+
 function minuteOfDay(date: Date) {
   return date.getHours() * 60 + date.getMinutes();
 }
@@ -6294,7 +9176,9 @@ function scheduleBlockMetricsFromDates(
   const duration = Math.max(minTimedScheduleMinutes, endMinutes - startMinutes);
   const startKey = toDateKey(startDate);
   const endKey = toDateKey(endDate);
-  const rawStartIndex = weekDates.findIndex((day) => toDateKey(day) === startKey);
+  const rawStartIndex = weekDates.findIndex(
+    (day) => toDateKey(day) === startKey,
+  );
   const rawEndIndex = weekDates.findIndex((day) => toDateKey(day) === endKey);
   const firstDay = weekDates[0];
   const startIndex =
@@ -6350,16 +9234,17 @@ function layoutTimedSchedules(
       return metrics ? { schedule, start, end, metrics } : null;
     })
     .filter(
-      (
-        item,
-      ): item is Omit<TimedScheduleLayout, "lane" | "laneCount"> =>
+      (item): item is Omit<TimedScheduleLayout, "lane" | "laneCount"> =>
         item !== null,
     );
 
   const singleDayBlocks = blocks.filter(
     (block) => toDateKey(block.start) === toDateKey(block.end),
   );
-  const lanesByScheduleId = new Map<number, { lane: number; laneCount: number }>();
+  const lanesByScheduleId = new Map<
+    number,
+    { lane: number; laneCount: number }
+  >();
 
   for (const block of blocks) {
     if (toDateKey(block.start) !== toDateKey(block.end)) {
@@ -6412,7 +9297,7 @@ function layoutTimedSchedules(
       }
       return first.metrics.left - second.metrics.left;
     });
-    const lanes: typeof singleDayBlocks[] = [];
+    const lanes: (typeof singleDayBlocks)[] = [];
 
     for (const block of sorted) {
       const laneIndex = lanes.findIndex((laneBlocks) =>
@@ -6456,9 +9341,7 @@ function layoutAllDaySchedules(
   const blocks = schedules
     .map((schedule) => {
       const indexes = weekDates
-        .map((day, index) =>
-          scheduleOverlapsDay(schedule, day) ? index : -1,
-        )
+        .map((day, index) => (scheduleOverlapsDay(schedule, day) ? index : -1))
         .filter((index) => index >= 0);
       if (indexes.length === 0) return null;
 
@@ -6469,9 +9352,7 @@ function layoutAllDaySchedules(
       };
     })
     .filter(
-      (
-        block,
-      ): block is Omit<AllDayScheduleLayout, "lane" | "laneCount"> =>
+      (block): block is Omit<AllDayScheduleLayout, "lane" | "laneCount"> =>
         block !== null,
     )
     .sort((first, second) => {
@@ -6487,7 +9368,9 @@ function layoutAllDaySchedules(
   const laneByScheduleId = new Map<number, number>();
 
   for (const block of blocks) {
-    const laneIndex = lanes.findIndex((lane) => lane.endIndex < block.startIndex);
+    const laneIndex = lanes.findIndex(
+      (lane) => lane.endIndex < block.startIndex,
+    );
     const targetLane = laneIndex >= 0 ? laneIndex : lanes.length;
     lanes[targetLane] = { endIndex: block.endIndex };
     laneByScheduleId.set(block.schedule.schedule_id, targetLane);
@@ -6503,6 +9386,7 @@ function layoutAllDaySchedules(
 function WeekScheduleGrid({
   weekDates,
   schedulesByDate,
+  holidaysByDate,
   selectedKey,
   categoryColors,
   activeScheduleId,
@@ -6513,6 +9397,7 @@ function WeekScheduleGrid({
 }: {
   weekDates: Date[];
   schedulesByDate: Map<string, Schedule[]>;
+  holidaysByDate: Map<string, Holiday[]>;
   selectedKey: string;
   categoryColors: Map<number, string>;
   activeScheduleId?: number | null;
@@ -6533,10 +9418,12 @@ function WeekScheduleGrid({
   const todayKey = toDateKey(now);
   const todayIndex = weekDates.findIndex((day) => toDateKey(day) === todayKey);
   const nowTop = (minuteOfDay(now) / 60) * weekHourHeight;
+  const visibleRangeKey = weekDates.map((day) => toDateKey(day)).join("|");
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const allDayGridRef = useRef<HTMLDivElement | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
   const dropSettleTimeoutRef = useRef<number | null>(null);
+  const lastAutoScrolledRangeKeyRef = useRef<string | null>(null);
   const [interaction, setInteraction] =
     useState<WeekScheduleInteraction | null>(null);
   const [createInteraction, setCreateInteraction] =
@@ -6565,11 +9452,23 @@ function WeekScheduleGrid({
     () => layoutAllDaySchedules(allDayLikeSchedules, weekDates),
     [allDayLikeSchedules, weekDates],
   );
-  const allDayLaneCount = allDayScheduleLayouts.reduce(
-    (count, layout) => Math.max(count, layout.laneCount),
-    1,
+  const holidayLaneCount = useMemo(
+    () =>
+      weekDates.reduce(
+        (count, day) =>
+          Math.max(count, holidaysByDate.get(toDateKey(day))?.length ?? 0),
+        0,
+      ),
+    [holidaysByDate, weekDates],
   );
-  const allDayRowHeight = Math.max(42, 30 + allDayLaneCount * 24);
+  const scheduleAllDayLaneCount = allDayScheduleLayouts.reduce(
+    (count, layout) => Math.max(count, layout.laneCount),
+    0,
+  );
+  const allDayRowHeight = Math.max(
+    42,
+    30 + Math.max(1, holidayLaneCount + scheduleAllDayLaneCount) * 24,
+  );
   const timedSchedules = useMemo(
     () =>
       visibleSchedules
@@ -6591,7 +9490,7 @@ function WeekScheduleGrid({
     kind: WeekScheduleInteractionKind,
     schedule: Schedule,
   ) => {
-    if (isCompanySchedule(schedule)) {
+    if (isReadonlySchedule(schedule)) {
       event.stopPropagation();
       onOpenSchedule(schedule, event.currentTarget);
       return;
@@ -6661,12 +9560,8 @@ function WeekScheduleGrid({
     const columnWidth = interaction.gridRect.width / weekDates.length;
     const rawOffsetX = event.clientX - interaction.startClientX;
     const rawOffsetY = event.clientY - interaction.startClientY;
-    const dayDelta = Math.round(
-      rawOffsetX / columnWidth,
-    );
-    const minuteDelta = snapToWeekGrid(
-      (rawOffsetY / weekHourHeight) * 60,
-    );
+    const dayDelta = Math.round(rawOffsetX / columnWidth);
+    const minuteDelta = snapToWeekGrid((rawOffsetY / weekHourHeight) * 60);
     const duration = Math.max(
       minTimedScheduleMinutes * 60 * 1000,
       interaction.originalEnd.getTime() - interaction.originalStart.getTime(),
@@ -6683,7 +9578,10 @@ function WeekScheduleGrid({
     let previewOffsetY = interaction.previewOffsetY;
 
     if (interaction.kind === "move") {
-      start = addMinutes(addDays(interaction.originalStart, dayDelta), minuteDelta);
+      start = addMinutes(
+        addDays(interaction.originalStart, dayDelta),
+        minuteDelta,
+      );
       start = clampDate(start, minStart, maxStart);
       end = new Date(start.getTime() + duration);
       const originalMetrics = scheduleBlockMetricsFromDates(
@@ -6693,7 +9591,8 @@ function WeekScheduleGrid({
       );
 
       if (originalMetrics) {
-        const leftPx = (originalMetrics.left / 100) * interaction.gridRect.width;
+        const leftPx =
+          (originalMetrics.left / 100) * interaction.gridRect.width;
         const widthPx =
           (originalMetrics.width / 100) * interaction.gridRect.width;
         const topPx = originalMetrics.top;
@@ -6790,10 +9689,8 @@ function WeekScheduleGrid({
 
       setInteraction({
         ...finishedInteraction,
-        previewOffsetX:
-          targetOffset?.x ?? finishedInteraction.previewOffsetX,
-        previewOffsetY:
-          targetOffset?.y ?? finishedInteraction.previewOffsetY,
+        previewOffsetX: targetOffset?.x ?? finishedInteraction.previewOffsetX,
+        previewOffsetY: targetOffset?.y ?? finishedInteraction.previewOffsetY,
         settling: true,
       });
 
@@ -6831,7 +9728,7 @@ function WeekScheduleGrid({
     kind: WeekScheduleInteractionKind,
     schedule: Schedule,
   ) => {
-    if (isCompanySchedule(schedule)) {
+    if (isReadonlySchedule(schedule)) {
       event.stopPropagation();
       onOpenSchedule(schedule, event.currentTarget);
       return;
@@ -6869,9 +9766,7 @@ function WeekScheduleGrid({
     });
   };
 
-  const updateAllDayInteraction = (
-    event: ReactPointerEvent<HTMLElement>,
-  ) => {
+  const updateAllDayInteraction = (event: ReactPointerEvent<HTMLElement>) => {
     if (
       !interaction ||
       interaction.pointerId !== event.pointerId ||
@@ -6908,7 +9803,9 @@ function WeekScheduleGrid({
 
     if (isDroppingToTimeGrid) {
       start = dateFromGridPointer(event, interaction.originalStart);
-      end = new Date(start.getTime() + timedDropDurationMs(interaction.schedule));
+      end = new Date(
+        start.getTime() + timedDropDurationMs(interaction.schedule),
+      );
       targetAllDay = false;
     } else if (interaction.kind === "move") {
       start = clampDate(
@@ -6918,7 +9815,9 @@ function WeekScheduleGrid({
       );
       end = new Date(start.getTime() + duration);
     } else if (interaction.kind === "resize-left") {
-      const maxStart = new Date(interaction.originalEnd.getTime() - minDurationMs);
+      const maxStart = new Date(
+        interaction.originalEnd.getTime() - minDurationMs,
+      );
       start = clampDate(
         addDays(interaction.originalStart, dayDelta),
         rangeStart,
@@ -6927,7 +9826,9 @@ function WeekScheduleGrid({
       end = interaction.originalEnd;
     } else {
       const nextEnd = addDays(interaction.originalEnd, dayDelta);
-      const minEnd = new Date(interaction.originalStart.getTime() + minDurationMs);
+      const minEnd = new Date(
+        interaction.originalStart.getTime() + minDurationMs,
+      );
       start = interaction.originalStart;
       end = nextEnd < minEnd ? minEnd : nextEnd;
     }
@@ -7016,12 +9917,7 @@ function WeekScheduleGrid({
       Math.max(0, snapToWeekGrid(rawMinutes)),
     );
     const date = new Date(weekDates[dayIndex] ?? fallbackDay);
-    date.setHours(
-      Math.floor(snappedMinutes / 60),
-      snappedMinutes % 60,
-      0,
-      0,
-    );
+    date.setHours(Math.floor(snappedMinutes / 60), snappedMinutes % 60, 0, 0);
     return date;
   };
 
@@ -7088,19 +9984,6 @@ function WeekScheduleGrid({
     event.preventDefault();
     event.stopPropagation();
 
-    if (event.detail >= 2) {
-      onCreateDay(
-        start,
-        { clientX: event.clientX, clientY: event.clientY },
-        {
-          start,
-          end,
-          allDay: false,
-        },
-      );
-      return;
-    }
-
     event.currentTarget.setPointerCapture(event.pointerId);
 
     setCreateInteraction({
@@ -7108,6 +9991,7 @@ function WeekScheduleGrid({
       pointerId: event.pointerId,
       startClientX: event.clientX,
       startClientY: event.clientY,
+      dragged: false,
       anchorStart: start,
       start,
       end,
@@ -7141,7 +10025,7 @@ function WeekScheduleGrid({
 
     setCreateInteraction((current) =>
       current && current.pointerId === event.pointerId
-        ? { ...current, start, end }
+        ? { ...current, dragged: current.dragged || dragged, start, end }
         : current,
     );
   };
@@ -7159,13 +10043,7 @@ function WeekScheduleGrid({
     event.stopPropagation();
 
     const finishedInteraction = createInteraction;
-    const dragged =
-      Math.abs(event.clientX - finishedInteraction.startClientX) >= 4 ||
-      Math.abs(event.clientY - finishedInteraction.startClientY) >= 4;
-
     setCreateInteraction(null);
-    if (!dragged) return;
-
     onCreateDay(
       finishedInteraction.start,
       { clientX: event.clientX, clientY: event.clientY },
@@ -7195,6 +10073,7 @@ function WeekScheduleGrid({
       pointerId: event.pointerId,
       startClientX: event.clientX,
       startClientY: event.clientY,
+      dragged: false,
       anchorStart: start,
       start,
       end,
@@ -7213,6 +10092,9 @@ function WeekScheduleGrid({
     event.preventDefault();
     event.stopPropagation();
 
+    const dragged =
+      Math.abs(event.clientX - createInteraction.startClientX) >= 4 ||
+      Math.abs(event.clientY - createInteraction.startClientY) >= 4;
     const pointerIndex = allDayIndexFromPointer(event, 0);
     const { start, end } = normalizeAllDayCreateRange(
       createInteraction.anchorStart,
@@ -7221,7 +10103,7 @@ function WeekScheduleGrid({
 
     setCreateInteraction((current) =>
       current && current.pointerId === event.pointerId
-        ? { ...current, start, end }
+        ? { ...current, dragged: current.dragged || dragged, start, end }
         : current,
     );
   };
@@ -7239,7 +10121,14 @@ function WeekScheduleGrid({
     event.stopPropagation();
 
     const finishedInteraction = createInteraction;
+    const dragged =
+      finishedInteraction.dragged ||
+      Math.abs(event.clientX - finishedInteraction.startClientX) >= 4 ||
+      Math.abs(event.clientY - finishedInteraction.startClientY) >= 4;
+
     setCreateInteraction(null);
+    if (!dragged) return;
+
     onCreateDay(finishedInteraction.start, event.currentTarget, {
       start: finishedInteraction.start,
       end: finishedInteraction.end,
@@ -7253,20 +10142,6 @@ function WeekScheduleGrid({
     clientX: event.clientX,
     clientY: event.clientY,
   });
-
-  const openCreateFromGridPointer = (
-    event: ReactMouseEvent<HTMLElement>,
-    fallbackDay: Date,
-  ) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const start = dateFromGridPointer(event, fallbackDay);
-    onCreateDay(start, panelAnchorFromPointer(event), {
-      start,
-      end: addMinutes(start, 30),
-      allDay: false,
-    });
-  };
 
   const showCreateContextMenu = (
     event: ReactMouseEvent<HTMLElement>,
@@ -7320,11 +10195,15 @@ function WeekScheduleGrid({
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container || todayIndex < 0) return;
+    if (lastAutoScrolledRangeKeyRef.current === visibleRangeKey) return;
 
-    requestAnimationFrame(() => {
+    lastAutoScrolledRangeKeyRef.current = visibleRangeKey;
+    const frame = requestAnimationFrame(() => {
       container.scrollTop = Math.max(0, nowTop - container.clientHeight / 2);
     });
-  }, [nowTop, todayIndex]);
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [todayIndex, visibleRangeKey]);
 
   useEffect(
     () => () => {
@@ -7336,7 +10215,10 @@ function WeekScheduleGrid({
   );
 
   return (
-    <div ref={scrollContainerRef} className="h-full overflow-auto bg-white">
+    <div
+      ref={scrollContainerRef}
+      className="scrollbar-none h-full overflow-auto bg-white"
+    >
       {createContextMenu && (
         <div
           className="fixed z-[70] min-w-40 rounded-xl border border-slate-200 bg-white p-1 shadow-xl shadow-slate-900/10"
@@ -7364,12 +10246,11 @@ function WeekScheduleGrid({
               );
             }}
           >
-            <Plus className="h-4 w-4" />
-            이 시간에 일정 추가
+            <Plus className="h-4 w-4" />이 시간에 일정 추가
           </button>
         </div>
       )}
-      <div style={{ minWidth: dayCount === 1 ? 560 : 1080 }}>
+      <div className="min-w-0">
         <div
           className="sticky top-0 z-30 grid border-b border-slate-100 bg-slate-50/95 shadow-[0_1px_0_rgba(226,232,240,0.9)] backdrop-blur"
           style={{
@@ -7383,13 +10264,14 @@ function WeekScheduleGrid({
             const key = toDateKey(day);
             const selected = key === selectedKey;
             const today = isToday(day);
+            const isHoliday = (holidaysByDate.get(key)?.length ?? 0) > 0;
 
             return (
               <button
                 key={key}
                 type="button"
                 onClick={() => onOpenDay(day)}
-                className={`flex h-11 items-center justify-center gap-1 border-r border-slate-100 text-xs font-medium transition last:border-r-0 hover:bg-white ${weekdayToneClass(day, selected)}`}
+                className={`flex h-11 items-center justify-center gap-1 border-r border-slate-100 text-xs font-medium transition last:border-r-0 hover:bg-white ${weekdayToneClass(day, selected, isHoliday)}`}
               >
                 <span>{weekdayLabels[day.getDay()]}</span>
                 <span
@@ -7431,6 +10313,7 @@ function WeekScheduleGrid({
           >
             {weekDates.map((day) => {
               const key = toDateKey(day);
+              const isHoliday = (holidaysByDate.get(key)?.length ?? 0) > 0;
 
               return (
                 <div
@@ -7443,7 +10326,17 @@ function WeekScheduleGrid({
                       setCreateInteraction(null);
                     }
                   }}
-                  className={`border-r border-slate-100 px-1.5 py-1.5 last:border-r-0 ${weekdayColumnClass(day, selectedKey === key)}`}
+                  onDoubleClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const bounds = dayBounds(day);
+                    onCreateDay(day, panelAnchorFromPointer(event), {
+                      start: bounds.start,
+                      end: bounds.end,
+                      allDay: true,
+                    });
+                  }}
+                  className={`border-r border-slate-100 px-1.5 py-1.5 last:border-r-0 ${weekdayColumnClass(day, selectedKey === key, isHoliday)}`}
                 >
                   <button
                     type="button"
@@ -7464,7 +10357,28 @@ function WeekScheduleGrid({
                 </div>
               );
             })}
+            {weekDates.flatMap((day, dayIndex) => {
+              const key = toDateKey(day);
+              const holidays = holidaysByDate.get(key) ?? [];
+
+              return holidays.map((holiday, holidayIndex) => (
+                <div
+                  key={`week-holiday-${holiday.holiday_id}-${key}`}
+                  className="pointer-events-none absolute z-20 h-5 overflow-hidden rounded-md bg-rose-50 px-2 text-left text-[11px] font-semibold leading-5 text-rose-700"
+                  style={{
+                    top: 26 + holidayIndex * 24,
+                    left: `calc(${(dayIndex / dayCount) * 100}% + 4px)`,
+                    width: `calc(${(1 / dayCount) * 100}% - 8px)`,
+                    boxShadow: `inset 3px 0 0 ${holidayAccentColor}, 0 0 0 1px rgba(225,29,72,0.18)`,
+                  }}
+                  aria-label={`공휴일 ${holiday.name}`}
+                >
+                  <span>{holiday.name}</span>
+                </div>
+              ));
+            })}
             {createInteraction?.surface === "all-day" &&
+              createInteraction.dragged &&
               (() => {
                 const activeSpan = allDaySpanIndexesFromDates(
                   createInteraction.start,
@@ -7489,26 +10403,29 @@ function WeekScheduleGrid({
               })()}
             {allDayScheduleLayouts.map((layout) => {
               const { schedule, startIndex, endIndex, lane } = layout;
-              const color = scheduleAccentColor(schedule, categoryColors);
+              const accentColor = scheduleAccentColor(schedule);
+              const cardColor = scheduleCardColor(schedule, categoryColors);
               const activeDraft =
                 interaction?.surface === "all-day" &&
                 interaction.scheduleId === schedule.schedule_id
                   ? interaction
                   : null;
-              const activeSpan = activeDraft?.targetAllDay === false
-                ? null
-                : activeDraft
-                ? allDaySpanIndexesFromDates(
-                    activeDraft.start,
-                    activeDraft.end,
-                    weekDates,
-                  )
-                : null;
+              const activeSpan =
+                activeDraft?.targetAllDay === false
+                  ? null
+                  : activeDraft
+                    ? allDaySpanIndexesFromDates(
+                        activeDraft.start,
+                        activeDraft.end,
+                        weekDates,
+                      )
+                    : null;
               const displayStartIndex = activeSpan?.startIndex ?? startIndex;
               const displayEndIndex = activeSpan?.endIndex ?? endIndex;
               const span = displayEndIndex - displayStartIndex + 1;
               const selected = activeScheduleId === schedule.schedule_id;
-              const readOnly = isCompanySchedule(schedule);
+              const preview = isPreviewSchedule(schedule);
+              const readOnly = isReadonlySchedule(schedule);
 
               return (
                 <div
@@ -7542,14 +10459,17 @@ function WeekScheduleGrid({
                     selected
                       ? "ring-2 ring-emerald-400 ring-offset-1"
                       : "hover:ring-1 hover:ring-emerald-200"
-                  }`}
+                  } ${preview ? "border border-dashed" : ""}`}
                   style={{
-                    top: 26 + lane * 24,
+                    top: 26 + holidayLaneCount * 24 + lane * 24,
                     left: `calc(${(displayStartIndex / dayCount) * 100}% + 4px)`,
                     width: `calc(${(span / dayCount) * 100}% - 8px)`,
-                    backgroundColor: colorWithAlpha(color, "18"),
-                    color,
-                    boxShadow: `inset 3px 0 0 ${color}, 0 0 0 1px ${colorWithAlpha(color, "30")}`,
+                    backgroundColor: colorWithAlpha(cardColor, "18"),
+                    borderColor: preview
+                      ? colorWithAlpha(cardColor, "80")
+                      : undefined,
+                    color: accentColor,
+                    boxShadow: `inset 3px 0 0 ${accentColor}, 0 0 0 1px ${colorWithAlpha(cardColor, "30")}`,
                   }}
                 >
                   {!readOnly && (
@@ -7572,7 +10492,11 @@ function WeekScheduleGrid({
                         role="presentation"
                         className="absolute inset-y-0 right-0 z-20 w-3 cursor-ew-resize rounded-r-md transition hover:bg-white/45"
                         onPointerDown={(event) =>
-                          beginAllDayInteraction(event, "resize-right", schedule)
+                          beginAllDayInteraction(
+                            event,
+                            "resize-right",
+                            schedule,
+                          )
                         }
                         onPointerMove={updateAllDayInteraction}
                         onPointerUp={endAllDayInteraction}
@@ -7584,12 +10508,21 @@ function WeekScheduleGrid({
                       />
                     </>
                   )}
+                  <PriorityDot schedule={schedule} className="pointer-events-none mr-1 align-middle" />
                   {readOnly && (
                     <span className="pointer-events-none mr-1 rounded bg-white/60 px-1 text-[10px]">
-                      회사
+                      {preview ? "미리보기" : "회사"}
                     </span>
                   )}
-                  <span className="pointer-events-none mr-1">{schedule.title}</span>
+                  {preview && (
+                    <PreviewPriorityBadge
+                      schedule={schedule}
+                      className="pointer-events-none mr-1"
+                    />
+                  )}
+                  <span className="pointer-events-none mr-1">
+                    {schedule.title}
+                  </span>
                   <span className="pointer-events-none font-medium opacity-80">
                     {schedulePreviewTimeLabel(schedule)}
                   </span>
@@ -7657,6 +10590,7 @@ function WeekScheduleGrid({
             {weekDates.map((day) => {
               const key = toDateKey(day);
               const selected = key === selectedKey;
+              const isHoliday = (holidaysByDate.get(key)?.length ?? 0) > 0;
 
               return (
                 <div
@@ -7669,42 +10603,42 @@ function WeekScheduleGrid({
                       setCreateInteraction(null);
                     }
                   }}
-                  onDoubleClick={(event) =>
-                    openCreateFromGridPointer(event, day)
-                  }
                   onContextMenu={(event) => showCreateContextMenu(event, day)}
-                  className={`relative border-r border-slate-100 transition hover:bg-emerald-50/20 last:border-r-0 ${weekdayColumnClass(day, selected)}`}
+                  className={`relative border-r border-slate-100 transition hover:bg-emerald-50/20 last:border-r-0 ${weekdayColumnClass(day, selected, isHoliday)}`}
                 />
               );
             })}
 
-            {createInteraction?.surface === "time" && (
-              <div
-                className="pointer-events-none absolute z-40 rounded-lg bg-emerald-100/85 px-2 py-1 text-xs font-semibold text-emerald-800 shadow-sm ring-1 ring-emerald-300"
-                style={scheduleBlockStyleFromDates(
-                  createInteraction.start,
-                  createInteraction.end,
-                  weekDates,
-                )}
-              >
-                <span className="block truncate">새 일정</span>
-                <span className="block truncate text-[10px] opacity-80">
-                  {formatTime(createInteraction.start.toISOString())} -{" "}
-                  {formatTime(createInteraction.end.toISOString())}
-                </span>
-              </div>
-            )}
+            {createInteraction?.surface === "time" &&
+              createInteraction.dragged && (
+                <div
+                  className="pointer-events-none absolute z-40 rounded-lg bg-emerald-100/85 px-2 py-1 text-xs font-semibold text-emerald-800 shadow-sm ring-1 ring-emerald-300"
+                  style={scheduleBlockStyleFromDates(
+                    createInteraction.start,
+                    createInteraction.end,
+                    weekDates,
+                  )}
+                >
+                  <span className="block truncate">새 일정</span>
+                  <span className="block truncate text-[10px] opacity-80">
+                    {formatTime(createInteraction.start.toISOString())} -{" "}
+                    {formatTime(createInteraction.end.toISOString())}
+                  </span>
+                </div>
+              )}
 
             {timedScheduleLayouts.map((layout) => {
               const { schedule, start, end, metrics, lane, laneCount } = layout;
-              const color = scheduleAccentColor(schedule, categoryColors);
+              const accentColor = scheduleAccentColor(schedule);
+              const cardColor = scheduleCardColor(schedule, categoryColors);
               const activeDraft =
                 interaction?.scheduleId === schedule.schedule_id
                   ? interaction
                   : null;
               const selected = activeScheduleId === schedule.schedule_id;
               const hovered = hoveredScheduleId === schedule.schedule_id;
-              const readOnly = isCompanySchedule(schedule);
+              const preview = isPreviewSchedule(schedule);
+              const readOnly = isReadonlySchedule(schedule);
               const blockStyle = scheduleBlockStyleFromMetrics(
                 metrics,
                 lane,
@@ -7741,26 +10675,29 @@ function WeekScheduleGrid({
                     }
                   }}
                   className={`absolute z-10 origin-top-left touch-none overflow-hidden rounded-lg px-2 py-1 text-left text-xs font-medium transition-[box-shadow,filter,opacity,transform,left,top,width,height] duration-150 ease-out hover:scale-[1.02] hover:brightness-95 focus:scale-[1.02] ${
-                    readOnly ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
+                    readOnly
+                      ? "cursor-pointer"
+                      : "cursor-grab active:cursor-grabbing"
                   } ${
                     selected
                       ? "ring-2 ring-emerald-400 ring-offset-1"
                       : "hover:ring-1 hover:ring-emerald-200"
-                  } ${activeDraft ? "opacity-45 saturate-75" : ""}`}
+                  } ${activeDraft ? "opacity-45 saturate-75" : ""} ${
+                    preview ? "border border-dashed" : ""
+                  }`}
                   style={{
                     ...blockStyle,
                     zIndex:
-                      selected || hovered
-                        ? 35
-                        : activeDraft
-                          ? 12
-                          : 10 + lane,
-                    backgroundColor: colorWithAlpha(color, "24"),
-                    borderLeft: `3px solid ${color}`,
-                    color,
+                      selected || hovered ? 35 : activeDraft ? 12 : 10 + lane,
+                    backgroundColor: colorWithAlpha(cardColor, "24"),
+                    borderLeft: `3px solid ${accentColor}`,
+                    borderColor: preview
+                      ? colorWithAlpha(cardColor, "80")
+                      : undefined,
+                    color: accentColor,
                     boxShadow: activeDraft
-                      ? `0 0 0 1px ${colorWithAlpha(color, "28")}`
-                      : `0 0 0 1px ${colorWithAlpha(color, "40")}`,
+                      ? `0 0 0 1px ${colorWithAlpha(cardColor, "28")}`
+                      : `0 0 0 1px ${colorWithAlpha(cardColor, "40")}`,
                   }}
                 >
                   {!readOnly && (
@@ -7817,12 +10754,22 @@ function WeekScheduleGrid({
                   )}
                   {readOnly && (
                     <span className="mb-0.5 inline-flex rounded bg-white/60 px-1 text-[10px] font-semibold">
-                      회사
+                      {preview ? "미리보기" : "회사"}
                     </span>
                   )}
-                  <span className="block truncate pr-2">{schedule.title}</span>
+                  {preview && (
+                    <PreviewPriorityBadge
+                      schedule={schedule}
+                      className="mb-0.5"
+                    />
+                  )}
+                  <span className="flex min-w-0 items-center gap-1.5 pr-2">
+                    <PriorityDot schedule={schedule} />
+                    <span className="min-w-0 truncate">{schedule.title}</span>
+                  </span>
                   <span className="block truncate pr-2 text-[10px] opacity-80">
-                    {formatTime(start.toISOString())} - {formatTime(end.toISOString())}
+                    {formatTime(start.toISOString())} -{" "}
+                    {formatTime(end.toISOString())}
                   </span>
                 </div>
               );
@@ -7832,80 +10779,82 @@ function WeekScheduleGrid({
               (interaction.surface !== "all-day" ||
                 interaction.targetAllDay === false) &&
               !interaction.settling && (
-              <div
-                className="pointer-events-none absolute z-40 rounded-lg bg-white/35 transition-[left,top,width,height,opacity] duration-150 ease-out"
-                style={{
-                  ...scheduleBlockStyleFromDates(
-                    interaction.start,
-                    interaction.end,
-                    weekDates,
-                  ),
-                  border: `1.5px solid ${scheduleAccentColor(
-                    interaction.schedule,
-                    categoryColors,
-                  )}`,
-                  boxShadow: `0 0 0 3px ${colorWithAlpha(
-                    scheduleAccentColor(interaction.schedule, categoryColors),
-                    "18",
-                  )}`,
-                }}
-              />
-            )}
+                <div
+                  className="pointer-events-none absolute z-40 rounded-lg bg-white/35 transition-[left,top,width,height,opacity] duration-150 ease-out"
+                  style={{
+                    ...scheduleBlockStyleFromDates(
+                      interaction.start,
+                      interaction.end,
+                      weekDates,
+                    ),
+                    border: `1.5px solid ${scheduleAccentColor(
+                      interaction.schedule,
+                      categoryColors,
+                    )}`,
+                    boxShadow: `0 0 0 3px ${colorWithAlpha(
+                      scheduleCardColor(interaction.schedule, categoryColors),
+                      "18",
+                    )}`,
+                  }}
+                />
+              )}
 
             {interaction &&
               (interaction.surface !== "all-day" ||
                 interaction.targetAllDay === false) && (
-              <div
-                className={`pointer-events-none absolute z-50 touch-none overflow-hidden rounded-lg px-2 py-1 text-left text-xs font-semibold shadow-2xl will-change-transform transition-[box-shadow,opacity,transform] ${
-                  interaction.settling
-                    ? "duration-[170ms] ease-out"
-                    : "duration-75 ease-out"
-                }`}
-                style={{
-                  ...scheduleBlockStyleFromDates(
-                    interaction.kind === "move" &&
+                <div
+                  className={`pointer-events-none absolute z-50 touch-none overflow-hidden rounded-lg px-2 py-1 text-left text-xs font-semibold shadow-2xl will-change-transform transition-[box-shadow,opacity,transform] ${
+                    interaction.settling
+                      ? "duration-[170ms] ease-out"
+                      : "duration-75 ease-out"
+                  }`}
+                  style={{
+                    ...scheduleBlockStyleFromDates(
+                      interaction.kind === "move" &&
+                        interaction.surface !== "all-day"
+                        ? interaction.originalStart
+                        : interaction.start,
+                      interaction.kind === "move" &&
+                        interaction.surface !== "all-day"
+                        ? interaction.originalEnd
+                        : interaction.end,
+                      weekDates,
+                    ),
+                    backgroundColor: colorWithAlpha(
+                      scheduleCardColor(interaction.schedule, categoryColors),
+                      "66",
+                    ),
+                    borderLeft: `3px solid ${scheduleAccentColor(
+                      interaction.schedule,
+                      categoryColors,
+                    )}`,
+                    color: scheduleAccentColor(
+                      interaction.schedule,
+                      categoryColors,
+                    ),
+                    boxShadow: `0 18px 34px rgba(15,23,42,0.18), 0 0 0 1.5px ${scheduleAccentColor(
+                      interaction.schedule,
+                      categoryColors,
+                    )}, inset 0 0 0 1px ${colorWithAlpha(
+                      scheduleCardColor(interaction.schedule, categoryColors),
+                      "55",
+                    )}`,
+                    transform:
+                      interaction.kind === "move" &&
                       interaction.surface !== "all-day"
-                      ? interaction.originalStart
-                      : interaction.start,
-                    interaction.kind === "move" &&
-                      interaction.surface !== "all-day"
-                      ? interaction.originalEnd
-                      : interaction.end,
-                    weekDates,
-                  ),
-                  backgroundColor: colorWithAlpha(
-                    scheduleAccentColor(interaction.schedule, categoryColors),
-                    "66",
-                  ),
-                  borderLeft: `3px solid ${scheduleAccentColor(
-                    interaction.schedule,
-                    categoryColors,
-                  )}`,
-                  color: scheduleAccentColor(interaction.schedule, categoryColors),
-                  boxShadow: `0 18px 34px rgba(15,23,42,0.18), 0 0 0 1.5px ${scheduleAccentColor(
-                    interaction.schedule,
-                    categoryColors,
-                  )}, inset 0 0 0 1px ${colorWithAlpha(
-                    scheduleAccentColor(interaction.schedule, categoryColors),
-                    "55",
-                  )}`,
-                  transform:
-                    interaction.kind === "move" &&
-                    interaction.surface !== "all-day"
-                      ? `translate3d(${interaction.previewOffsetX}px, ${interaction.previewOffsetY}px, 0) scale(1.01)`
-                      : "scale(1.01)",
-                }}
-              >
-                <span className="block truncate pr-2">
-                  {interaction.schedule.title}
-                </span>
-                <span className="block truncate pr-2 text-[10px] opacity-85">
-                  {formatTime(interaction.start.toISOString())} -{" "}
-                  {formatTime(interaction.end.toISOString())}
-                </span>
-              </div>
-            )}
-
+                        ? `translate3d(${interaction.previewOffsetX}px, ${interaction.previewOffsetY}px, 0) scale(1.01)`
+                        : "scale(1.01)",
+                  }}
+                >
+                  <span className="block truncate pr-2">
+                    {interaction.schedule.title}
+                  </span>
+                  <span className="block truncate pr-2 text-[10px] opacity-85">
+                    {formatTime(interaction.start.toISOString())} -{" "}
+                    {formatTime(interaction.end.toISOString())}
+                  </span>
+                </div>
+              )}
           </div>
         </div>
       </div>
@@ -7916,11 +10865,13 @@ function WeekScheduleGrid({
 export default function Schedules() {
   const [searchParams, setSearchParams] = useSearchParams();
   const classificationSettings = useClassificationSettings();
+  const { showHolidays } = useUserSettings();
   const deepLinkedScheduleIdParam = searchParams.get("schedule_id");
   const deepLinkedScheduleId = deepLinkedScheduleIdParam
     ? Number(deepLinkedScheduleIdParam)
     : null;
   const deepLinkedDate = searchParams.get("date");
+  const createPanelRequested = searchParams.get("create") === "1";
   const initialDate = deepLinkedDate ? new Date(deepLinkedDate) : new Date();
   const safeInitialDate = Number.isNaN(initialDate.getTime())
     ? new Date()
@@ -7929,10 +10880,14 @@ export default function Schedules() {
 
   const [scheduleView, setScheduleView] =
     useState<ScheduleCalendarView>("week");
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [desktopFiltersOpen, setDesktopFiltersOpen] = useState(false);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [visibleMonth, setVisibleMonth] = useState(
     () =>
       new Date(safeInitialDate.getFullYear(), safeInitialDate.getMonth(), 1),
+  );
+  const [visibleWindowStart, setVisibleWindowStart] = useState(() =>
+    monthCalendarWindowStart(safeInitialDate),
   );
   const [miniCalendarMonth, setMiniCalendarMonth] = useState(() => {
     const today = new Date();
@@ -7954,13 +10909,19 @@ export default function Schedules() {
   const [viewingSchedule, setViewingSchedule] = useState<Schedule | null>(null);
   const [draftCreateForm, setDraftCreateForm] =
     useState<ScheduleFormState | null>(null);
+  const [draftPreviewForms, setDraftPreviewForms] = useState<
+    ScheduleFormState[]
+  >([]);
   const [panelAnchorElement, setPanelAnchorElement] =
     useState<SchedulePanelAnchorElement>(null);
   const [filters, setFilters] = useState<ScheduleFilters>(() => {
     const completion = searchParams.get(
       "completion",
     ) as ScheduleCompletionFilter | null;
+    const keyword = searchParams.get("q") ?? "";
+    const legacyLocationKeyword = searchParams.get("location") ?? "";
     return {
+      owner: parseScheduleOwnerFilter(searchParams.get("owner")),
       scheduleTypes: parseScheduleTypeFilters(searchParams.get("type")),
       priorities: parseSchedulePriorityFilters(searchParams.get("priority")),
       categories: parseScheduleCategoryFilters(searchParams.get("category")),
@@ -7968,8 +10929,7 @@ export default function Schedules() {
         completion === "active" || completion === "completed"
           ? completion
           : "all",
-      q: searchParams.get("q") ?? "",
-      location: searchParams.get("location") ?? "",
+      q: keyword || legacyLocationKeyword,
     };
   });
 
@@ -7978,6 +10938,8 @@ export default function Schedules() {
   const deleteMutation = useDeleteSchedule();
   const bulkDeleteMutation = useDeleteSchedules();
   const categoriesQuery = useCategories("schedule");
+  const companyAdminMeQuery = useCompanyAdminMe();
+  const createCompanyScheduleMutation = useCreateCompanyAdminSchedule();
 
   const categoryColors = useMemo(
     () =>
@@ -7997,18 +10959,35 @@ export default function Schedules() {
     );
   }, [schedulePanelLayout]);
 
-  const toggleSchedulePanelLayout = useCallback(() => {
-    setSchedulePanelLayout((layout) =>
-      layout === "docked" ? "floating" : "docked",
-    );
+  useEffect(() => {
+    if (!searchParams.has("location")) return;
+
+    const params = new URLSearchParams(searchParams);
+    const legacyLocationKeyword = params.get("location")?.trim();
+    if (!params.get("q")?.trim() && legacyLocationKeyword) {
+      params.set("q", legacyLocationKeyword);
+    }
+    params.delete("location");
+    setSearchParams(params, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  const updateDraftPreviewForms = useCallback((forms: ScheduleFormState[]) => {
+    setDraftPreviewForms(forms);
   }, []);
 
   const clearDeepLinkParams = useCallback(() => {
-    if (!searchParams.has("schedule_id") && !searchParams.has("date")) return;
+    if (
+      !searchParams.has("schedule_id") &&
+      !searchParams.has("date") &&
+      !searchParams.has("create")
+    ) {
+      return;
+    }
 
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete("schedule_id");
     nextParams.delete("date");
+    nextParams.delete("create");
     setSearchParams(nextParams, { replace: true });
   }, [searchParams, setSearchParams]);
 
@@ -8019,6 +10998,11 @@ export default function Schedules() {
         const params = new URLSearchParams(searchParams);
         params.delete("schedule_id");
         params.delete("date");
+        params.delete("create");
+        params.delete("location");
+
+        if (next.owner === "all") params.delete("owner");
+        else params.set("owner", next.owner);
 
         if (next.scheduleTypes.length === 0) params.delete("type");
         else params.set("type", next.scheduleTypes.join(","));
@@ -8035,9 +11019,6 @@ export default function Schedules() {
         if (next.q.trim()) params.set("q", next.q.trim());
         else params.delete("q");
 
-        if (next.location.trim()) params.set("location", next.location.trim());
-        else params.delete("location");
-
         setSearchParams(params, { replace: true });
         return next;
       });
@@ -8050,6 +11031,8 @@ export default function Schedules() {
     const params = new URLSearchParams(searchParams);
     params.delete("schedule_id");
     params.delete("date");
+    params.delete("create");
+    params.delete("owner");
     params.delete("type");
     params.delete("priority");
     params.delete("category");
@@ -8060,33 +11043,52 @@ export default function Schedules() {
   }, [searchParams, setSearchParams]);
 
   const monthRange = useMemo(() => {
-    const start = new Date(
-      visibleMonth.getFullYear(),
-      visibleMonth.getMonth(),
-      -6,
-    );
+    const start = new Date(visibleWindowStart);
     start.setHours(0, 0, 0, 0);
-    const end = new Date(
-      visibleMonth.getFullYear(),
-      visibleMonth.getMonth() + 1,
-      7,
-    );
+    const end = new Date(visibleWindowStart);
+    end.setDate(visibleWindowStart.getDate() + 41);
     end.setHours(23, 59, 59, 999);
     return {
       startFrom: toOffsetISOString(start),
       startTo: toOffsetISOString(end),
+      startDate: toDateKey(start),
+      endDate: toDateKey(end),
     };
-  }, [visibleMonth]);
+  }, [visibleWindowStart]);
+  const miniCalendarHolidayRange = useMemo(() => {
+    const cells = buildFullMonthCells(miniCalendarMonth);
+    const first = cells[0]?.date ?? miniCalendarMonth;
+    const last = cells[cells.length - 1]?.date ?? miniCalendarMonth;
+
+    return {
+      start_date: toDateKey(first),
+      end_date: toDateKey(last),
+      public_only: true,
+    };
+  }, [miniCalendarMonth]);
 
   const schedulesQuery = useSchedules({
     start_from: monthRange.startFrom,
     start_to: monthRange.startTo,
-    view: "month",
   });
   const companySchedulesQuery = useCompanySchedules({
     start_from: monthRange.startFrom,
     start_to: monthRange.startTo,
   });
+  const holidaysQuery = useHolidaysInRange(
+    {
+      start_date: monthRange.startDate,
+      end_date: monthRange.endDate,
+      public_only: true,
+    },
+    {
+      enabled: showHolidays,
+    },
+  );
+  const miniCalendarHolidaysQuery = useHolidaysInRange(
+    miniCalendarHolidayRange,
+    { enabled: showHolidays },
+  );
   const data = schedulesQuery.data;
   const companySchedules = useMemo(
     () =>
@@ -8103,6 +11105,7 @@ export default function Schedules() {
   const refetchSchedules = () => {
     void schedulesQuery.refetch();
     void companySchedulesQuery.refetch();
+    if (showHolidays) void holidaysQuery.refetch();
   };
   const scheduleTypeFilterOptions = getClassificationOptions(
     classificationSettings,
@@ -8115,12 +11118,29 @@ export default function Schedules() {
     { enabledOnly: true, defaultOnly: true },
   );
 
-  const items = useMemo(() => {
+  const draftPreviewSchedules = useMemo(() => {
+    if (!panelMode || viewingSchedule || draftPreviewForms.length === 0) {
+      return [];
+    }
+
+    return draftPreviewForms
+      .map((form, index) =>
+        previewScheduleFromForm(
+          form,
+          index,
+          panelMode === "edit" && index === 0 ? editingSchedule : null,
+        ),
+      )
+      .filter((schedule): schedule is PreviewSchedule => schedule !== null);
+  }, [draftPreviewForms, editingSchedule, panelMode, viewingSchedule]);
+
+  const filteredItems = useMemo(() => {
     const keyword = filters.q.trim().toLowerCase();
-    const locationKeyword = filters.location.trim().toLowerCase();
     return [...(data ?? []), ...companySchedules]
       .map((schedule) => {
-        const optimisticTime = optimisticScheduleTimes.get(schedule.schedule_id);
+        const optimisticTime = optimisticScheduleTimes.get(
+          schedule.schedule_id,
+        );
         if (!optimisticTime) return schedule;
 
         return {
@@ -8131,6 +11151,12 @@ export default function Schedules() {
         };
       })
       .filter((schedule) => {
+        if (
+          filters.owner !== "all" &&
+          scheduleOwnerType(schedule) !== filters.owner
+        ) {
+          return false;
+        }
         if (filters.completion === "active" && schedule.is_completed) {
           return false;
         }
@@ -8162,10 +11188,6 @@ export default function Schedules() {
             `${schedule.title} ${schedule.description ?? ""} ${schedule.location ?? ""}`.toLowerCase();
           if (!haystack.includes(keyword)) return false;
         }
-        if (locationKeyword) {
-          const location = (schedule.location ?? "").toLowerCase();
-          if (!location.includes(locationKeyword)) return false;
-        }
         return true;
       })
       .sort(
@@ -8178,20 +11200,40 @@ export default function Schedules() {
     data,
     filters.categories,
     filters.completion,
-    filters.location,
+    filters.owner,
     filters.priorities,
     filters.q,
     filters.scheduleTypes,
     optimisticScheduleTimes,
   ]);
+
+  const items = useMemo(() => {
+    if (draftPreviewSchedules.length === 0) return filteredItems;
+
+    const previewIds = new Set(
+      draftPreviewSchedules.map((schedule) => schedule.schedule_id),
+    );
+
+    return [
+      ...filteredItems.filter(
+        (schedule) => !previewIds.has(schedule.schedule_id),
+      ),
+      ...draftPreviewSchedules,
+    ].sort(
+      (a, b) =>
+        new Date(a.start_datetime).getTime() -
+        new Date(b.start_datetime).getTime(),
+    );
+  }, [draftPreviewSchedules, filteredItems]);
+
   const activeFilterCount = useMemo(() => {
     let count = 0;
+    if (filters.owner !== "all") count += 1;
     if (filters.scheduleTypes.length > 0) count += 1;
     if (filters.priorities.length > 0) count += 1;
     if (filters.categories.length > 0) count += 1;
     if (filters.completion !== "all") count += 1;
     if (filters.q.trim()) count += 1;
-    if (filters.location.trim()) count += 1;
     return count;
   }, [filters]);
   const scheduleFilterChips = useMemo(() => {
@@ -8200,6 +11242,13 @@ export default function Schedules() {
       label: string;
       reset: Partial<ScheduleFilters>;
     }> = [];
+    if (filters.owner !== "all") {
+      chips.push({
+        key: "owner",
+        label: scheduleOwnerFilterLabel(filters.owner),
+        reset: { owner: "all" },
+      });
+    }
     filters.scheduleTypes.forEach((scheduleType) => {
       chips.push({
         key: `type-${scheduleType}`,
@@ -8261,26 +11310,26 @@ export default function Schedules() {
         reset: { q: "" },
       });
     }
-    if (filters.location.trim()) {
-      chips.push({
-        key: "location",
-        label: `장소 ${filters.location.trim()}`,
-        reset: { location: "" },
-      });
-    }
     return chips;
   }, [categoriesQuery.data, classificationSettings, filters]);
 
   const schedulesByDate = useMemo(() => {
-    const grouped = new Map<string, Schedule[]>();
-    for (const schedule of items) {
-      const key = toDateKey(schedule.start_datetime);
-      const bucket = grouped.get(key);
-      if (bucket) bucket.push(schedule);
-      else grouped.set(key, [schedule]);
-    }
-    return grouped;
+    return groupSchedulesByOverlappingDate(items);
   }, [items]);
+  const holidaysByDate = useMemo(
+    () =>
+      showHolidays
+        ? groupHolidaysByDate(holidaysQuery.data ?? [])
+        : new Map<string, Holiday[]>(),
+    [holidaysQuery.data, showHolidays],
+  );
+  const miniCalendarHolidaysByDate = useMemo(
+    () =>
+      showHolidays
+        ? groupHolidaysByDate(miniCalendarHolidaysQuery.data ?? [])
+        : new Map<string, Holiday[]>(),
+    [miniCalendarHolidaysQuery.data, showHolidays],
+  );
 
   const dateMeta = useMemo(() => {
     const meta = new Map<string, DayMeta>();
@@ -8296,19 +11345,24 @@ export default function Schedules() {
   }, [schedulesByDate]);
 
   const mainMonthCells = useMemo(
-    () => buildFullMonthCells(visibleMonth),
-    [visibleMonth],
+    () =>
+      buildFullMonthCells(visibleMonth, {
+        fixedWeeks: 6,
+        startDate: visibleWindowStart,
+      }),
+    [visibleMonth, visibleWindowStart],
   );
 
   const selectedKey = toDateKey(selectedDate);
   const todayKey = toDateKey(new Date());
   const todayWeekDates = useMemo(() => buildWeekDates(new Date()), []);
   const selectedSchedules = useMemo(
-    () => items.filter((schedule) => scheduleOverlapsDay(schedule, selectedDate)),
+    () =>
+      items.filter((schedule) => scheduleOverlapsDay(schedule, selectedDate)),
     [items, selectedDate],
   );
   const editableSelectedSchedules = useMemo(
-    () => selectedSchedules.filter((schedule) => !isCompanySchedule(schedule)),
+    () => selectedSchedules.filter((schedule) => !isReadonlySchedule(schedule)),
     [selectedSchedules],
   );
   const weekDates = useMemo(() => buildWeekDates(selectedDate), [selectedDate]);
@@ -8324,13 +11378,15 @@ export default function Schedules() {
       ),
     );
   }, [items, weekDates]);
-  const monthVisibleSchedules = useMemo(
-    () =>
-      mainMonthCells.flatMap(
-        (cell) => schedulesByDate.get(toDateKey(cell.date)) ?? [],
-      ),
-    [mainMonthCells, schedulesByDate],
-  );
+  const monthVisibleSchedules = useMemo(() => {
+    const byId = new Map<number, Schedule>();
+    for (const cell of mainMonthCells) {
+      for (const schedule of schedulesByDate.get(toDateKey(cell.date)) ?? []) {
+        byId.set(schedule.schedule_id, schedule);
+      }
+    }
+    return [...byId.values()];
+  }, [mainMonthCells, schedulesByDate]);
   const currentViewSchedules =
     scheduleView === "month"
       ? monthVisibleSchedules
@@ -8434,6 +11490,7 @@ export default function Schedules() {
     setVisibleMonth(
       new Date(targetDate.getFullYear(), targetDate.getMonth(), 1),
     );
+    setVisibleWindowStart(monthCalendarWindowStart(targetDate));
     deepLinkHandledRef.current = true;
 
     requestAnimationFrame(() => {
@@ -8447,7 +11504,9 @@ export default function Schedules() {
     clearDeepLinkParams();
     setVisibleMonth((prev) => {
       const next = new Date(prev.getFullYear(), prev.getMonth() + offset, 1);
-      setSelectedDate(new Date(next.getFullYear(), next.getMonth(), 1));
+      const nextSelectedDate = new Date(next.getFullYear(), next.getMonth(), 1);
+      setSelectedDate(nextSelectedDate);
+      setVisibleWindowStart(monthCalendarWindowStart(next));
       return next;
     });
   };
@@ -8470,7 +11529,9 @@ export default function Schedules() {
     }
 
     const next = new Date(selectedDate);
-    next.setDate(selectedDate.getDate() + offset * (scheduleView === "week" ? 7 : 1));
+    next.setDate(
+      selectedDate.getDate() + offset * (scheduleView === "week" ? 7 : 1),
+    );
     selectDate(next);
   };
 
@@ -8479,6 +11540,16 @@ export default function Schedules() {
     setSelectedScheduleIds(new Set());
     setSelectedDate(date);
     setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+    setVisibleWindowStart(monthCalendarWindowStart(date));
+  };
+
+  const moveVisibleWeek = (offset: number) => {
+    clearDeepLinkParams();
+    setVisibleWindowStart((prev) => {
+      const next = addDays(prev, offset * 7);
+      setVisibleMonth(dominantMonthInWindow(next));
+      return next;
+    });
   };
 
   const toggleScheduleSelection = (scheduleId: number) => {
@@ -8492,7 +11563,9 @@ export default function Schedules() {
 
   const selectAllCurrentDaySchedules = () => {
     setSelectedScheduleIds(
-      new Set(editableSelectedSchedules.map((schedule) => schedule.schedule_id)),
+      new Set(
+        editableSelectedSchedules.map((schedule) => schedule.schedule_id),
+      ),
     );
   };
 
@@ -8517,25 +11590,78 @@ export default function Schedules() {
     );
   };
 
+  const closeFilters = () => {
+    setDesktopFiltersOpen(false);
+    setMobileFiltersOpen(false);
+  };
+
+  const updateOwnerView = (owner: ScheduleOwnerFilter) => {
+    updateFilters({ owner });
+  };
+
   const openCreatePanel = (
     date = selectedDate,
     anchorElement: SchedulePanelAnchorElement = null,
     draft?: ScheduleCreateDraft,
+    options?: OpenCreatePanelOptions,
   ) => {
-    selectDate(date);
+    closeFilters();
+    if (options?.selectTargetDate !== false) {
+      selectDate(date);
+    } else {
+      clearDeepLinkParams();
+      setSelectedScheduleIds(new Set());
+    }
     setPanelAnchorElement(anchorElement);
     setViewingSchedule(null);
     setEditingSchedule(null);
     setDraftCreateForm(draft ? formFromCreateDraft(draft) : null);
+    setDraftPreviewForms([]);
     setPanelMode("create");
   };
+
+  const openCreateSidebarPanel = (
+    date = selectedDate,
+    draft?: ScheduleCreateDraft,
+    options?: OpenCreatePanelOptions,
+  ) => {
+    setSchedulePanelLayout("docked");
+    openCreatePanel(
+      date,
+      null,
+      scheduleView === "month"
+        ? {
+            ...(draft ?? allDayCreateDraftForDate(date)),
+            allDay: true,
+          }
+        : draft,
+      options,
+    );
+  };
+
+  useEffect(() => {
+    if (!createPanelRequested) return;
+
+    const requestedDate = deepLinkedDate
+      ? new Date(`${deepLinkedDate}T00:00:00`)
+      : selectedDate;
+    const safeRequestedDate = Number.isNaN(requestedDate.getTime())
+      ? selectedDate
+      : requestedDate;
+
+    openCreateSidebarPanel(safeRequestedDate);
+  }, [createPanelRequested, deepLinkedDate]);
 
   const openEditPanel = (
     schedule: Schedule,
     anchorElement: SchedulePanelAnchorElement = null,
   ) => {
+    if (isPreviewSchedule(schedule)) return;
+
+    closeFilters();
     setPanelAnchorElement(anchorElement);
     setDraftCreateForm(null);
+    setDraftPreviewForms([]);
 
     if (isCompanySchedule(schedule)) {
       setEditingSchedule(null);
@@ -8555,6 +11681,10 @@ export default function Schedules() {
     end: Date,
     options?: ScheduleTimeChangeOptions,
   ) => {
+    if (isPreviewSchedule(schedule)) {
+      return;
+    }
+
     if (isCompanySchedule(schedule)) {
       toast.info("회사 일정은 조회 전용입니다.");
       return;
@@ -8599,13 +11729,14 @@ export default function Schedules() {
     setEditingSchedule(null);
     setViewingSchedule(null);
     setDraftCreateForm(null);
+    setDraftPreviewForms([]);
     setPanelAnchorElement(null);
   };
 
   const formInitial =
     panelMode === "edit" && editingSchedule
       ? formFromSchedule(editingSchedule)
-      : draftCreateForm ?? emptyFormForDate(selectedDate);
+      : (draftCreateForm ?? emptyFormForDate(selectedDate));
 
   const panelKey =
     panelMode === "edit" && editingSchedule
@@ -8614,17 +11745,14 @@ export default function Schedules() {
           draftCreateForm ? scheduleFormSignature(draftCreateForm) : selectedKey
         }`;
 
-  const allDaySchedules = selectedSchedules.filter(
-    isAllDayLikeSchedule,
-  );
+  const allDaySchedules = selectedSchedules.filter(isAllDayLikeSchedule);
   const timedSchedules = selectedSchedules.filter(
     (schedule) => !isAllDayLikeSchedule(schedule),
   );
   const schedulePanelOpen = panelMode !== null || viewingSchedule !== null;
-  const dockedPanelOpen =
-    schedulePanelOpen && schedulePanelLayout === "docked";
-  const floatingPanelOpen =
-    schedulePanelOpen && schedulePanelLayout === "floating";
+  const sidePanelOpen = schedulePanelOpen;
+  const dockedPanelOpen = sidePanelOpen && schedulePanelLayout === "docked";
+  const floatingPanelOpen = sidePanelOpen && schedulePanelLayout === "floating";
   const floatingPanelStyle = useSchedulePanelFloatingStyle(
     panelAnchorElement,
     floatingPanelOpen,
@@ -8634,12 +11762,193 @@ export default function Schedules() {
     <AppShell
       fullBleed
       titleMeta={currentViewSummary}
+      headerActions={
+        <div
+          className={`flex items-center gap-1 transition-[margin] ${
+            dockedPanelOpen ? "min-[600px]:mr-[300px] lg:mr-[340px]" : ""
+          }`}
+        >
+          <div className="flex items-center gap-1 rounded-lg bg-slate-50 px-1.5 py-1">
+            <Popover
+              open={desktopFiltersOpen}
+              onOpenChange={(open) => {
+                setDesktopFiltersOpen(open);
+                if (open) setMobileFiltersOpen(false);
+              }}
+            >
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="검색 및 필터"
+                  title="검색 및 필터"
+                  className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border shadow-sm transition ${
+                    desktopFiltersOpen || activeFilterCount > 0
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                  }`}
+                >
+                  <Search className="h-4 w-4" />
+                  {activeFilterCount > 0 && (
+                    <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-emerald-600 px-1 text-[10px] font-semibold leading-4 text-white ring-2 ring-white">
+                      {activeFilterCount}
+                    </span>
+                  )}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                data-schedule-filter-panel
+                align="start"
+                sideOffset={8}
+                collisionPadding={12}
+                onInteractOutside={(event) => {
+                  const target = event.target;
+                  if (
+                    target instanceof Element &&
+                    target.closest("[data-schedule-filter-menu]")
+                  ) {
+                    event.preventDefault();
+                  }
+                }}
+                className="z-[160] w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-slate-200 bg-white p-0 text-slate-900 shadow-xl shadow-slate-900/10"
+              >
+                <ScheduleFilterPanel
+                  filters={filters}
+                  activeCount={activeFilterCount}
+                  scheduleTypeOptions={scheduleTypeFilterOptions.map(
+                    (option) => ({
+                      key: option.key,
+                      value: option.value,
+                      label:
+                        scheduleTypeSelectMeta[option.value]?.label ??
+                        option.label,
+                      colorDot: scheduleTypeSelectMeta[option.value]?.color,
+                    }),
+                  )}
+                  priorityOptions={priorityFilterOptions.map((option) => ({
+                    key: option.key,
+                    value: option.value,
+                    label: option.label,
+                    colorDot: prioritySelectMeta[option.value]?.color,
+                  }))}
+                  categoryOptions={(categoriesQuery.data ?? []).map(
+                    (category) => ({
+                      key: String(category.category_id),
+                      value: category.category_id,
+                      label: category.name,
+                      colorDot: category.color || fallbackCategoryColor,
+                    }),
+                  )}
+                  onUpdate={updateFilters}
+                  onReset={resetFilters}
+                  onClose={() => setDesktopFiltersOpen(false)}
+                />
+              </PopoverContent>
+            </Popover>
+            <ScheduleOwnerViewSelector
+              value={filters.owner}
+              onChange={updateOwnerView}
+            />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-8 min-w-14 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-900 shadow-sm transition hover:bg-slate-50"
+                  aria-label="보기 선택"
+                >
+                  {selectedScheduleViewOption.label}
+                  <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="w-48 border-slate-800 bg-neutral-900 p-1.5 text-slate-100 shadow-xl"
+              >
+                {scheduleViewOptions.map((option) => (
+                  <DropdownMenuItem
+                    key={option.value}
+                    onSelect={() => setScheduleView(option.value)}
+                    className={`gap-3 rounded-md px-2.5 py-2 text-sm text-slate-200 focus:bg-neutral-800 focus:text-white ${
+                      scheduleView === option.value ? "bg-neutral-800" : ""
+                    }`}
+                  >
+                    <span className="flex h-4 w-4 items-center justify-center text-emerald-400">
+                      {scheduleView === option.value && (
+                        <Check className="h-4 w-4" />
+                      )}
+                    </span>
+                    <span
+                      className={`font-medium ${
+                        scheduleView === option.value
+                          ? "text-emerald-200"
+                          : "text-slate-100"
+                      }`}
+                    >
+                      {option.label}
+                    </span>
+                    <span className="ml-auto text-xs text-slate-500">
+                      {option.shortcut}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <button
+              type="button"
+              onClick={() => {
+                const today = new Date();
+                selectDate(today);
+              }}
+              className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 shadow-sm transition hover:bg-slate-50"
+            >
+              오늘
+            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => moveCurrentRange(-1)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-white hover:text-slate-900"
+                aria-label={scheduleView === "month" ? "이전 달" : "이전 범위"}
+              >
+                {scheduleView === "month" ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronLeft className="h-4 w-4" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => moveCurrentRange(1)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-white hover:text-slate-900"
+                aria-label={scheduleView === "month" ? "다음 달" : "다음 범위"}
+              >
+                {scheduleView === "month" ? (
+                  <ChevronDown className="h-4 w-4" />
+                ) : (
+                  <ChevronRight className="h-4 w-4" />
+                )}
+              </button>
+            </div>
+          </div>
+          {!dockedPanelOpen && (
+            <button
+              type="button"
+              onClick={() => openCreateSidebarPanel()}
+              aria-label="일정 추가 사이드바 열기"
+              title="일정 추가 사이드바 열기"
+              className={scheduleSidebarToggleButtonClass}
+            >
+              <PanelRight className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      }
       sidebarExtra={
         scheduleView !== "month" ? (
           <MiniCalendar
             visibleMonth={miniCalendarMonth}
             selectedKey={todayKey}
             dateMeta={dateMeta}
+            holidaysByDate={miniCalendarHolidaysByDate}
             weekDates={todayWeekDates}
             onMoveMonth={moveMiniCalendarMonth}
             onResetMonth={resetMiniCalendarMonth}
@@ -8680,103 +11989,180 @@ export default function Schedules() {
 
         <div
           className={`grid h-full min-h-0 gap-0 ${
-            dockedPanelOpen
-              ? "xl:grid-cols-[minmax(0,1fr)_340px]"
-              : "xl:grid-cols-1"
+            sidePanelOpen
+              ? dockedPanelOpen
+                ? "md:grid-cols-[minmax(0,1fr)_300px] lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_340px]"
+                : "md:grid-cols-[minmax(0,1fr)_300px] lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-1"
+              : "md:grid-cols-1 xl:grid-cols-1"
           }`}
         >
           <section className="flex min-h-0 min-w-0 flex-col overflow-hidden border-x border-slate-200 bg-white">
-            <div className="flex flex-wrap items-center justify-end gap-2 border-b border-slate-100 bg-white px-4 py-2">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className="inline-flex h-8 min-w-20 items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 shadow-sm transition hover:bg-slate-50"
-                      aria-label="보기 선택"
-                    >
-                      {selectedScheduleViewOption.label}
-                      <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    align="end"
-                    className="w-48 border-slate-800 bg-neutral-900 p-1.5 text-slate-100 shadow-xl"
+            <div className="flex flex-wrap items-center justify-end gap-2 border-b border-slate-100 bg-white px-4 py-2 min-[600px]:hidden">
+              <Popover
+                open={mobileFiltersOpen}
+                onOpenChange={(open) => {
+                  setMobileFiltersOpen(open);
+                  if (open) setDesktopFiltersOpen(false);
+                }}
+              >
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="검색 및 필터"
+                    title="검색 및 필터"
+                    className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border shadow-sm transition ${
+                      mobileFiltersOpen || activeFilterCount > 0
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                    }`}
                   >
-                    {scheduleViewOptions.map((option) => (
-                      <DropdownMenuItem
-                        key={option.value}
-                        onSelect={() => setScheduleView(option.value)}
-                        className={`gap-3 rounded-md px-2.5 py-2 text-sm text-slate-200 focus:bg-neutral-800 focus:text-white ${
-                          scheduleView === option.value ? "bg-neutral-800" : ""
+                    <Search className="h-4 w-4" />
+                    {activeFilterCount > 0 && (
+                      <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-emerald-600 px-1 text-[10px] font-semibold leading-4 text-white ring-2 ring-white">
+                        {activeFilterCount}
+                      </span>
+                    )}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  data-schedule-filter-panel
+                  align="start"
+                  sideOffset={8}
+                  collisionPadding={12}
+                  onInteractOutside={(event) => {
+                    const target = event.target;
+                    if (
+                      target instanceof Element &&
+                      target.closest("[data-schedule-filter-menu]")
+                    ) {
+                      event.preventDefault();
+                    }
+                  }}
+                  className="z-[160] w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-slate-200 bg-white p-0 text-slate-900 shadow-xl shadow-slate-900/10"
+                >
+                  <ScheduleFilterPanel
+                    filters={filters}
+                    activeCount={activeFilterCount}
+                    scheduleTypeOptions={scheduleTypeFilterOptions.map(
+                      (option) => ({
+                        key: option.key,
+                        value: option.value,
+                        label:
+                          scheduleTypeSelectMeta[option.value]?.label ??
+                          option.label,
+                        colorDot: scheduleTypeSelectMeta[option.value]?.color,
+                      }),
+                    )}
+                    priorityOptions={priorityFilterOptions.map((option) => ({
+                      key: option.key,
+                      value: option.value,
+                      label: option.label,
+                      colorDot: prioritySelectMeta[option.value]?.color,
+                    }))}
+                    categoryOptions={(categoriesQuery.data ?? []).map(
+                      (category) => ({
+                        key: String(category.category_id),
+                        value: category.category_id,
+                        label: category.name,
+                        colorDot: category.color || fallbackCategoryColor,
+                      }),
+                    )}
+                    onUpdate={updateFilters}
+                    onReset={resetFilters}
+                    onClose={() => setMobileFiltersOpen(false)}
+                  />
+                </PopoverContent>
+              </Popover>
+              <ScheduleOwnerViewSelector
+                value={filters.owner}
+                onChange={updateOwnerView}
+              />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex h-8 min-w-14 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-900 shadow-sm transition hover:bg-slate-50"
+                    aria-label="보기 선택"
+                  >
+                    {selectedScheduleViewOption.label}
+                    <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="w-48 border-slate-800 bg-neutral-900 p-1.5 text-slate-100 shadow-xl"
+                >
+                  {scheduleViewOptions.map((option) => (
+                    <DropdownMenuItem
+                      key={option.value}
+                      onSelect={() => setScheduleView(option.value)}
+                      className={`gap-3 rounded-md px-2.5 py-2 text-sm text-slate-200 focus:bg-neutral-800 focus:text-white ${
+                        scheduleView === option.value ? "bg-neutral-800" : ""
+                      }`}
+                    >
+                      <span className="flex h-4 w-4 items-center justify-center text-emerald-400">
+                        {scheduleView === option.value && (
+                          <Check className="h-4 w-4" />
+                        )}
+                      </span>
+                      <span
+                        className={`font-medium ${
+                          scheduleView === option.value
+                            ? "text-emerald-200"
+                            : "text-slate-100"
                         }`}
                       >
-                        <span className="flex h-4 w-4 items-center justify-center text-emerald-400">
-                          {scheduleView === option.value && (
-                            <Check className="h-4 w-4" />
-                          )}
-                        </span>
-                        <span
-                          className={`font-medium ${
-                            scheduleView === option.value
-                              ? "text-emerald-200"
-                              : "text-slate-100"
-                          }`}
-                        >
-                          {option.label}
-                        </span>
-                        <span className="ml-auto text-xs text-slate-500">
-                          {option.shortcut}
-                        </span>
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                        {option.label}
+                      </span>
+                      <span className="ml-auto text-xs text-slate-500">
+                        {option.shortcut}
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <button
+                type="button"
+                onClick={() => {
+                  const today = new Date();
+                  selectDate(today);
+                }}
+                className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 shadow-sm transition hover:bg-slate-50"
+              >
+                오늘
+              </button>
+              <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  onClick={() => {
-                    const today = new Date();
-                    selectDate(today);
-                  }}
-                  className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 shadow-sm transition hover:bg-slate-50"
+                  onClick={() => moveCurrentRange(-1)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                  aria-label={
+                    scheduleView === "month" ? "이전 달" : "이전 범위"
+                  }
                 >
-                  오늘
-                </button>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => moveCurrentRange(-1)}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
-                    aria-label="이전 범위"
-                  >
+                  {scheduleView === "month" ? (
+                    <ChevronUp className="h-4 w-4" />
+                  ) : (
                     <ChevronLeft className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => moveCurrentRange(1)}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
-                    aria-label="다음 범위"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setFiltersOpen((open) => !open)}
-                  className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ${
-                    filtersOpen
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                  }`}
-                >
-                  <SlidersHorizontal className="h-4 w-4" />
-                  필터
-                  {activeFilterCount > 0 && (
-                    <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] leading-none text-white">
-                      {activeFilterCount}
-                    </span>
                   )}
                 </button>
-                {scheduleView === "day" && editableSelectedSchedules.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => moveCurrentRange(1)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                  aria-label={
+                    scheduleView === "month" ? "다음 달" : "다음 범위"
+                  }
+                >
+                  {scheduleView === "month" ? (
+                    <ChevronDown className="h-4 w-4" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+              {scheduleView === "day" &&
+                editableSelectedSchedules.length > 0 && (
                   <>
                     <button
                       type="button"
@@ -8809,20 +12195,44 @@ export default function Schedules() {
                     </button>
                   </>
                 )}
+            </div>
+
+            {scheduleView === "day" && editableSelectedSchedules.length > 0 && (
+              <div className="hidden items-center justify-end gap-2 border-b border-slate-100 bg-white px-4 py-2 min-[600px]:flex">
                 <button
                   type="button"
-                  onClick={(event) =>
-                    openCreatePanel(selectedDate, event.currentTarget)
-                  }
-                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+                  onClick={selectAllCurrentDaySchedules}
+                  className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
                 >
-                  <CalendarDays className="h-4 w-4" />+ 일정 추가
+                  전체 선택
+                </button>
+                <button
+                  type="button"
+                  onClick={clearSelectedSchedules}
+                  disabled={selectedScheduleCount === 0}
+                  className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  선택 해제
+                </button>
+                <button
+                  type="button"
+                  onClick={deleteSelectedSchedules}
+                  disabled={
+                    selectedScheduleCount === 0 || bulkDeleteMutation.isPending
+                  }
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {bulkDeleteMutation.isPending
+                    ? "삭제 중..."
+                    : `선택 삭제 ${selectedScheduleCount || ""}`.trim()}
                 </button>
               </div>
+            )}
 
             {scheduleFilterChips.length > 0 && (
-              <div className="border-b border-slate-100 px-5 py-3">
-                <div className="flex flex-wrap items-center gap-2">
+              <div className="border-b border-slate-100 px-4 py-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   {scheduleFilterChips.map((chip) => (
                     <button
                       key={chip.key}
@@ -8847,142 +12257,13 @@ export default function Schedules() {
               </div>
             )}
 
-            {filtersOpen && (
-              <div className="relative z-20 border-b border-slate-100 bg-slate-50/60 px-5 py-4">
-                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-lg shadow-slate-200/70">
-                  <div className="grid gap-3 xl:grid-cols-[1.35fr_1fr_1fr_1fr]">
-                    <label className="block">
-                      <span className="text-xs font-medium text-slate-600">
-                        검색
-                      </span>
-                      <div className="relative mt-1">
-                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                        <input
-                          type="search"
-                          value={filters.q}
-                          onChange={(event) =>
-                            updateFilters({ q: event.target.value })
-                          }
-                          placeholder="Title, description, location"
-                          className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50/70 px-9 text-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
-                        />
-                      </div>
-                    </label>
-
-                    <InlineFilterGroup
-                      label="일정 유형"
-                      selectedValues={filters.scheduleTypes}
-                      options={scheduleTypeFilterOptions.map((option) => ({
-                        key: option.key,
-                        value: option.value,
-                        label: option.label,
-                      }))}
-                      visibleCount={4}
-                      onClear={() => updateFilters({ scheduleTypes: [] })}
-                      onToggle={(value) => {
-                        const selected = filters.scheduleTypes.includes(value);
-                        updateFilters({
-                          scheduleTypes: selected
-                            ? filters.scheduleTypes.filter(
-                                (item) => item !== value,
-                              )
-                            : [...filters.scheduleTypes, value],
-                        });
-                      }}
-                    />
-
-                    <InlineFilterGroup
-                      label="우선순위"
-                      selectedValues={filters.priorities}
-                      options={priorityFilterOptions.map((option) => ({
-                        key: option.key,
-                        value: option.value,
-                        label: option.label,
-                      }))}
-                      visibleCount={4}
-                      onClear={() => updateFilters({ priorities: [] })}
-                      onToggle={(value) => {
-                        const selected = filters.priorities.includes(value);
-                        updateFilters({
-                          priorities: selected
-                            ? filters.priorities.filter(
-                                (item) => item !== value,
-                              )
-                            : [...filters.priorities, value],
-                        });
-                      }}
-                    />
-
-                    <InlineFilterGroup
-                      label="카테고리"
-                      selectedValues={filters.categories}
-                      options={(categoriesQuery.data ?? []).map((category) => ({
-                        key: String(category.category_id),
-                        value: category.category_id,
-                        label: category.name,
-                      }))}
-                      visibleCount={1}
-                      onClear={() => updateFilters({ categories: [] })}
-                      onToggle={(value) => {
-                        const selected = filters.categories.includes(value);
-                        updateFilters({
-                          categories: selected
-                            ? filters.categories.filter(
-                                (item) => item !== value,
-                              )
-                            : [...filters.categories, value],
-                        });
-                      }}
-                    />
-                  </div>
-
-                  <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_1fr]">
-                    <label className="block">
-                      <span className="text-xs font-medium text-slate-600">
-                        장소
-                      </span>
-                      <input
-                        type="search"
-                        value={filters.location}
-                        onChange={(event) =>
-                          updateFilters({ location: event.target.value })
-                        }
-                        placeholder="장소 키워드"
-                        className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
-                      />
-                    </label>
-
-                    <label className="block">
-                      <span className="text-xs font-medium text-slate-600">
-                        Completion
-                      </span>
-                      <select
-                        value={filters.completion}
-                        onChange={(event) =>
-                          updateFilters({
-                            completion: event.target
-                              .value as ScheduleCompletionFilter,
-                          })
-                        }
-                        className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-slate-50/70 px-3 text-sm outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
-                      >
-                        <option value="all">전체</option>
-                        <option value="active">미완료</option>
-                        <option value="completed">완료</option>
-                      </select>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            )}
-
             <div
               className={
                 scheduleView === "week"
                   ? "min-h-0 flex-1 overflow-hidden p-0"
                   : scheduleView === "month"
                     ? "min-h-0 flex-1 overflow-auto p-0"
-                    : "min-h-0 flex-1 overflow-auto p-5"
+                    : "scrollbar-none min-h-0 flex-1 overflow-auto p-5"
               }
             >
               {isLoading ? (
@@ -8998,6 +12279,7 @@ export default function Schedules() {
                 <MonthScheduleGrid
                   cells={mainMonthCells}
                   schedulesByDate={schedulesByDate}
+                  holidaysByDate={holidaysByDate}
                   selectedKey={selectedKey}
                   categoryColors={categoryColors}
                   activeScheduleId={
@@ -9009,19 +12291,24 @@ export default function Schedules() {
                     selectDate(date);
                     setScheduleView("day");
                   }}
-                  onCreateDay={(date, anchorElement, draft) =>
-                    openCreatePanel(date, anchorElement, draft)
+                  onCreateDay={(date, _anchorElement, draft) =>
+                    openCreateSidebarPanel(date, draft, {
+                      selectTargetDate: false,
+                    })
                   }
                   onOpenSchedule={(schedule, anchorElement) => {
+                    if (isPreviewSchedule(schedule)) return;
                     selectDate(new Date(schedule.start_datetime));
                     openEditPanel(schedule, anchorElement);
                   }}
                   onScheduleTimeChange={moveScheduleOnCalendar}
+                  onMoveWeek={moveVisibleWeek}
                 />
               ) : scheduleView === "week" ? (
                 <WeekScheduleGrid
                   weekDates={weekDates}
                   schedulesByDate={schedulesByDate}
+                  holidaysByDate={holidaysByDate}
                   selectedKey={selectedKey}
                   categoryColors={categoryColors}
                   activeScheduleId={
@@ -9037,6 +12324,7 @@ export default function Schedules() {
                     openCreatePanel(date, anchorElement, draft)
                   }
                   onOpenSchedule={(schedule, anchorElement) => {
+                    if (isPreviewSchedule(schedule)) return;
                     selectDate(new Date(schedule.start_datetime));
                     openEditPanel(schedule, anchorElement);
                   }}
@@ -9046,6 +12334,7 @@ export default function Schedules() {
                 <WeekScheduleGrid
                   weekDates={[selectedDate]}
                   schedulesByDate={schedulesByDate}
+                  holidaysByDate={holidaysByDate}
                   selectedKey={selectedKey}
                   categoryColors={categoryColors}
                   activeScheduleId={
@@ -9058,6 +12347,7 @@ export default function Schedules() {
                     openCreatePanel(date, anchorElement, draft)
                   }
                   onOpenSchedule={(schedule, anchorElement) => {
+                    if (isPreviewSchedule(schedule)) return;
                     selectDate(new Date(schedule.start_datetime));
                     openEditPanel(schedule, anchorElement);
                   }}
@@ -9158,7 +12448,6 @@ export default function Schedules() {
               onClose={closePanel}
               floatingStyle={floatingPanelStyle}
               panelLayout={schedulePanelLayout}
-              onTogglePanelLayout={toggleSchedulePanelLayout}
             />
           )}
 
@@ -9170,15 +12459,29 @@ export default function Schedules() {
               schedule={editingSchedule}
               isPending={
                 panelMode === "edit"
-                  ? updateMutation.isPending || createSchedulesMutation.isPending
+                  ? updateMutation.isPending ||
+                    createSchedulesMutation.isPending
                   : panelMode === "create" || panelMode === "repeat"
-                  ? createSchedulesMutation.isPending
-                  : updateMutation.isPending
+                    ? createSchedulesMutation.isPending ||
+                      createCompanyScheduleMutation.isPending
+                    : updateMutation.isPending
               }
               onClose={closePanel}
+              onPreviewChange={updateDraftPreviewForms}
+              companyName={companyAdminMeQuery.data?.company?.name}
+              onCompanySubmit={async (payload) => {
+                const createdSchedule =
+                  await createCompanyScheduleMutation.mutateAsync(payload);
+                const start = new Date(
+                  createdSchedule?.start_datetime ?? payload.start_datetime,
+                );
+                if (!Number.isNaN(start.getTime())) {
+                  selectDate(start);
+                }
+                closePanel();
+              }}
               floatingStyle={floatingPanelStyle}
               panelLayout={schedulePanelLayout}
-              onTogglePanelLayout={toggleSchedulePanelLayout}
               deletePending={deleteMutation.isPending}
               onDelete={
                 panelMode === "edit" && editingSchedule
@@ -9196,16 +12499,18 @@ export default function Schedules() {
                 if (intent === "repeat" && editingSchedule) {
                   const [baseForm, ...additionalForms] = forms;
                   if (baseForm) {
-                    await updateMutation.mutateAsync({
+                    const updatedSchedule = await updateMutation.mutateAsync({
                       scheduleId: editingSchedule.schedule_id,
                       payload: toPayload(baseForm),
                     });
+                    setEditingSchedule(updatedSchedule);
                   }
                   if (additionalForms.length > 0) {
                     await createSchedulesMutation.mutateAsync(
                       additionalForms.map((form) => toPayload(form)),
                     );
                   }
+                  closePanel();
                   return;
                 }
 
@@ -9224,10 +12529,12 @@ export default function Schedules() {
                   }
                   closePanel();
                 } else if (editingSchedule) {
-                  await updateMutation.mutateAsync({
+                  const updatedSchedule = await updateMutation.mutateAsync({
                     scheduleId: editingSchedule.schedule_id,
                     payload: toPayload(forms[0]),
                   });
+                  setEditingSchedule(updatedSchedule);
+                  closePanel();
                 }
               }}
             />

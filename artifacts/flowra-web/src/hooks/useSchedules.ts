@@ -36,6 +36,7 @@ export function useSchedules(query: ScheduleListQuery = {}) {
       }
       return res.data.schedules ?? [];
     },
+    placeholderData: (previousData) => previousData,
   });
 }
 
