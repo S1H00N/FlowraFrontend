@@ -5,7 +5,6 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { Link } from "react-router-dom";
 import {
   Check,
   ChevronDown,
@@ -21,8 +20,18 @@ import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import { useCategories } from "@/hooks/useCategories";
-import { useSchedules } from "@/hooks/useSchedules";
+import { useSchedules, useCreateSchedules } from "@/hooks/useSchedules";
 import { useCompleteTask, useCreateTask, useTasks } from "@/hooks/useTasks";
+import {
+  useCompanyAdminMe,
+  useCreateCompanyAdminSchedule,
+} from "@/hooks/useCompanyAdmin";
+import {
+  ScheduleFormPanel,
+  emptyFormForDate,
+  defaultSchedulePanelFloatingStyle,
+  toPayload,
+} from "@/pages/Schedules";
 import {
   type Schedule,
   type ScheduleType,
@@ -827,23 +836,12 @@ function TaskAddSidePanel({
 }) {
   return (
     <>
-      <div className="fixed inset-0 z-50 min-[1100px]:hidden">
-        <button
-          type="button"
-          aria-label="할 일 추가 패널 닫기"
-          onClick={onClose}
-          className="absolute inset-0 h-full w-full bg-slate-950/30"
-        />
-        <aside className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col bg-white shadow-2xl">
-          <TaskAddPanelContent
-            schedule={schedule}
-            category={category}
-            tasks={tasks}
-            onClose={onClose}
-          />
-        </aside>
-      </div>
-      <aside className="hidden min-h-0 w-[26rem] shrink-0 border-l border-slate-200 bg-white shadow-sm min-[1100px]:flex">
+      <div
+        className="fixed inset-0 z-40 bg-zinc-950/20 md:hidden"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <aside className="fixed inset-y-0 right-0 z-50 flex min-h-0 w-full max-w-md flex-col overflow-hidden border-l border-slate-200 bg-white shadow-xl md:w-[300px] md:max-w-none lg:w-[340px]">
         <TaskAddPanelContent
           schedule={schedule}
           category={category}
@@ -892,6 +890,7 @@ export default function Tasks() {
   const [expandedScheduleIds, setExpandedScheduleIds] = useState<Set<number>>(
     () => new Set(),
   );
+  const [scheduleAddPanelOpen, setScheduleAddPanelOpen] = useState(false);
   const [taskPanelScheduleId, setTaskPanelScheduleId] = useState<number | null>(
     null,
   );
@@ -908,6 +907,9 @@ export default function Tasks() {
     };
   }, [visibleMonth]);
   const schedulesQuery = useSchedules(queryRange);
+  const createSchedulesMutation = useCreateSchedules();
+  const companyAdminMeQuery = useCompanyAdminMe();
+  const createCompanyScheduleMutation = useCreateCompanyAdminSchedule();
   const tasksQuery = useTasks();
   const categoriesQuery = useCategories("schedule");
   const classificationSettings = useClassificationSettings();
@@ -1035,10 +1037,6 @@ export default function Tasks() {
   const error = schedulesQuery.error ?? tasksQuery.error;
   const isError = schedulesQuery.isError || tasksQuery.isError;
   const isFetching = schedulesQuery.isFetching || tasksQuery.isFetching;
-  const newScheduleTo = `/schedules?${new URLSearchParams({
-    date: selectedDateKey,
-    create: "1",
-  }).toString()}`;
 
   const selectDate = (date: Date) => {
     const key = toDateKey(date);
@@ -1068,7 +1066,13 @@ export default function Tasks() {
       next.add(scheduleId);
       return next;
     });
+    setScheduleAddPanelOpen(false);
     setTaskPanelScheduleId(scheduleId);
+  };
+
+  const openScheduleAddPanel = () => {
+    setTaskPanelScheduleId(null);
+    setScheduleAddPanelOpen(true);
   };
 
   return (
@@ -1076,7 +1080,11 @@ export default function Tasks() {
       fullBleed
       titleMeta={`완료 ${visibleDoneCount} / 전체 ${visibleTaskCount}`}
       headerActions={
-        <div className="flex min-w-0 items-center gap-2">
+        <div
+          className={`flex min-w-0 items-center gap-2 transition-[margin] ${
+            scheduleAddPanelOpen || taskPanelScheduleId !== null ? "md:mr-[300px] lg:mr-[340px]" : ""
+          }`}
+        >
           <label className="relative hidden min-[760px]:block">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
@@ -1087,12 +1095,13 @@ export default function Tasks() {
               className="h-9 w-64 rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
             />
           </label>
-          <Link
-            to={newScheduleTo}
+          <button
+            type="button"
+            onClick={openScheduleAddPanel}
             className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-indigo-500 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-600"
           >
             <Plus className="h-4 w-4" />새 일정
-          </Link>
+          </button>
         </div>
       }
       sidebarExtra={
@@ -1249,12 +1258,43 @@ export default function Tasks() {
             </div>
 
             {taskPanelSchedule && (
-              <TaskAddSidePanel
-                schedule={taskPanelSchedule}
-                category={taskPanelCategory}
-                tasks={taskPanelTasks}
-                onClose={() => setTaskPanelScheduleId(null)}
-              />
+              <>
+                {/* 할 일 패널이 Fixed로 뜰 때 컨텐츠를 밀어내기 위한 가상 공간(Placeholder) */}
+                <div className="hidden shrink-0 transition-[width] md:block md:w-[300px] lg:w-[340px]" />
+                <TaskAddSidePanel
+                  schedule={taskPanelSchedule}
+                  category={taskPanelCategory}
+                  tasks={taskPanelTasks}
+                  onClose={() => setTaskPanelScheduleId(null)}
+                />
+              </>
+            )}
+            {scheduleAddPanelOpen && (
+              <>
+                {/* 일정 패널이 Fixed로 뜰 때 컨텐츠를 밀어내기 위한 가상 공간(Placeholder) */}
+                <div className="hidden shrink-0 transition-[width] md:block md:w-[300px] lg:w-[340px]" />
+                <ScheduleFormPanel
+                  mode="create"
+                  initial={emptyFormForDate(selectedDate)}
+                  isPending={
+                    createSchedulesMutation.isPending ||
+                    createCompanyScheduleMutation.isPending
+                  }
+                  onClose={() => setScheduleAddPanelOpen(false)}
+                  companyName={companyAdminMeQuery.data?.company?.name}
+                  onCompanySubmit={async (payload) => {
+                    await createCompanyScheduleMutation.mutateAsync(payload);
+                    setScheduleAddPanelOpen(false);
+                  }}
+                  onSubmit={async (forms) => {
+                    const payloads = forms.map((form) => toPayload(form));
+                    await createSchedulesMutation.mutateAsync(payloads);
+                    setScheduleAddPanelOpen(false);
+                  }}
+                  floatingStyle={defaultSchedulePanelFloatingStyle}
+                  panelLayout="docked"
+                />
+              </>
             )}
           </div>
         </div>

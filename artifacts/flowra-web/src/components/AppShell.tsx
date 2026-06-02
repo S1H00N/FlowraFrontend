@@ -69,6 +69,7 @@ function ProfileMenu({
   compact,
   onOpenSettings,
   onLogout,
+  onOpenChange,
 }: {
   variant: "icon" | "card";
   displayName: string;
@@ -78,11 +79,12 @@ function ProfileMenu({
   compact?: boolean;
   onOpenSettings: () => void;
   onLogout: () => void;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const isCard = variant === "card";
 
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
@@ -179,6 +181,8 @@ export default function AppShell({
   const [sidebarPreviewOpen, setSidebarPreviewOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
   const sidebarPreviewCloseTimeoutRef = useRef<number | null>(null);
+  const isHoveringSidebarRef = useRef(false);
+  const isProfileMenuOpenRef = useRef(false);
   const [isDesktop, setIsDesktop] = useState(() => {
     if (typeof window === "undefined") return false;
 
@@ -250,17 +254,28 @@ export default function AppShell({
 
   const openSidebarPreview = () => {
     if (!sidebarCollapsed) return;
+    isHoveringSidebarRef.current = true;
     clearSidebarPreviewClose();
     setSidebarPreviewOpen(true);
   };
 
   const scheduleSidebarPreviewClose = () => {
     if (!sidebarCollapsed) return;
+    isHoveringSidebarRef.current = false;
+    if (isProfileMenuOpenRef.current) return; // 프로필 메뉴가 열려있으면 닫지 않음
+
     clearSidebarPreviewClose();
     sidebarPreviewCloseTimeoutRef.current = window.setTimeout(() => {
       setSidebarPreviewOpen(false);
       sidebarPreviewCloseTimeoutRef.current = null;
     }, 420);
+  };
+
+  const handleProfileMenuOpenChange = (open: boolean) => {
+    isProfileMenuOpenRef.current = open;
+    if (!open && !isHoveringSidebarRef.current) {
+      scheduleSidebarPreviewClose(); // 메뉴가 닫혔을 때 호버 상태가 아니라면 사이드바도 닫음
+    }
   };
 
   useEffect(
@@ -399,6 +414,7 @@ export default function AppShell({
             initials={initials}
             onOpenSettings={openSettingsDialog}
             onLogout={logout}
+            onOpenChange={handleProfileMenuOpenChange}
           />
         </div>
       </aside>
@@ -487,17 +503,6 @@ export default function AppShell({
             </div>
 
             <div className="relative z-20 ml-auto flex min-w-0 shrink-0 items-center justify-end gap-2">
-              <ProfileMenu
-                variant="icon"
-                displayName={displayName}
-                displayEmail={displayEmail}
-                profileImageUrl={profileImageUrl}
-                initials={initials}
-                compact={fullBleed}
-                onOpenSettings={openSettingsDialog}
-                onLogout={logout}
-              />
-
               <Dialog
                 open={settingsDialogOpen}
                 onOpenChange={setSettingsDialogOpen}

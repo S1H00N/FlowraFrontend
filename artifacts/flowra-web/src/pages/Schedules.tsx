@@ -195,7 +195,7 @@ interface MonthCalendarCell {
   currentMonth: boolean;
 }
 
-interface ScheduleFormState {
+export interface ScheduleFormState {
   title: string;
   description: string;
   schedule_type: ScheduleType;
@@ -216,9 +216,9 @@ type ScheduleSelectField = keyof ScheduleSelectPreviewPatch;
 
 type ScheduleSelectDisplayState = Record<ScheduleSelectField, boolean>;
 
-type ScheduleFormSubmitIntent = "manual" | "auto" | "repeat";
+export type ScheduleFormSubmitIntent = "manual" | "auto" | "repeat";
 
-interface ScheduleFormSubmitOptions {
+export interface ScheduleFormSubmitOptions {
   intent?: ScheduleFormSubmitIntent;
 }
 
@@ -237,7 +237,7 @@ type PreviewSchedule = Schedule & {
 };
 
 type ScheduleCompletionFilter = "all" | "active" | "completed";
-type SchedulePanelLayout = "floating" | "docked";
+export type SchedulePanelLayout = "floating" | "docked";
 type ScheduleOwnerType = "personal" | "company";
 type ScheduleOwnerFilter = "all" | ScheduleOwnerType;
 type PersonalScheduleAttendeeKind = "friend" | "email";
@@ -319,7 +319,7 @@ type SchedulePanelAnchorElement =
   | { clientX: number; clientY: number }
   | null;
 
-type SchedulePanelFloatingStyle = CSSProperties & {
+export type SchedulePanelFloatingStyle = CSSProperties & {
   "--schedule-panel-left"?: string;
   "--schedule-panel-top"?: string;
   "--schedule-panel-max-height"?: string;
@@ -1301,7 +1301,7 @@ const scheduleVisibilityScopeOptions = [
   { value: "group", label: "그룹", icon: Users, disabled: true },
 ] as const;
 
-const defaultSchedulePanelFloatingStyle: SchedulePanelFloatingStyle = {
+export const defaultSchedulePanelFloatingStyle: SchedulePanelFloatingStyle = {
   "--schedule-panel-left": "calc(100vw - 402px)",
   "--schedule-panel-top": "8px",
   "--schedule-panel-max-height": "calc(100vh - 16px)",
@@ -2652,7 +2652,7 @@ function formFromSchedule(schedule: Schedule): ScheduleFormState {
   };
 }
 
-function emptyFormForDate(date: Date): ScheduleFormState {
+export function emptyFormForDate(date: Date): ScheduleFormState {
   const hasExplicitTime =
     date.getHours() !== 0 ||
     date.getMinutes() !== 0 ||
@@ -2698,7 +2698,7 @@ function allDayCreateDraftForDate(date: Date): ScheduleCreateDraft {
   return { start, end, allDay: true };
 }
 
-function toPayload(form: ScheduleFormState) {
+export function toPayload(form: ScheduleFormState) {
   return {
     title: normalizeScheduleTitle(form.title),
     description: form.description.trim() || undefined,
@@ -3591,7 +3591,7 @@ function ScheduleFilterPanel({
   );
 }
 
-function ScheduleFormPanel({
+export function ScheduleFormPanel({
   mode,
   initial,
   schedule,
