@@ -7,10 +7,12 @@ import {
 } from "@tanstack/react-query";
 import { AuthProvider } from "@/contexts/AuthContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import PushNotificationBridge from "@/components/PushNotificationBridge";
 import Toaster from "@/components/ui/Toaster";
 import { FullSpinner } from "@/components/ui/Spinner";
 import { toast } from "@/lib/toast";
 import { getErrorMessage } from "@/lib/error";
+import { useApplyUserTheme } from "@/lib/userSettings";
 
 const Home = lazy(() => import("@/pages/Home"));
 const Login = lazy(() => import("@/pages/Login"));
@@ -62,12 +64,19 @@ function PageFallback() {
   return <FullSpinner message="불러오는 중..." />;
 }
 
+function ThemeSync() {
+  useApplyUserTheme();
+  return null;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <ThemeSync />
       <BrowserRouter basename={basename}>
         <AuthProvider>
           <Toaster />
+          <PushNotificationBridge />
           <Suspense fallback={<PageFallback />}>
             <Routes>
               <Route path="/login" element={<Login />} />

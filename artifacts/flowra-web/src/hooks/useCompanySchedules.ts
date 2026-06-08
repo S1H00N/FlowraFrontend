@@ -12,6 +12,7 @@ export function companySchedulesListKey(
 
 export function useCompanySchedules(
   query: CompanyScheduleListQuery = {},
+  options: { enabled?: boolean } = {},
 ) {
   return useQuery<CompanySchedule[]>({
     queryKey: companySchedulesListKey(query),
@@ -24,6 +25,7 @@ export function useCompanySchedules(
       }
       return res.data.company_schedules ?? [];
     },
+    enabled: options.enabled ?? true,
     placeholderData: (previousData) => previousData,
   });
 }

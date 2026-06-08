@@ -2,11 +2,9 @@ import {
   useEffect,
   useMemo,
   useState,
-  type FormEvent,
   type ReactNode,
 } from "react";
 import {
-  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -16,12 +14,14 @@ import {
   X,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import ScheduleLinkedTasks from "@/components/ScheduleLinkedTasks";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
+import TaskCompletionToggleButton from "@/components/TaskCompletionToggleButton";
 import { useCategories } from "@/hooks/useCategories";
 import { useSchedules, useCreateSchedules } from "@/hooks/useSchedules";
-import { useCompleteTask, useCreateTask, useTasks } from "@/hooks/useTasks";
+import { useSetTaskCompletion, useTasks } from "@/hooks/useTasks";
 import {
   useCompanyAdminMe,
   useCreateCompanyAdminSchedule,
@@ -41,14 +41,10 @@ import {
 } from "@/types";
 import {
   getClassificationLabel,
-  getClassificationOptions,
   useClassificationSettings,
 } from "@/lib/classificationSettings";
 import { getErrorMessage } from "@/lib/error";
-import {
-  localInputToOffsetISOString,
-  toOffsetISOString,
-} from "@/utils/dateUtils";
+import { toOffsetISOString } from "@/utils/dateUtils";
 
 type BoardFilter = "all" | "today" | "active" | "completed";
 
@@ -153,18 +149,6 @@ function formatTaskDue(iso?: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function toLocalDateTimeInput(iso?: string | null) {
-  if (!iso) return "";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function defaultTaskDueLocal(schedule: Schedule) {
-  return toLocalDateTimeInput(schedule.end_datetime ?? schedule.start_datetime);
 }
 
 function scheduleOverlapsDate(schedule: Schedule, date: Date) {
@@ -381,7 +365,7 @@ function ScheduleCard({
   onOpenAddTaskPanel: () => void;
 }) {
   const classificationSettings = useClassificationSettings();
-  const completeTask = useCompleteTask();
+  const completionMutation = useSetTaskCompletion();
   const [error, setError] = useState<string | null>(null);
   const progress = scheduleProgress(tasks, schedule);
   const accentColor =
@@ -404,13 +388,17 @@ function ScheduleCard({
     [tasks],
   );
 
-  const handleComplete = async (task: Task) => {
-    if (task.status === "done") return;
+  const handleCompletionChange = async (task: Task, completed: boolean) => {
+    if (completed === (task.status === "done")) return;
+
     setError(null);
     try {
-      await completeTask.mutateAsync(task.task_id);
+      await completionMutation.mutateAsync({
+        taskId: task.task_id,
+        completed,
+      });
     } catch (err) {
-      setError(getErrorMessage(err, "완료 처리에 실패했습니다."));
+      setError(getErrorMessage(err, "완료 상태 변경에 실패했습니다."));
     }
   };
 
@@ -490,19 +478,14 @@ function ScheduleCard({
                   const done = task.status === "done";
                   return (
                     <li key={task.task_id} className="flex items-start gap-3">
-                      <button
-                        type="button"
-                        onClick={() => handleComplete(task)}
-                        disabled={done || completeTask.isPending}
-                        aria-label={done ? "완료됨" : "완료로 표시"}
-                        className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-white transition ${
-                          done
-                            ? "border-indigo-500 bg-indigo-500"
-                            : "border-slate-300 bg-white hover:border-indigo-400"
-                        }`}
-                      >
-                        {done ? <Check className="h-3 w-3" /> : null}
-                      </button>
+                      <TaskCompletionToggleButton
+                        completed={done}
+                        disabled={completionMutation.isPending}
+                        compact
+                        onCompletedChange={(completed) =>
+                          handleCompletionChange(task, completed)
+                        }
+                      />
                       <span
                         className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${
                           taskPriorityDot[task.priority]
@@ -568,14 +551,6 @@ function TaskAddPanelContent({
   onClose: () => void;
 }) {
   const classificationSettings = useClassificationSettings();
-  const createTask = useCreateTask();
-  const completeTask = useCompleteTask();
-  const [title, setTitle] = useState("");
-  const [priority, setPriority] = useState<TaskPriority>(
-    schedule.priority ?? "medium",
-  );
-  const [dueLocal, setDueLocal] = useState(() => defaultTaskDueLocal(schedule));
-  const [error, setError] = useState<string | null>(null);
   const accentColor =
     category?.color || scheduleTypeColor[schedule.schedule_type] || "#64748b";
   const scheduleTypeLabel = getClassificationLabel(
@@ -584,71 +559,6 @@ function TaskAddPanelContent({
     schedule.schedule_type,
   );
   const chipLabel = category?.name ?? scheduleTypeLabel;
-  const priorityOptions = getClassificationOptions(
-    classificationSettings,
-    "taskPriorities",
-    { enabledOnly: true, include: priority, defaultOnly: true },
-  );
-  const sortedTasks = useMemo(
-    () =>
-      [...tasks].sort((a, b) => {
-        if (a.status === "done" && b.status !== "done") return 1;
-        if (a.status !== "done" && b.status === "done") return -1;
-        const aDue = a.due_datetime ? new Date(a.due_datetime).getTime() : 0;
-        const bDue = b.due_datetime ? new Date(b.due_datetime).getTime() : 0;
-        return aDue - bDue;
-      }),
-    [tasks],
-  );
-  const progress = scheduleProgress(tasks, schedule);
-
-  useEffect(() => {
-    setTitle("");
-    setPriority(schedule.priority ?? "medium");
-    setDueLocal(defaultTaskDueLocal(schedule));
-    setError(null);
-  }, [
-    schedule.end_datetime,
-    schedule.priority,
-    schedule.schedule_id,
-    schedule.start_datetime,
-  ]);
-
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const trimmedTitle = title.trim();
-    setError(null);
-
-    if (!trimmedTitle) {
-      setError("할 일 제목을 입력해 주세요.");
-      return;
-    }
-
-    try {
-      await createTask.mutateAsync({
-        title: trimmedTitle,
-        status: "todo",
-        priority,
-        schedule_id: schedule.schedule_id,
-        due_datetime: dueLocal ? localInputToOffsetISOString(dueLocal) : null,
-      });
-      setTitle("");
-      setPriority(schedule.priority ?? "medium");
-      setDueLocal(defaultTaskDueLocal(schedule));
-    } catch (err) {
-      setError(getErrorMessage(err, "할 일 추가에 실패했습니다."));
-    }
-  };
-
-  const handleComplete = async (task: Task) => {
-    if (task.status === "done") return;
-    setError(null);
-    try {
-      await completeTask.mutateAsync(task.task_id);
-    } catch (err) {
-      setError(getErrorMessage(err, "완료 처리에 실패했습니다."));
-    }
-  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -689,135 +599,13 @@ function TaskAddPanelContent({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
-        <form onSubmit={handleSubmit} noValidate className="space-y-3">
-          <label className="block">
-            <span className="text-xs font-bold text-slate-500">할 일 제목</span>
-            <input
-              type="text"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="새 할 일 입력"
-              className="mt-1 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-            />
-          </label>
-
-          <div className="grid gap-3 sm:grid-cols-2 min-[1100px]:grid-cols-1">
-            <label className="block">
-              <span className="text-xs font-bold text-slate-500">우선순위</span>
-              <select
-                value={priority}
-                onChange={(event) =>
-                  setPriority(event.target.value as TaskPriority)
-                }
-                className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-              >
-                {priorityOptions.map((option) => (
-                  <option key={option.key} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="text-xs font-bold text-slate-500">마감시간</span>
-              <input
-                type="datetime-local"
-                value={dueLocal}
-                onChange={(event) => setDueLocal(event.target.value)}
-                className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-              />
-            </label>
-          </div>
-
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <button
-              type="button"
-              onClick={() => setDueLocal(defaultTaskDueLocal(schedule))}
-              className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
-            >
-              일정 시간으로 맞추기
-            </button>
-            <button
-              type="submit"
-              disabled={createTask.isPending}
-              className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-indigo-500 px-4 text-sm font-bold text-white transition hover:bg-indigo-600 disabled:opacity-60"
-            >
-              <Plus className="h-4 w-4" />
-              {createTask.isPending ? "추가 중..." : "할 일 추가"}
-            </button>
-          </div>
-        </form>
-
-        {error && (
-          <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
-            {error}
-          </p>
-        )}
-
-        <div className="mt-6">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h3 className="text-sm font-black text-slate-950">
-              연결된 할 일
-            </h3>
-            <span className="shrink-0 text-xs font-bold text-slate-400">
-              완료 {progress.done} / 전체 {progress.total}
-            </span>
-          </div>
-
-          {sortedTasks.length > 0 ? (
-            <ul className="space-y-2">
-              {sortedTasks.map((task) => {
-                const done = task.status === "done";
-                return (
-                  <li
-                    key={task.task_id}
-                    className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => handleComplete(task)}
-                      disabled={done || completeTask.isPending}
-                      aria-label={done ? "완료됨" : "완료로 표시"}
-                      className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-white transition ${
-                        done
-                          ? "border-indigo-500 bg-indigo-500"
-                          : "border-slate-300 bg-white hover:border-indigo-400"
-                      }`}
-                    >
-                      {done ? <Check className="h-3 w-3" /> : null}
-                    </button>
-                    <span
-                      className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${
-                        taskPriorityDot[task.priority]
-                      }`}
-                      aria-hidden
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p
-                        className={`truncate text-sm font-bold ${
-                          done
-                            ? "text-slate-400 line-through"
-                            : "text-slate-800"
-                        }`}
-                      >
-                        {task.title}
-                      </p>
-                      <p className="mt-0.5 text-xs font-medium text-slate-400">
-                        {formatTaskDue(task.due_datetime)}
-                      </p>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-8 text-center text-xs font-bold text-slate-500">
-              아직 연결된 할 일이 없습니다.
-            </p>
-          )}
-        </div>
+      <div className="min-h-0 flex-1 overflow-auto">
+        <ScheduleLinkedTasks
+          schedule={schedule}
+          tasks={tasks}
+          variant="panel"
+          linkTasks={false}
+        />
       </div>
     </div>
   );
@@ -1118,7 +906,7 @@ export default function Tasks() {
         />
       }
     >
-      <div className="flex h-full min-h-0 flex-col bg-[#f7f8fb]">
+      <div className="flex h-full min-h-0 flex-col bg-[#f7f8fb] dark:bg-slate-950">
         <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
           <div className="flex flex-col gap-3 min-[900px]:flex-row min-[900px]:items-center min-[900px]:justify-between">
             <div className="flex min-w-0 flex-wrap items-center gap-4">

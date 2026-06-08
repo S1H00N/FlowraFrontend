@@ -14,7 +14,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import {
   Building2,
   CalendarDays,
@@ -55,8 +55,14 @@ import {
   useCompanyAdminMe,
   useCompanyAdminMembers,
   useCreateCompanyAdminSchedule,
+  useCreateCompanyScheduleTargetDepartmentRequest,
 } from "@/hooks/useCompanyAdmin";
-import { useCompleteTask, useTasks } from "@/hooks/useTasks";
+import {
+  getCompanyScheduleApprovalId,
+  useApproveCompanyScheduleApproval,
+  useCompanyScheduleApprovals,
+  useRejectCompanyScheduleApproval,
+} from "@/hooks/useCompanyScheduleApprovals";
 import { useCategories } from "@/hooks/useCategories";
 import { useHolidaysInRange } from "@/hooks/useHolidays";
 import {
@@ -65,6 +71,7 @@ import {
   SCHEDULE_VISIBILITY_LABELS,
   type CompanyAdminDepartment,
   type CompanyAdminMember,
+  type CompanyScheduleApproval,
   type CompanySchedule,
   type CompanyScheduleCreateTarget,
   type CreateCompanyScheduleRequest,
@@ -80,13 +87,14 @@ import {
   getClassificationOptions,
   useClassificationSettings,
 } from "@/lib/classificationSettings";
-import { useUserSettings } from "@/lib/userSettings";
+import { useUserSettings, type WeekStartDay } from "@/lib/userSettings";
 import { getErrorMessage } from "@/lib/error";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import { CategoryDot } from "@/components/CategorySelect";
 import AppShell from "@/components/AppShell";
+import ScheduleLinkedTasks from "@/components/ScheduleLinkedTasks";
 import CustomSelect, {
   type CustomSelectOption,
 } from "@/components/ui/CustomSelect";
@@ -114,6 +122,23 @@ import {
 } from "@/components/ListCardMeta";
 
 const weekdayLabels = ["일", "월", "화", "수", "목", "금", "토"];
+const defaultWeekStart: WeekStartDay = "sunday";
+
+function weekStartIndex(weekStart: WeekStartDay) {
+  return weekStart === "monday" ? 1 : 0;
+}
+
+function daysSinceWeekStart(date: Date, weekStart: WeekStartDay) {
+  return (date.getDay() - weekStartIndex(weekStart) + 7) % 7;
+}
+
+function orderedWeekdayLabels(weekStart: WeekStartDay) {
+  const start = weekStartIndex(weekStart);
+  return Array.from({ length: 7 }, (_, offset) => {
+    const day = (start + offset) % 7;
+    return { day, label: weekdayLabels[day] };
+  });
+}
 
 interface DayMeta {
   count: number;
@@ -131,6 +156,24 @@ const scheduleViewOptions: Array<{
   { value: "week", label: "주", shortcut: "W" },
   { value: "month", label: "월", shortcut: "M" },
 ];
+
+const scheduleViewShortcutMap: Partial<Record<string, ScheduleCalendarView>> =
+  scheduleViewOptions.reduce(
+    (acc, option) => {
+      acc[option.shortcut.toLowerCase()] = option.value;
+      return acc;
+    },
+    {} as Partial<Record<string, ScheduleCalendarView>>,
+  );
+
+function isEditableKeyboardTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+
+  return Boolean(
+    target.isContentEditable ||
+      target.closest("input, textarea, select, [contenteditable]"),
+  );
+}
 
 const scheduleTypeSelectMeta: Record<
   ScheduleType,
@@ -378,6 +421,11 @@ function CompactDateInput({
     ? null
     : new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
   const canResetVisibleMonth = !isCurrentMonth(visibleMonth);
+  const { weekStart } = useUserSettings();
+  const weekdayHeaders = useMemo(
+    () => orderedWeekdayLabels(weekStart),
+    [weekStart],
+  );
 
   useEffect(() => {
     setDraft(formatDateInputDisplay(effectiveValue));
@@ -552,6 +600,8 @@ function CompactDateInput({
       <input
         ref={inputRef}
         type="text"
+        name="flowra_date_input"
+        autoComplete="none"
         required={required}
         value={draft}
         onChange={(event) => {
@@ -669,12 +719,12 @@ function CompactDateInput({
                 </div>
               </div>
               <div className="grid grid-cols-7 text-center text-[11px] font-medium text-slate-500">
-                {weekdayLabels.map((label) => (
-                  <span key={label}>{label}</span>
+                {weekdayHeaders.map(({ day, label }) => (
+                  <span key={day}>{label}</span>
                 ))}
               </div>
               <div className="mt-2 grid grid-cols-7 gap-1">
-                {buildMonthCells(visibleMonth).map((date, index) => {
+                {buildMonthCells(visibleMonth, weekStart).map((date, index) => {
                   if (!date) {
                     return (
                       <div key={`blank-${index}`} className="aspect-square" />
@@ -1110,6 +1160,8 @@ function CompactTimeInput({
         ref={inputRef}
         type="text"
         inputMode="numeric"
+        name="flowra_time_input"
+        autoComplete="none"
         required={required}
         disabled={disabled}
         value={draft}
@@ -1285,9 +1337,7 @@ const companyScheduleTargetTypeOptions: Array<{
   value: CompanyScheduleTargetType;
   label: string;
 }> = [
-  { value: "company", label: "회사 전체" },
   { value: "department", label: "부서" },
-  { value: "member", label: "팀원" },
 ];
 const personalAttendeeSuggestions: PersonalScheduleAttendee[] = [];
 const scheduleVisibilityScopeOptions = [
@@ -1334,7 +1384,11 @@ function isSchedulePanelPointAnchor(
 }
 
 function isCompanySchedule(schedule: Schedule) {
-  return schedule.is_company_schedule === true;
+  return (
+    schedule.is_company_schedule === true ||
+    schedule.company_schedule_id != null ||
+    schedule.schedule_id <= -COMPANY_SCHEDULE_ID_OFFSET
+  );
 }
 
 function scheduleOwnerType(schedule: Schedule): ScheduleOwnerType {
@@ -1445,6 +1499,30 @@ function companyScheduleSyntheticId(companyScheduleId: number) {
   return -(COMPANY_SCHEDULE_ID_OFFSET + companyScheduleId);
 }
 
+function companyScheduleSourceId(schedule: Schedule) {
+  if (schedule.company_schedule_id != null) return schedule.company_schedule_id;
+  if (schedule.schedule_id <= -COMPANY_SCHEDULE_ID_OFFSET) {
+    return Math.abs(schedule.schedule_id) - COMPANY_SCHEDULE_ID_OFFSET;
+  }
+  return schedule.schedule_id;
+}
+
+function scheduleIdentityKey(schedule: Schedule) {
+  return isCompanySchedule(schedule)
+    ? `company:${companyScheduleSourceId(schedule)}`
+    : `personal:${schedule.schedule_id}`;
+}
+
+function mergeSchedules(schedules: Schedule[], companySchedules: Schedule[]) {
+  const byIdentity = new Map<string, Schedule>();
+
+  for (const schedule of [...schedules, ...companySchedules]) {
+    byIdentity.set(scheduleIdentityKey(schedule), schedule);
+  }
+
+  return [...byIdentity.values()];
+}
+
 function normalizeScheduleType(value: unknown): ScheduleType {
   return SCHEDULE_TYPES.includes(value as ScheduleType)
     ? (value as ScheduleType)
@@ -1468,6 +1546,12 @@ function companyScheduleToSchedule(schedule: CompanySchedule): Schedule {
     category_id: null,
     visibility: "private",
     source_type: schedule.source_type,
+    is_collaboration: schedule.is_collaboration,
+    approval_status: schedule.approval_status,
+    approval_summary: schedule.approval_summary,
+    origin_department: schedule.origin_department ?? null,
+    created_by_company_member: schedule.created_by_company_member ?? null,
+    updated_by_company_member: schedule.updated_by_company_member ?? null,
     targets: schedule.targets,
     created_at: schedule.created_at ?? schedule.start_datetime,
     updated_at: schedule.updated_at,
@@ -1813,15 +1897,21 @@ function formatTime(iso?: string | null) {
   });
 }
 
-function startOfWeek(date: Date): Date {
+function startOfWeek(
+  date: Date,
+  weekStart: WeekStartDay = defaultWeekStart,
+): Date {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - d.getDay());
+  d.setDate(d.getDate() - daysSinceWeekStart(d, weekStart));
   return d;
 }
 
-function buildWeekDates(date: Date): Date[] {
-  const start = startOfWeek(date);
+function buildWeekDates(
+  date: Date,
+  weekStart: WeekStartDay = defaultWeekStart,
+): Date[] {
+  const start = startOfWeek(date, weekStart);
   return Array.from({ length: 7 }, (_, idx) => {
     const d = new Date(start);
     d.setDate(start.getDate() + idx);
@@ -1829,10 +1919,13 @@ function buildWeekDates(date: Date): Date[] {
   });
 }
 
-function buildMonthCells(date: Date): Array<Date | null> {
+function buildMonthCells(
+  date: Date,
+  weekStart: WeekStartDay = defaultWeekStart,
+): Array<Date | null> {
   const year = date.getFullYear();
   const month = date.getMonth();
-  const firstWeekday = new Date(year, month, 1).getDay();
+  const firstWeekday = daysSinceWeekStart(new Date(year, month, 1), weekStart);
   const totalDays = new Date(year, month + 1, 0).getDate();
   const cells: Array<Date | null> = [];
 
@@ -1846,13 +1939,20 @@ function buildMonthCells(date: Date): Array<Date | null> {
 
 function buildFullMonthCells(
   date: Date,
-  options: { fixedWeeks?: number; startDate?: Date } = {},
+  options: {
+    fixedWeeks?: number;
+    startDate?: Date;
+    weekStart?: WeekStartDay;
+  } = {},
 ): MonthCalendarCell[] {
   const year = date.getFullYear();
   const month = date.getMonth();
+  const weekStart = options.weekStart ?? defaultWeekStart;
   const firstOfMonth = new Date(year, month, 1);
   const totalDays = new Date(year, month + 1, 0).getDate();
-  const naturalCells = Math.ceil((firstOfMonth.getDay() + totalDays) / 7) * 7;
+  const naturalCells =
+    Math.ceil((daysSinceWeekStart(firstOfMonth, weekStart) + totalDays) / 7) *
+    7;
   const fixedCells = options.fixedWeeks ? options.fixedWeeks * 7 : null;
   const totalCells = fixedCells
     ? Math.max(naturalCells, fixedCells)
@@ -1861,7 +1961,9 @@ function buildFullMonthCells(
     ? new Date(options.startDate)
     : new Date(firstOfMonth);
   if (!options.startDate) {
-    firstCell.setDate(firstOfMonth.getDate() - firstOfMonth.getDay());
+    firstCell.setDate(
+      firstOfMonth.getDate() - daysSinceWeekStart(firstOfMonth, weekStart),
+    );
   }
   firstCell.setHours(0, 0, 0, 0);
 
@@ -1875,11 +1977,13 @@ function buildFullMonthCells(
   });
 }
 
-function monthCalendarWindowStart(date: Date) {
+function monthCalendarWindowStart(
+  date: Date,
+  weekStart: WeekStartDay = defaultWeekStart,
+) {
   const firstOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
   firstOfMonth.setHours(0, 0, 0, 0);
-  firstOfMonth.setDate(firstOfMonth.getDate() - firstOfMonth.getDay());
-  return firstOfMonth;
+  return startOfWeek(firstOfMonth, weekStart);
 }
 
 function dominantMonthInWindow(startDate: Date, dayCount = 42) {
@@ -2693,12 +2797,31 @@ function formFromCreateDraft(draft: ScheduleCreateDraft): ScheduleFormState {
   };
 }
 
+function formForScheduleOwner(
+  form: ScheduleFormState,
+  owner: ScheduleOwnerType,
+) {
+  return owner === "company" && form.schedule_type === "personal"
+    ? { ...form, schedule_type: "meeting" as const }
+    : form;
+}
+
 function allDayCreateDraftForDate(date: Date): ScheduleCreateDraft {
   const { start, end } = dayBounds(date);
   return { start, end, allDay: true };
 }
 
+function allDayCreateDraftForRange(startDate: Date, endDate: Date) {
+  return {
+    start: dayBounds(startDate).start,
+    end: dayBounds(endDate).end,
+    allDay: true,
+  };
+}
+
 export function toPayload(form: ScheduleFormState) {
+  const allDay = shouldUseAllDayLaneForForm(form);
+
   return {
     title: normalizeScheduleTitle(form.title),
     description: form.description.trim() || undefined,
@@ -2708,7 +2831,7 @@ export function toPayload(form: ScheduleFormState) {
     end_datetime: form.end_local
       ? fromLocalInputValue(form.end_local)
       : undefined,
-    all_day: form.all_day,
+    all_day: allDay,
     location: form.location.trim() || undefined,
     visibility: form.visibility,
     category_id: form.category_id === "" ? undefined : String(form.category_id),
@@ -2727,6 +2850,7 @@ function previewScheduleFromForm(
     form.end_local && !Number.isNaN(new Date(form.end_local).getTime())
       ? fromLocalInputValue(form.end_local)
       : null;
+  const allDay = shouldUseAllDayLaneForForm(form);
 
   return {
     schedule_id:
@@ -2739,7 +2863,7 @@ function previewScheduleFromForm(
     is_completed: source?.is_completed ?? false,
     start_datetime: fromLocalInputValue(form.start_local),
     end_datetime: end,
-    all_day: form.all_day,
+    all_day: allDay,
     location: form.location.trim() || null,
     category_id: form.category_id === "" ? null : Number(form.category_id),
     visibility: form.visibility,
@@ -2777,167 +2901,6 @@ function validateForm(form: ScheduleFormState): string | null {
   }
 
   return null;
-}
-
-function formatTaskDue(iso?: string | null) {
-  if (!iso) return "기한 없음";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("ko-KR", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function LinkedTaskRow({
-  task,
-  completing,
-  onComplete,
-}: {
-  task: Task;
-  completing?: boolean;
-  onComplete: () => void;
-}) {
-  const isDone = task.status === "done";
-  const classificationSettings = useClassificationSettings();
-
-  return (
-    <li className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-      <div className="flex items-start gap-3">
-        <button
-          type="button"
-          disabled={isDone || completing}
-          onClick={onComplete}
-          aria-label={isDone ? "완료됨" : "완료 처리"}
-          className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition ${
-            isDone
-              ? "border-emerald-500 bg-emerald-500 text-white"
-              : "border-slate-300 bg-white hover:border-emerald-500"
-          } disabled:opacity-60`}
-        >
-          {isDone ? "완료" : null}
-        </button>
-        <div className="min-w-0 flex-1">
-          <Link
-            to={`/tasks?${new URLSearchParams({ task_id: String(task.task_id) })}`}
-            className={`block truncate text-sm font-medium hover:text-emerald-700 ${
-              isDone ? "text-slate-400 line-through" : "text-slate-900"
-            }`}
-          >
-            {task.title}
-          </Link>
-          <ListCardMeta className="mt-1">
-            <span>{formatTaskDue(task.due_datetime)}</span>
-            <PriorityMetaChip priority={task.priority}>
-              {getClassificationLabel(
-                classificationSettings,
-                "taskPriorities",
-                task.priority,
-              )}
-            </PriorityMetaChip>
-          </ListCardMeta>
-        </div>
-      </div>
-    </li>
-  );
-}
-
-function LinkedScheduleTasks({ schedule }: { schedule: Schedule }) {
-  const [error, setError] = useState<string | null>(null);
-  const tasksQuery = useTasks({
-    schedule_id: schedule.schedule_id,
-  });
-  const completeTask = useCompleteTask();
-  const tasks = useMemo(
-    () =>
-      [...(tasksQuery.data ?? [])].sort((a, b) => {
-        if (a.status === "done" && b.status !== "done") return 1;
-        if (a.status !== "done" && b.status === "done") return -1;
-        const aDue = a.due_datetime
-          ? new Date(a.due_datetime).getTime()
-          : Infinity;
-        const bDue = b.due_datetime
-          ? new Date(b.due_datetime).getTime()
-          : Infinity;
-        return aDue - bDue;
-      }),
-    [tasksQuery.data],
-  );
-
-  const handleComplete = async (taskId: number) => {
-    setError(null);
-    try {
-      await completeTask.mutateAsync(taskId);
-    } catch (err) {
-      setError(getErrorMessage(err, "완료 처리에 실패했습니다."));
-    }
-  };
-
-  return (
-    <section className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <CheckSquare2 className="h-4 w-4 text-emerald-600" />
-            연결된 할 일
-          </div>
-          <p className="mt-1 text-xs text-slate-500">
-            이 일정에 연결된 실행 항목을 확인하고 완료할 수 있습니다.
-          </p>
-        </div>
-        <span className="rounded-md bg-white px-2 py-1 text-xs font-medium text-slate-500 ring-1 ring-slate-200">
-          {tasks.length}개
-        </span>
-      </div>
-
-      <div
-        aria-disabled="true"
-        className="mt-3 rounded-lg border border-dashed border-amber-200 bg-amber-50 px-3 py-4 text-center shadow-sm"
-      >
-        <span className="block text-sm font-semibold text-amber-800">
-          할 일 추가는 현재 개발중...
-        </span>
-        <span className="mt-1 block text-xs text-amber-700">
-          기능이 열릴 때까지 이 영역은 사용할 수 없습니다.
-        </span>
-      </div>
-
-      {error && (
-        <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-          {error}
-        </p>
-      )}
-
-      <div>
-        {tasksQuery.isLoading ? (
-          <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-5 text-center text-xs text-slate-500">
-            연결된 할 일을 불러오는 중입니다.
-          </div>
-        ) : tasksQuery.isError ? (
-          <div className="rounded-lg border border-red-200 bg-white px-3 py-3 text-xs text-red-700">
-            {(tasksQuery.error as Error).message}
-          </div>
-        ) : tasks.length > 0 ? (
-          <ul className="space-y-2">
-            {tasks.map((task) => (
-              <LinkedTaskRow
-                key={task.task_id}
-                task={task}
-                completing={completeTask.isPending}
-                onComplete={() => handleComplete(task.task_id)}
-              />
-            ))}
-          </ul>
-        ) : (
-          <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-5 text-center text-xs text-slate-500">
-            아직 연결된 할 일이 없습니다.
-          </div>
-        )}
-      </div>
-    </section>
-  );
 }
 
 function InlineFilterGroup<TValue extends FilterOptionValue>({
@@ -3602,6 +3565,7 @@ export function ScheduleFormPanel({
   onSubmit,
   onCompanySubmit,
   companyName,
+  defaultOwner = "personal",
   onPreviewChange,
   floatingStyle,
   panelLayout,
@@ -3621,27 +3585,30 @@ export function ScheduleFormPanel({
     payload: CreateCompanyScheduleRequest,
   ) => Promise<void> | void;
   companyName?: string;
+  defaultOwner?: ScheduleOwnerType;
   onPreviewChange?: (forms: ScheduleFormState[]) => void;
   floatingStyle: SchedulePanelFloatingStyle;
   panelLayout: SchedulePanelLayout;
 }) {
-  const [form, setForm] = useState(initial);
-  const [allDay, setAllDay] = useState(initial.all_day);
+  const ownerInitialForm = formForScheduleOwner(initial, defaultOwner);
+  const [form, setForm] = useState<ScheduleFormState>(ownerInitialForm);
+  const [allDay, setAllDay] = useState(ownerInitialForm.all_day);
   const [scheduleOwner, setScheduleOwner] =
-    useState<ScheduleOwnerType>("personal");
+    useState<ScheduleOwnerType>(defaultOwner);
   const [companyTargetType, setCompanyTargetType] =
-    useState<CompanyScheduleTargetType>("company");
+    useState<CompanyScheduleTargetType>("department");
   const [companyDepartmentId, setCompanyDepartmentId] = useState("");
   const [companyMemberId, setCompanyMemberId] = useState("");
   const [companyTargets, setCompanyTargets] = useState<
     CompanyScheduleCreateTarget[]
-  >([{ target_type: "company" }]);
+  >([]);
+  const [companyCollaborationEnabled, setCompanyCollaborationEnabled] =
+    useState(false);
   const [personalAttendees, setPersonalAttendees] = useState<
     PersonalScheduleAttendee[]
   >([]);
   const [personalAttendeeOpen, setPersonalAttendeeOpen] = useState(false);
   const [personalAttendeeQuery, setPersonalAttendeeQuery] = useState("");
-  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoSaveState, setAutoSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
@@ -3666,9 +3633,11 @@ export function ScheduleFormPanel({
   const selectedDateButtonRefs = useRef<
     Record<string, HTMLButtonElement | null>
   >({});
-  const lastAutoSaveSignatureRef = useRef(scheduleFormSignature(initial));
+  const lastAutoSaveSignatureRef = useRef(
+    scheduleFormSignature(ownerInitialForm),
+  );
   const syncingInitialSignatureRef = useRef<string | null>(null);
-  const initialSignature = scheduleFormSignature(initial);
+  const initialSignature = scheduleFormSignature(ownerInitialForm);
   const [selectedDates, setSelectedDates] = useState<string[]>([
     initial.start_local.slice(0, 10),
   ]);
@@ -3737,6 +3706,11 @@ export function ScheduleFormPanel({
       priority: mode !== "create",
       category_id: mode !== "create" && initial.category_id !== "",
     });
+  const { weekStart } = useUserSettings();
+  const weekdayHeaders = useMemo(
+    () => orderedWeekdayLabels(weekStart),
+    [weekStart],
+  );
   const classificationSettings = useClassificationSettings();
   const scheduleTypeOptions = getClassificationOptions(
     classificationSettings,
@@ -3756,13 +3730,25 @@ export function ScheduleFormPanel({
     mode === "create" && scheduleOwner === "company" && !!onCompanySubmit;
   const departmentsQuery = useCompanyAdminDepartments(
     isCompanyScheduleDraft &&
+      companyCollaborationEnabled &&
       (companyTargetType === "department" ||
         companyTargets.some((target) => target.target_type === "department")),
   );
   const membersQuery = useCompanyAdminMembers(
     isCompanyScheduleDraft &&
+      companyCollaborationEnabled &&
       (companyTargetType === "member" ||
         companyTargets.some((target) => target.target_type === "member")),
+  );
+  const companyTargetableMembers = useMemo(
+    () =>
+      (membersQuery.data ?? []).filter((member) => {
+        const departmentId = Number(
+          member.department_id ?? member.department?.department_id,
+        );
+        return Number.isFinite(departmentId) && departmentId > 0;
+      }),
+    [membersQuery.data],
   );
   const scheduleTypeSelectOptions = useMemo<CustomSelectOption<ScheduleType>[]>(
     () =>
@@ -4090,15 +4076,18 @@ export function ScheduleFormPanel({
     (textarea = descriptionTextareaRef.current) => {
       if (!textarea) return;
 
-      if (!descriptionExpanded) {
-        textarea.style.height = "";
-        return;
-      }
-
+      const minHeight = 36;
+      const maxHeight = 160;
       textarea.style.height = "auto";
-      textarea.style.height = `${textarea.scrollHeight}px`;
+      const nextHeight = Math.max(
+        minHeight,
+        Math.min(textarea.scrollHeight, maxHeight),
+      );
+      textarea.style.height = `${nextHeight}px`;
+      textarea.style.overflowY =
+        textarea.scrollHeight > maxHeight ? "auto" : "hidden";
     },
-    [descriptionExpanded],
+    [],
   );
 
   useLayoutEffect(() => {
@@ -4107,17 +4096,16 @@ export function ScheduleFormPanel({
 
   useEffect(() => {
     syncingInitialSignatureRef.current = initialSignature;
-    setForm(initial);
-    setAllDay(initial.all_day);
-    setScheduleOwner("personal");
-    setCompanyTargetType("company");
+    setForm(ownerInitialForm);
+    setAllDay(ownerInitialForm.all_day);
+    setScheduleOwner(defaultOwner);
+    setCompanyTargetType("department");
     setCompanyDepartmentId("");
     setCompanyMemberId("");
-    setCompanyTargets([{ target_type: "company" }]);
+    setCompanyTargets([]);
     setPersonalAttendees([]);
     setPersonalAttendeeOpen(false);
     setPersonalAttendeeQuery("");
-    setDescriptionExpanded(false);
     setSelectedDates([initial.start_local.slice(0, 10)]);
     setCustomSelectedDates([]);
     setRepeatStartDate(initial.start_local.slice(0, 10));
@@ -4159,7 +4147,7 @@ export function ScheduleFormPanel({
       category_id: mode !== "create" && initial.category_id !== "",
     });
     setError(null);
-  }, [initialSignature, mode]);
+  }, [defaultOwner, initialSignature, mode]);
 
   useEffect(() => {
     onPreviewChange?.(shouldShowFormPreview ? previewForms : []);
@@ -5176,12 +5164,12 @@ export function ScheduleFormPanel({
                 </div>
               </div>
               <div className="grid grid-cols-7 text-center text-[11px] font-medium text-slate-500">
-                {weekdayLabels.map((label) => (
-                  <span key={label}>{label}</span>
+                {weekdayHeaders.map(({ day, label }) => (
+                  <span key={day}>{label}</span>
                 ))}
               </div>
               <div className="mt-2 grid grid-cols-7 gap-1">
-                {buildMonthCells(repeatUntilCalendarMonth).map(
+                {buildMonthCells(repeatUntilCalendarMonth, weekStart).map(
                   (date, index) => {
                     if (!date) {
                       return (
@@ -5648,12 +5636,12 @@ export function ScheduleFormPanel({
 
         <div role="grid" aria-label="반복 날짜 선택 달력">
           <div className="grid grid-cols-7 text-center text-[11px] font-medium text-slate-500">
-            {weekdayLabels.map((label) => (
-              <span key={label}>{label}</span>
+            {weekdayHeaders.map(({ day, label }) => (
+              <span key={day}>{label}</span>
             ))}
           </div>
           <div className="mt-2 grid grid-cols-7 gap-1">
-            {buildMonthCells(selectedDatesCalendarMonth).map((date, index) => {
+            {buildMonthCells(selectedDatesCalendarMonth, weekStart).map((date, index) => {
               if (!date) {
                 return <div key={`blank-${index}`} className="aspect-square" />;
               }
@@ -5846,8 +5834,20 @@ export function ScheduleFormPanel({
   const addCompanyTarget = () => {
     const target = buildCompanyTargetDraft();
     if (!target) {
-      setError("참석자를 선택해 주세요.");
+      setError("추가할 부서를 선택해 주세요.");
       return;
+    }
+    if (target.target_type === "member") {
+      const member = (membersQuery.data ?? []).find(
+        (item) => item.company_member_id === target.company_member_id,
+      );
+      const departmentId = Number(
+        member?.department_id ?? member?.department?.department_id,
+      );
+      if (!Number.isFinite(departmentId) || departmentId <= 0) {
+        setError("부서에 소속된 팀원만 참석자로 추가할 수 있습니다.");
+        return;
+      }
     }
 
     setError(null);
@@ -5887,9 +5887,8 @@ export function ScheduleFormPanel({
         setError(validationError);
         return;
       }
-
-      if (companyTargets.length === 0) {
-        setError("참석자를 선택해 주세요.");
+      if (companyCollaborationEnabled && companyTargets.length === 0) {
+        setError("협업 요청할 부서를 하나 이상 추가해 주세요.");
         return;
       }
 
@@ -5902,10 +5901,10 @@ export function ScheduleFormPanel({
           end_datetime: form.end_local
             ? fromLocalInputValue(form.end_local)
             : undefined,
-          all_day: form.all_day,
+          all_day: shouldUseAllDayLaneForForm(form),
           location: form.location.trim() || undefined,
           status: "active",
-          targets: companyTargets,
+          targets: companyCollaborationEnabled ? companyTargets : [],
         });
       } catch (err) {
         setError(getErrorMessage(err, "회사 일정 추가에 실패했습니다."));
@@ -6068,10 +6067,11 @@ export function ScheduleFormPanel({
         ? { ...prev, schedule_type: "meeting" }
         : prev,
     );
-    setCompanyTargetType("company");
+    setCompanyTargetType("department");
     setCompanyDepartmentId("");
     setCompanyMemberId("");
-    setCompanyTargets([{ target_type: "company" }]);
+    setCompanyTargets([]);
+    setCompanyCollaborationEnabled(false);
     setPersonalAttendees([]);
     setPersonalAttendeeOpen(false);
     setPersonalAttendeeQuery("");
@@ -6096,6 +6096,59 @@ export function ScheduleFormPanel({
       />
     ) : null;
 
+  const handleCompanyCollaborationToggle = (checked: boolean) => {
+    setCompanyCollaborationEnabled(checked);
+    if (!checked) {
+      setCompanyTargetType("department");
+      setCompanyDepartmentId("");
+      setCompanyMemberId("");
+      setCompanyTargets([]);
+      setError(null);
+    }
+  };
+
+  const renderCompanyTeamScopeControl = () => {
+    return (
+      <>
+        <div className={compactFieldGroupClass}>
+          <div className={settingsRowLabelClass}>대상</div>
+          <div className="mt-1 space-y-2">
+            <div className="flex h-9 min-w-0 items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700">
+              <Building2 className="mr-2 h-3.5 w-3.5 shrink-0 text-slate-400" />
+              <span className="truncate">내 소속 부서</span>
+            </div>
+            <label className="flex h-9 min-w-0 cursor-pointer items-center justify-between gap-2 rounded-md border border-transparent px-2.5 text-xs font-semibold text-slate-700 transition hover:border-slate-200 hover:bg-white">
+              <span className="truncate">협업 요청</span>
+              <input
+                type="checkbox"
+                checked={companyCollaborationEnabled}
+                onChange={(event) =>
+                  handleCompanyCollaborationToggle(event.target.checked)
+                }
+                className="peer sr-only"
+                aria-label="협업 요청 사용"
+              />
+              <span
+                className={`relative h-5 w-9 shrink-0 rounded-full transition peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-200 ${
+                  companyCollaborationEnabled ? "bg-emerald-500" : "bg-slate-200"
+                }`}
+              >
+                <span
+                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition ${
+                    companyCollaborationEnabled
+                      ? "translate-x-4"
+                      : "translate-x-0"
+                  }`}
+                />
+              </span>
+            </label>
+          </div>
+        </div>
+        {companyCollaborationEnabled ? renderCompanyAttendeeControl() : null}
+      </>
+    );
+  };
+
   const renderCompanyAttendeeControl = () => {
     const canAddCompanyTarget =
       companyTargetType === "company" ||
@@ -6104,8 +6157,12 @@ export function ScheduleFormPanel({
 
     return (
       <div className={compactFieldGroupClass}>
-        <div className={settingsRowLabelClass}>참석자</div>
+        <div className={settingsRowLabelClass}>협업 부서</div>
         <div className="mt-1 space-y-2">
+          <div className="flex h-9 min-w-0 items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700">
+            <Building2 className="mr-2 h-3.5 w-3.5 shrink-0 text-slate-400" />
+            <span className="truncate">내 소속 부서 자동 포함</span>
+          </div>
           <div className="grid grid-cols-[5.75rem_minmax(0,1fr)_2.25rem] gap-1.5">
             <select
               value={companyTargetType}
@@ -6164,7 +6221,13 @@ export function ScheduleFormPanel({
                 <option value="">
                   {membersQuery.isLoading ? "팀원 불러오는 중" : "팀원 선택"}
                 </option>
-                {(membersQuery.data ?? []).map((member) => (
+                {!membersQuery.isLoading &&
+                companyTargetableMembers.length === 0 ? (
+                  <option value="" disabled>
+                    부서 소속 팀원 없음
+                  </option>
+                ) : null}
+                {companyTargetableMembers.map((member) => (
                   <option
                     key={member.company_member_id}
                     value={member.company_member_id}
@@ -6180,8 +6243,8 @@ export function ScheduleFormPanel({
               onClick={addCompanyTarget}
               disabled={!canAddCompanyTarget}
               className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
-              aria-label="참석자 추가"
-              title="참석자 추가"
+              aria-label="부서 추가"
+              title="부서 추가"
             >
               <Plus className="h-4 w-4" />
             </button>
@@ -6209,7 +6272,11 @@ export function ScheduleFormPanel({
                 );
               })}
             </div>
-          ) : null}
+          ) : (
+            <p className="px-1 text-[11px] font-medium text-slate-400">
+              일반 사용자의 요청은 소속 부서 관리자 승인 후 대상 부서로 전달됩니다.
+            </p>
+          )}
         </div>
       </div>
     );
@@ -6246,6 +6313,8 @@ export function ScheduleFormPanel({
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
+                name="flowra_attendee_search"
+                autoComplete="none"
                 value={personalAttendeeQuery}
                 onChange={(event) =>
                   setPersonalAttendeeQuery(event.target.value)
@@ -6362,6 +6431,7 @@ export function ScheduleFormPanel({
 
         <form
           onSubmit={handleSubmit}
+          autoComplete="none"
           className="min-h-0 flex-1 overflow-y-auto bg-slate-50/70 p-4"
         >
           <div className="space-y-2">
@@ -6369,6 +6439,8 @@ export function ScheduleFormPanel({
               <input
                 ref={titleInputRef}
                 type="text"
+                name="flowra_schedule_title"
+                autoComplete="none"
                 value={form.title}
                 onChange={(event) =>
                   setForm({ ...form, title: event.target.value })
@@ -6622,9 +6694,7 @@ export function ScheduleFormPanel({
                   ) : null}
 
                   <div className="space-y-2 border-t border-slate-200/70 pt-2">
-                    <div
-                      className={`grid grid-cols-2 gap-2 ${compactFieldGroupClass}`}
-                    >
+                    <div className={compactFieldGroupClass}>
                       <div className="min-w-0">
                         <CustomSelect
                           ariaLabel="유형"
@@ -6653,7 +6723,9 @@ export function ScheduleFormPanel({
                           }}
                         />
                       </div>
+                    </div>
 
+                    <div className={compactFieldGroupClass}>
                       <div className="min-w-0">
                         <CustomSelect
                           ariaLabel="중요도"
@@ -6714,7 +6786,7 @@ export function ScheduleFormPanel({
 
                     {mode === "create"
                       ? isCompanyScheduleDraft
-                        ? renderCompanyAttendeeControl()
+                        ? renderCompanyTeamScopeControl()
                         : renderPersonalAttendeeControl()
                       : null}
 
@@ -6724,6 +6796,8 @@ export function ScheduleFormPanel({
                           <MapPin className="h-4 w-4 shrink-0 text-slate-400" />
                           <input
                             type="text"
+                            name="flowra_schedule_location"
+                            autoComplete="none"
                             value={form.location}
                             onChange={(event) =>
                               setForm({
@@ -6738,13 +6812,12 @@ export function ScheduleFormPanel({
                       </div>
                     </label>
 
-                    <label className={`block ${compactFieldGroupClass}`}>
+                    <div className={compactFieldGroupClass}>
                       <div className={compactFieldFrameClass}>
                         <textarea
                           ref={descriptionTextareaRef}
-                          rows={descriptionExpanded ? 3 : 1}
+                          rows={1}
                           value={form.description}
-                          onFocus={() => setDescriptionExpanded(true)}
                           onChange={(event) => {
                             setForm({
                               ...form,
@@ -6753,14 +6826,10 @@ export function ScheduleFormPanel({
                             syncDescriptionTextareaHeight(event.currentTarget);
                           }}
                           placeholder="설명"
-                          className={`w-full bg-transparent font-medium text-slate-900 outline-none transition-[height,min-height,padding] duration-150 placeholder:text-slate-400 ${
-                            descriptionExpanded
-                              ? "min-h-[4.5rem] resize-none overflow-hidden py-2 text-sm leading-6"
-                              : "h-9 min-h-9 resize-none overflow-hidden py-0 text-xs leading-9"
-                          }`}
+                          className="h-9 min-h-9 w-full resize-none bg-transparent py-1.5 text-xs font-medium leading-6 text-slate-900 outline-none transition-[height] duration-150 placeholder:text-slate-400"
                         />
                       </div>
-                    </label>
+                    </div>
 
                     <div className={compactFieldGroupClass}>
                       <div className={settingsRowLabelClass}>공개 범위</div>
@@ -6845,7 +6914,7 @@ export function ScheduleFormPanel({
             )}
 
             {mode === "edit" && schedule && (
-              <LinkedScheduleTasks schedule={schedule} />
+              <ScheduleLinkedTasks schedule={schedule} />
             )}
           </div>
         </form>
@@ -6920,6 +6989,7 @@ function MiniCalendar({
   dateMeta,
   holidaysByDate,
   weekDates,
+  weekStart,
   onMoveMonth,
   onResetMonth,
   onSelectDate,
@@ -6929,6 +6999,7 @@ function MiniCalendar({
   dateMeta: Map<string, DayMeta>;
   holidaysByDate: Map<string, Holiday[]>;
   weekDates: Date[];
+  weekStart: WeekStartDay;
   onMoveMonth: (offset: number) => void;
   onResetMonth: () => void;
   onSelectDate: (date: Date) => void;
@@ -6938,8 +7009,12 @@ function MiniCalendar({
     visibleMonth.getFullYear() === today.getFullYear() &&
     visibleMonth.getMonth() === today.getMonth();
   const compactCells = useMemo(
-    () => buildFullMonthCells(visibleMonth),
-    [visibleMonth],
+    () => buildFullMonthCells(visibleMonth, { weekStart }),
+    [visibleMonth, weekStart],
+  );
+  const weekdayHeaders = useMemo(
+    () => orderedWeekdayLabels(weekStart),
+    [weekStart],
   );
   const selectedWeekSet = useMemo(
     () => new Set(weekDates.map((day) => toDateKey(day))),
@@ -7003,13 +7078,13 @@ function MiniCalendar({
 
       <div className="mt-2">
         <div className="grid grid-cols-7 text-center text-[10px] font-semibold text-slate-400">
-          {weekdayLabels.map((label, index) => (
+          {weekdayHeaders.map(({ day, label }) => (
             <span
-              key={label}
+              key={day}
               className={
-                index === 0
+                day === 0
                   ? "text-rose-500"
-                  : index === 6
+                  : day === 6
                     ? "text-sky-500"
                     : undefined
               }
@@ -7062,6 +7137,72 @@ function MiniCalendar({
         </div>
       </div>
     </aside>
+  );
+}
+
+function ExpandableScheduleDescription({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [hasOverflow, setHasOverflow] = useState(false);
+  const textRef = useRef<HTMLParagraphElement | null>(null);
+  const canToggle = hasOverflow || expanded;
+
+  useLayoutEffect(() => {
+    if (expanded) return;
+
+    const element = textRef.current;
+    if (!element) return;
+
+    const updateOverflow = () => {
+      setHasOverflow(element.scrollHeight > element.clientHeight + 1);
+    };
+
+    updateOverflow();
+
+    if (typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(updateOverflow);
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, [expanded, text]);
+
+  const toggle = (event: ReactMouseEvent) => {
+    if (!canToggle) return;
+
+    event.stopPropagation();
+    setExpanded((current) => !current);
+  };
+
+  return (
+    <div>
+      <p
+        ref={textRef}
+        onClick={canToggle ? toggle : undefined}
+        title={canToggle ? (expanded ? "설명 접기" : "설명 전체 보기") : undefined}
+        className={`whitespace-pre-wrap break-words leading-5 ${
+          expanded ? "" : "line-clamp-2"
+        } ${canToggle ? "cursor-pointer" : ""}`}
+      >
+        {text}
+      </p>
+      {canToggle && (
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={expanded}
+          aria-label={expanded ? "설명 접기" : "설명 전체 보기"}
+          title={expanded ? "설명 접기" : "설명 전체 보기"}
+          className="mt-1 inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-100"
+        >
+          {expanded ? (
+            <ChevronUp className="h-3.5 w-3.5" />
+          ) : (
+            <Plus className="h-3.5 w-3.5" />
+          )}
+          <span>{expanded ? "접기" : "전체 보기"}</span>
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -7219,9 +7360,7 @@ function TimelineItem({
                 </p>
               )}
               {schedule.description && (
-                <p className="whitespace-pre-wrap leading-5">
-                  {schedule.description}
-                </p>
+                <ExpandableScheduleDescription text={schedule.description} />
               )}
             </div>
           )}
@@ -7257,18 +7396,296 @@ function TimelineItem({
   );
 }
 
+function toPositiveScheduleNumber(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function asScheduleRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function scheduleRecordString(
+  record: Record<string, unknown> | null | undefined,
+  keys: string[],
+) {
+  for (const key of keys) {
+    const value = record?.[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function companyScheduleTargetDepartmentId(target: Record<string, unknown>) {
+  const department = asScheduleRecord(target.department);
+  const targetType = String(target.target_type ?? target.type ?? "");
+
+  return toPositiveScheduleNumber(
+    target.department_id ??
+      target.target_department_id ??
+      department?.department_id ??
+      (targetType === "department" ? target.target_id : null),
+  );
+}
+
+function companyScheduleTargetStatusLabel(status?: string | null) {
+  switch (status) {
+    case "pending_origin_approval":
+      return "소속 부서 승인 대기";
+    case "pending_target_approval":
+      return "대상 부서 승인 대기";
+    case "active":
+      return "참여 중";
+    case "rejected":
+      return "반려";
+    case "removed":
+      return "제외됨";
+    case "pending":
+      return "승인 대기";
+    case "approved":
+      return "승인됨";
+    default:
+      return status || "상태 미확인";
+  }
+}
+
+function companyScheduleStatusClassName(status?: string | null) {
+  if (status === "active" || status === "approved") {
+    return "border-emerald-100 bg-emerald-50 text-emerald-700";
+  }
+  if (status === "rejected" || status === "removed" || status === "cancelled") {
+    return "border-red-100 bg-red-50 text-red-700";
+  }
+  return "border-amber-100 bg-amber-50 text-amber-700";
+}
+
+function companyScheduleTargetLabel(
+  target: Record<string, unknown>,
+  departments: CompanyAdminDepartment[],
+) {
+  const department = asScheduleRecord(target.department);
+  const member = asScheduleRecord(target.member);
+  const departmentId = companyScheduleTargetDepartmentId(target);
+  const departmentName =
+    scheduleRecordString(department, ["name"]) ??
+    departments.find((item) => item.department_id === departmentId)?.name;
+  const memberName = scheduleRecordString(member, ["name", "email"]);
+  const targetName = scheduleRecordString(target, ["name", "title", "label"]);
+
+  return (
+    departmentName ??
+    memberName ??
+    targetName ??
+    (departmentId ? `부서 ${departmentId}` : "협업 대상")
+  );
+}
+
+const companyScheduleApprovalTypeLabels: Record<string, string> = {
+  create_collaboration_origin: "소속 부서 협업 승인",
+  create_collaboration: "협업 일정 승인",
+  add_department_target_origin: "협업 부서 추가 내부 승인",
+  add_department_target: "협업 부서 추가 승인",
+  update_collaboration: "협업 일정 수정 승인",
+  delete_schedule: "협업 일정 삭제 승인",
+  remove_department_target: "협업 부서 제외 승인",
+};
+
+function companyScheduleApprovalTypeLabel(type: string) {
+  return companyScheduleApprovalTypeLabels[type] ?? "회사 일정 승인";
+}
+
+function companyScheduleApprovalTitle(approval: CompanyScheduleApproval) {
+  return (
+    approval.company_schedule?.title ??
+    approval.schedule?.title ??
+    String(approval.title ?? "회사 일정")
+  );
+}
+
+function companyScheduleApprovalTargetLabel(approval: CompanyScheduleApproval) {
+  const targetDepartment =
+    approval.target_department ?? approval.department ?? null;
+  return (
+    targetDepartment?.name ??
+    (approval.target_department_id
+      ? `부서 ${approval.target_department_id}`
+      : null)
+  );
+}
+
+function companyScheduleApprovalCreatedAt(approval: CompanyScheduleApproval) {
+  const createdAt = approval.created_at;
+  if (!createdAt) return null;
+  const date = new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return null;
+  return `${formatSelectedDate(date)} ${formatTime(createdAt)}`;
+}
+
+function CompanyScheduleApprovalPopover({
+  approverApprovals,
+  requestedApprovals,
+  loading,
+  actionPending,
+  onApprove,
+  onReject,
+}: {
+  approverApprovals: CompanyScheduleApproval[];
+  requestedApprovals: CompanyScheduleApproval[];
+  loading?: boolean;
+  actionPending?: boolean;
+  onApprove: (approval: CompanyScheduleApproval) => void;
+  onReject: (approval: CompanyScheduleApproval) => void;
+}) {
+  const pendingCount = approverApprovals.length + requestedApprovals.length;
+
+  const renderApprovalList = (
+    title: string,
+    approvals: CompanyScheduleApproval[],
+    actionable: boolean,
+  ) => (
+    <section>
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-xs font-semibold text-slate-700">{title}</h3>
+        <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">
+          {approvals.length}
+        </span>
+      </div>
+      {approvals.length === 0 ? (
+        <p className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-xs font-medium text-slate-400">
+          승인 대기 요청이 없습니다.
+        </p>
+      ) : (
+        <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+          {approvals.map((approval, index) => {
+            const approvalId = getCompanyScheduleApprovalId(approval);
+            const targetLabel = companyScheduleApprovalTargetLabel(approval);
+            const createdAt = companyScheduleApprovalCreatedAt(approval);
+
+            return (
+              <article
+                key={approvalId ?? `${approval.approval_type}-${index}`}
+                className="rounded-md border border-slate-200 bg-white p-3"
+              >
+                <div className="flex items-start gap-2">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-700">
+                    <CheckSquare2 className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-semibold text-slate-950">
+                      {companyScheduleApprovalTitle(approval)}
+                    </p>
+                    <p className="mt-1 text-[11px] font-medium text-slate-500">
+                      {companyScheduleApprovalTypeLabel(
+                        approval.approval_type,
+                      )}
+                      {targetLabel ? ` · ${targetLabel}` : ""}
+                    </p>
+                    {createdAt && (
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        {createdAt}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                {actionable && (
+                  <div className="mt-3 flex justify-end gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => onReject(approval)}
+                      disabled={actionPending || !approvalId}
+                      className="inline-flex h-7 items-center justify-center rounded-md border border-red-200 bg-white px-2.5 text-[11px] font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
+                    >
+                      반려
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onApprove(approval)}
+                      disabled={actionPending || !approvalId}
+                      className="inline-flex h-7 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
+                    >
+                      승인
+                    </button>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="회사 일정 승인함"
+          title="회사 일정 승인함"
+          className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900"
+        >
+          <CheckSquare2 className="h-4 w-4" />
+          {pendingCount > 0 && (
+            <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-blue-600 px-1 text-[10px] font-semibold leading-4 text-white ring-2 ring-white">
+              {pendingCount}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        collisionPadding={12}
+        className="z-[160] w-[min(24rem,calc(100vw-1.5rem))] rounded-xl border border-slate-200 bg-white p-3 text-slate-900 shadow-xl shadow-slate-900/10"
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-slate-950">협업 승인</p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              내 승인함과 내가 보낸 요청
+            </p>
+          </div>
+          {loading && (
+            <span className="text-[11px] font-semibold text-slate-400">
+              불러오는 중
+            </span>
+          )}
+        </div>
+        <div className="grid gap-3">
+          {renderApprovalList("내 승인함", approverApprovals, true)}
+          {renderApprovalList("내 요청", requestedApprovals, false)}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function ScheduleReadonlyPanel({
   schedule,
   onClose,
+  departments,
+  requestDepartmentPending,
+  onRequestDepartment,
   floatingStyle,
   panelLayout,
 }: {
   schedule: Schedule;
   onClose: () => void;
+  departments: CompanyAdminDepartment[];
+  requestDepartmentPending?: boolean;
+  onRequestDepartment?: (
+    departmentId: number,
+    reason?: string,
+  ) => Promise<void> | void;
   floatingStyle: SchedulePanelFloatingStyle;
   panelLayout: SchedulePanelLayout;
 }) {
   const classificationSettings = useClassificationSettings();
+  const [targetDepartmentId, setTargetDepartmentId] = useState("");
+  const [requestReason, setRequestReason] = useState("");
+  const [requestError, setRequestError] = useState<string | null>(null);
   const { start, end } = scheduleDateRange(schedule);
   const sameDay = toDateKey(start) === toDateKey(end);
   const dateLabel = sameDay
@@ -7279,6 +7696,36 @@ function ScheduleReadonlyPanel({
     : `${formatTime(schedule.start_datetime)}${
         schedule.end_datetime ? ` - ${formatTime(schedule.end_datetime)}` : ""
       }`;
+  const targets = (schedule.targets ?? []) as Array<Record<string, unknown>>;
+  const targetDepartmentIds = new Set(
+    targets
+      .map((target) => companyScheduleTargetDepartmentId(target))
+      .filter((departmentId): departmentId is number => departmentId !== null),
+  );
+  const requestableDepartments = departments.filter(
+    (department) => !targetDepartmentIds.has(department.department_id),
+  );
+  const canRequestDepartment =
+    !!onRequestDepartment &&
+    targetDepartmentId !== "" &&
+    !requestDepartmentPending;
+
+  const handleRequestDepartment = async () => {
+    const departmentId = Number(targetDepartmentId);
+    if (!Number.isFinite(departmentId) || departmentId <= 0) {
+      setRequestError("추가할 협업 부서를 선택해 주세요.");
+      return;
+    }
+
+    try {
+      setRequestError(null);
+      await onRequestDepartment?.(departmentId, requestReason.trim() || undefined);
+      setTargetDepartmentId("");
+      setRequestReason("");
+    } catch (err) {
+      setRequestError(getErrorMessage(err, "협업 부서 요청에 실패했습니다."));
+    }
+  };
 
   return (
     <>
@@ -7327,6 +7774,29 @@ function ScheduleReadonlyPanel({
                 {schedule.company?.name ?? "회사 일정"}
               </dd>
             </div>
+            {(schedule.approval_status || schedule.is_collaboration) && (
+              <div>
+                <dt className="text-xs font-medium text-slate-500">
+                  협업 상태
+                </dt>
+                <dd className="mt-1 flex flex-wrap items-center gap-1.5">
+                  {schedule.is_collaboration && (
+                    <span className="rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                      협업 일정
+                    </span>
+                  )}
+                  {schedule.approval_status && (
+                    <span
+                      className={`rounded-md border px-2 py-0.5 text-xs font-semibold ${companyScheduleStatusClassName(
+                        schedule.approval_status,
+                      )}`}
+                    >
+                      {companyScheduleTargetStatusLabel(schedule.approval_status)}
+                    </span>
+                  )}
+                </dd>
+              </div>
+            )}
             <div>
               <dt className="text-xs font-medium text-slate-500">
                 날짜와 시간
@@ -7348,6 +7818,103 @@ function ScheduleReadonlyPanel({
                 )}
               </dd>
             </div>
+            {targets.length > 0 && (
+              <div>
+                <dt className="text-xs font-medium text-slate-500">
+                  참여 부서
+                </dt>
+                <dd className="mt-2 space-y-1.5">
+                  {targets.map((target, index) => {
+                    const status = String(
+                      target.status ?? target.approval_status ?? "",
+                    );
+                    const label = companyScheduleTargetLabel(
+                      target,
+                      departments,
+                    );
+
+                    return (
+                      <div
+                        key={`${label}-${index}`}
+                        className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2"
+                      >
+                        <span className="truncate text-xs font-semibold text-slate-800">
+                          {label}
+                        </span>
+                        <span
+                          className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${companyScheduleStatusClassName(
+                            status,
+                          )}`}
+                        >
+                          {companyScheduleTargetStatusLabel(status)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </dd>
+              </div>
+            )}
+            {onRequestDepartment && (
+              <div>
+                <dt className="text-xs font-medium text-slate-500">
+                  협업 부서 추가
+                </dt>
+                <dd className="mt-2 space-y-2">
+                  <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-1.5">
+                    <select
+                      value={targetDepartmentId}
+                      onChange={(event) =>
+                        setTargetDepartmentId(event.target.value)
+                      }
+                      disabled={
+                        requestDepartmentPending ||
+                        requestableDepartments.length === 0
+                      }
+                      className="h-9 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-900 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100 disabled:text-slate-400"
+                      aria-label="추가 협업 부서"
+                    >
+                      <option value="">
+                        {requestableDepartments.length === 0
+                          ? "추가 가능한 부서 없음"
+                          : "부서 선택"}
+                      </option>
+                      {requestableDepartments.map((department) => (
+                        <option
+                          key={department.department_id}
+                          value={department.department_id}
+                        >
+                          {department.name}
+                          {department.code ? ` (${department.code})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={handleRequestDepartment}
+                      disabled={!canRequestDepartment}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
+                      aria-label="협업 부서 요청"
+                      title="협업 부서 요청"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={requestReason}
+                    onChange={(event) => setRequestReason(event.target.value)}
+                    disabled={requestDepartmentPending}
+                    placeholder="요청 메모"
+                    className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100 disabled:text-slate-400"
+                  />
+                  {requestError && (
+                    <p className="text-xs font-semibold text-red-600">
+                      {requestError}
+                    </p>
+                  )}
+                </dd>
+              </div>
+            )}
             {schedule.location && (
               <div>
                 <dt className="text-xs font-medium text-slate-500">장소</dt>
@@ -7391,7 +7958,7 @@ function CompanyScheduleFormPanel({
 }) {
   const [form, setForm] = useState(initial);
   const [targetType, setTargetType] =
-    useState<CompanyScheduleTargetType>("company");
+    useState<CompanyScheduleTargetType>("department");
   const [departmentId, setDepartmentId] = useState("");
   const [memberId, setMemberId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -7408,7 +7975,7 @@ function CompanyScheduleFormPanel({
 
   useEffect(() => {
     setForm(initial);
-    setTargetType("company");
+    setTargetType("department");
     setDepartmentId("");
     setMemberId("");
     setError(null);
@@ -7447,7 +8014,7 @@ function CompanyScheduleFormPanel({
     }
 
     const target = buildTarget();
-    if (!target) {
+    if (targetType !== "department" && !target) {
       setError("회사 일정 대상을 선택해 주세요.");
       return;
     }
@@ -7461,10 +8028,10 @@ function CompanyScheduleFormPanel({
         end_datetime: form.end_local
           ? fromLocalInputValue(form.end_local)
           : undefined,
-        all_day: form.all_day,
+        all_day: shouldUseAllDayLaneForForm(form),
         location: form.location.trim() || undefined,
         status: "active",
-        targets: [target],
+        targets: target ? [target] : [],
       });
     } catch (err) {
       setError(getErrorMessage(err, "회사 일정 추가에 실패했습니다."));
@@ -7510,6 +8077,7 @@ function CompanyScheduleFormPanel({
 
         <form
           onSubmit={handleSubmit}
+          autoComplete="none"
           className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-slate-50/70 p-4"
         >
           {error ? (
@@ -7524,6 +8092,8 @@ function CompanyScheduleFormPanel({
             </span>
             <input
               type="text"
+              name="flowra_company_title"
+              autoComplete="none"
               value={form.title}
               onChange={(event) =>
                 setForm((prev) => ({ ...prev, title: event.target.value }))
@@ -7690,6 +8260,8 @@ function CompanyScheduleFormPanel({
             </span>
             <input
               type="text"
+              name="flowra_company_location"
+              autoComplete="none"
               value={form.location}
               onChange={(event) =>
                 setForm((prev) => ({ ...prev, location: event.target.value }))
@@ -8174,6 +8746,7 @@ function MonthScheduleGrid({
   selectedKey,
   categoryColors,
   activeScheduleId,
+  weekStart,
   onOpenDay,
   onOpenSchedule,
   onCreateDay,
@@ -8186,6 +8759,7 @@ function MonthScheduleGrid({
   selectedKey: string;
   categoryColors: Map<number, string>;
   activeScheduleId?: number | null;
+  weekStart: WeekStartDay;
   onOpenDay: (date: Date) => void;
   onOpenSchedule: (
     schedule: Schedule,
@@ -8206,6 +8780,10 @@ function MonthScheduleGrid({
     useState<WeekScheduleInteraction | null>(null);
   const rowCount = Math.max(1, Math.ceil(cells.length / 7));
   const [maxVisibleItems, setMaxVisibleItems] = useState(3);
+  const weekdayHeaders = useMemo(
+    () => orderedWeekdayLabels(weekStart),
+    [weekStart],
+  );
 
   useEffect(() => {
     return () => {
@@ -8536,11 +9114,11 @@ function MonthScheduleGrid({
       onWheel={handleMonthWheel}
     >
       <div className="grid shrink-0 grid-cols-7 border-b border-slate-100 bg-slate-50/95 text-center text-xs font-medium text-slate-500">
-        {weekdayLabels.map((label, index) => (
+        {weekdayHeaders.map(({ day, label }) => (
           <span
-            key={`${label}-${index}`}
+            key={day}
             className={`py-2.5 ${
-              index === 0 ? "text-rose-500" : index === 6 ? "text-sky-500" : ""
+              day === 0 ? "text-rose-500" : day === 6 ? "text-sky-500" : ""
             }`}
           >
             {label}
@@ -8844,11 +9422,14 @@ function scheduleWithDraftTime(
   end: Date,
   options?: ScheduleTimeChangeOptions,
 ): Schedule {
+  const allDay =
+    options?.allDay ?? (schedule.all_day || shouldUseAllDayLaneForRange(start, end));
+
   return {
     ...schedule,
     start_datetime: toOffsetISOString(start),
     end_datetime: toOffsetISOString(end),
-    all_day: options?.allDay ?? schedule.all_day,
+    all_day: allDay,
   };
 }
 
@@ -9007,9 +9588,43 @@ function scheduleDurationMs(schedule: Schedule) {
   return end.getTime() - start.getTime();
 }
 
-function isAllDayLikeSchedule(schedule: Schedule) {
+function dateRangeSpansMultipleDays(start: Date, end: Date) {
+  return toDateKey(start) !== toDateKey(end);
+}
+
+function shouldUseAllDayLaneForRange(start: Date, end?: Date | null) {
+  if (!end) return false;
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return false;
+  }
+  if (end <= start) return false;
+
   return (
-    schedule.all_day || scheduleDurationMs(schedule) >= allDayLikeThresholdMs
+    dateRangeSpansMultipleDays(start, end) ||
+    end.getTime() - start.getTime() >= allDayLikeThresholdMs
+  );
+}
+
+function shouldUseAllDayLaneForForm(form: ScheduleFormState) {
+  const start = new Date(form.start_local);
+  const end = form.end_local ? new Date(form.end_local) : null;
+  return form.all_day || shouldUseAllDayLaneForRange(start, end);
+}
+
+function scheduleCreateDraftForTimedRange(start: Date, end: Date) {
+  if (shouldUseAllDayLaneForRange(start, end)) {
+    return allDayCreateDraftForRange(start, end);
+  }
+
+  return { start, end, allDay: false };
+}
+
+function isAllDayLikeSchedule(schedule: Schedule) {
+  const { start, end } = scheduleDateRange(schedule);
+  return (
+    schedule.all_day ||
+    shouldUseAllDayLaneForRange(start, end) ||
+    scheduleDurationMs(schedule) >= allDayLikeThresholdMs
   );
 }
 
@@ -9418,6 +10033,9 @@ function WeekScheduleGrid({
   const todayKey = toDateKey(now);
   const todayIndex = weekDates.findIndex((day) => toDateKey(day) === todayKey);
   const nowTop = (minuteOfDay(now) / 60) * weekHourHeight;
+  const currentTimeColumnLeft =
+    todayIndex >= 0 && dayCount > 0 ? (todayIndex / dayCount) * 100 : 0;
+  const currentTimeColumnWidth = dayCount > 0 ? 100 / dayCount : 100;
   const visibleRangeKey = weekDates.map((day) => toDateKey(day)).join("|");
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const allDayGridRef = useRef<HTMLDivElement | null>(null);
@@ -10043,15 +10661,15 @@ function WeekScheduleGrid({
     event.stopPropagation();
 
     const finishedInteraction = createInteraction;
+    const draft = scheduleCreateDraftForTimedRange(
+      finishedInteraction.start,
+      finishedInteraction.end,
+    );
     setCreateInteraction(null);
     onCreateDay(
-      finishedInteraction.start,
+      draft.start,
       { clientX: event.clientX, clientY: event.clientY },
-      {
-        start: finishedInteraction.start,
-        end: finishedInteraction.end,
-        allDay: false,
-      },
+      draft,
     );
   };
 
@@ -10571,19 +11189,29 @@ function WeekScheduleGrid({
 
             {todayIndex >= 0 && (
               <div
-                className="pointer-events-none absolute left-0 right-0 z-20 border-t border-rose-400"
+                className="pointer-events-none absolute left-0 right-0 z-20"
                 style={{ top: nowTop }}
               >
+                <span className="absolute left-0 right-0 -top-px border-t border-rose-300/70" />
+                <span
+                  className="absolute -top-1 h-2 border-l-2 border-rose-500"
+                  style={{
+                    left: `${currentTimeColumnLeft}%`,
+                  }}
+                />
+                <span
+                  className="absolute -top-px border-t-2 border-rose-500"
+                  style={{
+                    left: `${currentTimeColumnLeft}%`,
+                    width: `calc(${currentTimeColumnWidth}% - 12px)`,
+                  }}
+                />
                 <span
                   className="absolute -top-2 whitespace-nowrap rounded bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold text-white"
                   style={{ left: -weekTimeColumnWidth + 4 }}
                 >
                   {formatTime(now.toISOString())}
                 </span>
-                <span
-                  className="absolute -top-[3px] h-1.5 w-1.5 rounded-full bg-rose-500"
-                  style={{ left: `${(todayIndex / dayCount) * 100}%` }}
-                />
               </div>
             )}
 
@@ -10865,7 +11493,7 @@ function WeekScheduleGrid({
 export default function Schedules() {
   const [searchParams, setSearchParams] = useSearchParams();
   const classificationSettings = useClassificationSettings();
-  const { showHolidays } = useUserSettings();
+  const { showHolidays, weekStart } = useUserSettings();
   const deepLinkedScheduleIdParam = searchParams.get("schedule_id");
   const deepLinkedScheduleId = deepLinkedScheduleIdParam
     ? Number(deepLinkedScheduleIdParam)
@@ -10887,7 +11515,7 @@ export default function Schedules() {
       new Date(safeInitialDate.getFullYear(), safeInitialDate.getMonth(), 1),
   );
   const [visibleWindowStart, setVisibleWindowStart] = useState(() =>
-    monthCalendarWindowStart(safeInitialDate),
+    monthCalendarWindowStart(safeInitialDate, weekStart),
   );
   const [miniCalendarMonth, setMiniCalendarMonth] = useState(() => {
     const today = new Date();
@@ -10939,7 +11567,26 @@ export default function Schedules() {
   const bulkDeleteMutation = useDeleteSchedules();
   const categoriesQuery = useCategories("schedule");
   const companyAdminMeQuery = useCompanyAdminMe();
+  const hasCompanyMembership = companyAdminMeQuery.isSuccess;
+  const companyDepartmentsQuery = useCompanyAdminDepartments(
+    hasCompanyMembership || !!viewingSchedule,
+  );
   const createCompanyScheduleMutation = useCreateCompanyAdminSchedule();
+  const createCompanyTargetDepartmentRequestMutation =
+    useCreateCompanyScheduleTargetDepartmentRequest();
+  const companyApprovalsEnabled = hasCompanyMembership;
+  const approverApprovalsQuery = useCompanyScheduleApprovals(
+    { status: "pending", role: "approver" },
+    companyApprovalsEnabled,
+  );
+  const requestedApprovalsQuery = useCompanyScheduleApprovals(
+    { status: "pending", role: "requested" },
+    companyApprovalsEnabled,
+  );
+  const approveCompanyScheduleApprovalMutation =
+    useApproveCompanyScheduleApproval();
+  const rejectCompanyScheduleApprovalMutation =
+    useRejectCompanyScheduleApproval();
 
   const categoryColors = useMemo(
     () =>
@@ -10958,6 +11605,10 @@ export default function Schedules() {
       schedulePanelLayout,
     );
   }, [schedulePanelLayout]);
+
+  useEffect(() => {
+    setVisibleWindowStart(monthCalendarWindowStart(visibleMonth, weekStart));
+  }, [weekStart]);
 
   useEffect(() => {
     if (!searchParams.has("location")) return;
@@ -11056,7 +11707,7 @@ export default function Schedules() {
     };
   }, [visibleWindowStart]);
   const miniCalendarHolidayRange = useMemo(() => {
-    const cells = buildFullMonthCells(miniCalendarMonth);
+    const cells = buildFullMonthCells(miniCalendarMonth, { weekStart });
     const first = cells[0]?.date ?? miniCalendarMonth;
     const last = cells[cells.length - 1]?.date ?? miniCalendarMonth;
 
@@ -11065,7 +11716,7 @@ export default function Schedules() {
       end_date: toDateKey(last),
       public_only: true,
     };
-  }, [miniCalendarMonth]);
+  }, [miniCalendarMonth, weekStart]);
 
   const schedulesQuery = useSchedules({
     start_from: monthRange.startFrom,
@@ -11074,6 +11725,8 @@ export default function Schedules() {
   const companySchedulesQuery = useCompanySchedules({
     start_from: monthRange.startFrom,
     start_to: monthRange.startTo,
+  }, {
+    enabled: hasCompanyMembership,
   });
   const holidaysQuery = useHolidaysInRange(
     {
@@ -11136,7 +11789,7 @@ export default function Schedules() {
 
   const filteredItems = useMemo(() => {
     const keyword = filters.q.trim().toLowerCase();
-    return [...(data ?? []), ...companySchedules]
+    return mergeSchedules(data ?? [], companySchedules)
       .map((schedule) => {
         const optimisticTime = optimisticScheduleTimes.get(
           schedule.schedule_id,
@@ -11349,13 +12002,17 @@ export default function Schedules() {
       buildFullMonthCells(visibleMonth, {
         fixedWeeks: 6,
         startDate: visibleWindowStart,
+        weekStart,
       }),
-    [visibleMonth, visibleWindowStart],
+    [visibleMonth, visibleWindowStart, weekStart],
   );
 
   const selectedKey = toDateKey(selectedDate);
   const todayKey = toDateKey(new Date());
-  const todayWeekDates = useMemo(() => buildWeekDates(new Date()), []);
+  const todayWeekDates = useMemo(
+    () => buildWeekDates(new Date(), weekStart),
+    [weekStart],
+  );
   const selectedSchedules = useMemo(
     () =>
       items.filter((schedule) => scheduleOverlapsDay(schedule, selectedDate)),
@@ -11365,7 +12022,10 @@ export default function Schedules() {
     () => selectedSchedules.filter((schedule) => !isReadonlySchedule(schedule)),
     [selectedSchedules],
   );
-  const weekDates = useMemo(() => buildWeekDates(selectedDate), [selectedDate]);
+  const weekDates = useMemo(
+    () => buildWeekDates(selectedDate, weekStart),
+    [selectedDate, weekStart],
+  );
   const weekSchedules = useMemo(() => {
     const firstDay = weekDates[0];
     const lastDay = weekDates[weekDates.length - 1] ?? firstDay;
@@ -11490,7 +12150,7 @@ export default function Schedules() {
     setVisibleMonth(
       new Date(targetDate.getFullYear(), targetDate.getMonth(), 1),
     );
-    setVisibleWindowStart(monthCalendarWindowStart(targetDate));
+    setVisibleWindowStart(monthCalendarWindowStart(targetDate, weekStart));
     deepLinkHandledRef.current = true;
 
     requestAnimationFrame(() => {
@@ -11506,7 +12166,7 @@ export default function Schedules() {
       const next = new Date(prev.getFullYear(), prev.getMonth() + offset, 1);
       const nextSelectedDate = new Date(next.getFullYear(), next.getMonth(), 1);
       setSelectedDate(nextSelectedDate);
-      setVisibleWindowStart(monthCalendarWindowStart(next));
+      setVisibleWindowStart(monthCalendarWindowStart(next, weekStart));
       return next;
     });
   };
@@ -11540,7 +12200,7 @@ export default function Schedules() {
     setSelectedScheduleIds(new Set());
     setSelectedDate(date);
     setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
-    setVisibleWindowStart(monthCalendarWindowStart(date));
+    setVisibleWindowStart(monthCalendarWindowStart(date, weekStart));
   };
 
   const moveVisibleWeek = (offset: number) => {
@@ -11594,6 +12254,10 @@ export default function Schedules() {
     setDesktopFiltersOpen(false);
     setMobileFiltersOpen(false);
   };
+
+  const changeScheduleView = useCallback((view: ScheduleCalendarView) => {
+    setScheduleView(view);
+  }, []);
 
   const updateOwnerView = (owner: ScheduleOwnerFilter) => {
     updateFilters({ owner });
@@ -11692,7 +12356,8 @@ export default function Schedules() {
 
     const nextStart = toOffsetISOString(start);
     const nextEnd = toOffsetISOString(end);
-    const nextAllDay = options?.allDay ?? schedule.all_day;
+    const nextAllDay =
+      options?.allDay ?? (schedule.all_day || shouldUseAllDayLaneForRange(start, end));
 
     setOptimisticScheduleTimes((prev) => {
       const next = new Map(prev);
@@ -11758,12 +12423,79 @@ export default function Schedules() {
     floatingPanelOpen,
   );
 
+  useEffect(() => {
+    const handleScheduleViewShortcut = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.isComposing ||
+        schedulePanelOpen ||
+        desktopFiltersOpen ||
+        mobileFiltersOpen ||
+        isEditableKeyboardTarget(event.target)
+      ) {
+        return;
+      }
+
+      const nextView = scheduleViewShortcutMap[event.key.toLowerCase()];
+      if (!nextView) return;
+
+      event.preventDefault();
+      changeScheduleView(nextView);
+    };
+
+    window.addEventListener("keydown", handleScheduleViewShortcut);
+    return () => {
+      window.removeEventListener("keydown", handleScheduleViewShortcut);
+    };
+  }, [
+    changeScheduleView,
+    desktopFiltersOpen,
+    mobileFiltersOpen,
+    schedulePanelOpen,
+  ]);
+
+  const handleApproveCompanyScheduleApproval = (
+    approval: CompanyScheduleApproval,
+  ) => {
+    const approvalId = toPositiveScheduleNumber(
+      getCompanyScheduleApprovalId(approval),
+    );
+    if (!approvalId) {
+      toast.error("승인 요청 ID를 찾지 못했습니다.");
+      return;
+    }
+
+    void approveCompanyScheduleApprovalMutation
+      .mutateAsync({ approvalId })
+      .catch(() => undefined);
+  };
+
+  const handleRejectCompanyScheduleApproval = (
+    approval: CompanyScheduleApproval,
+  ) => {
+    const approvalId = toPositiveScheduleNumber(
+      getCompanyScheduleApprovalId(approval),
+    );
+    if (!approvalId) {
+      toast.error("승인 요청 ID를 찾지 못했습니다.");
+      return;
+    }
+
+    void rejectCompanyScheduleApprovalMutation
+      .mutateAsync({ approvalId })
+      .catch(() => undefined);
+  };
+
   return (
     <AppShell
       fullBleed
       titleMeta={currentViewSummary}
       headerActions={
         <div
+          data-flowra-schedule-controls
           className={`flex items-center gap-1 transition-[margin] ${
             dockedPanelOpen ? "min-[600px]:mr-[300px] lg:mr-[340px]" : ""
           }`}
@@ -11866,7 +12598,7 @@ export default function Schedules() {
                 {scheduleViewOptions.map((option) => (
                   <DropdownMenuItem
                     key={option.value}
-                    onSelect={() => setScheduleView(option.value)}
+                    onSelect={() => changeScheduleView(option.value)}
                     className={`gap-3 rounded-md px-2.5 py-2 text-sm text-slate-200 focus:bg-neutral-800 focus:text-white ${
                       scheduleView === option.value ? "bg-neutral-800" : ""
                     }`}
@@ -11929,6 +12661,22 @@ export default function Schedules() {
               </button>
             </div>
           </div>
+          {companyApprovalsEnabled && (
+            <CompanyScheduleApprovalPopover
+              approverApprovals={approverApprovalsQuery.data ?? []}
+              requestedApprovals={requestedApprovalsQuery.data ?? []}
+              loading={
+                approverApprovalsQuery.isLoading ||
+                requestedApprovalsQuery.isLoading
+              }
+              actionPending={
+                approveCompanyScheduleApprovalMutation.isPending ||
+                rejectCompanyScheduleApprovalMutation.isPending
+              }
+              onApprove={handleApproveCompanyScheduleApproval}
+              onReject={handleRejectCompanyScheduleApproval}
+            />
+          )}
           {!dockedPanelOpen && (
             <button
               type="button"
@@ -11944,20 +12692,26 @@ export default function Schedules() {
       }
       sidebarExtra={
         scheduleView !== "month" ? (
-          <MiniCalendar
-            visibleMonth={miniCalendarMonth}
-            selectedKey={todayKey}
-            dateMeta={dateMeta}
-            holidaysByDate={miniCalendarHolidaysByDate}
-            weekDates={todayWeekDates}
-            onMoveMonth={moveMiniCalendarMonth}
-            onResetMonth={resetMiniCalendarMonth}
-            onSelectDate={selectDate}
-          />
+          <div data-flowra-schedule-sidebar>
+            <MiniCalendar
+              visibleMonth={miniCalendarMonth}
+              selectedKey={todayKey}
+              dateMeta={dateMeta}
+              holidaysByDate={miniCalendarHolidaysByDate}
+              weekDates={todayWeekDates}
+              weekStart={weekStart}
+              onMoveMonth={moveMiniCalendarMonth}
+              onResetMonth={resetMiniCalendarMonth}
+              onSelectDate={selectDate}
+            />
+          </div>
         ) : null
       }
     >
-      <div className="h-full min-h-0 overflow-hidden bg-white">
+      <div
+        data-flowra-schedule-page
+        className="h-full min-h-0 overflow-hidden bg-white dark:bg-slate-950"
+      >
         <section className="sr-only">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
@@ -12095,7 +12849,7 @@ export default function Schedules() {
                   {scheduleViewOptions.map((option) => (
                     <DropdownMenuItem
                       key={option.value}
-                      onSelect={() => setScheduleView(option.value)}
+                      onSelect={() => changeScheduleView(option.value)}
                       className={`gap-3 rounded-md px-2.5 py-2 text-sm text-slate-200 focus:bg-neutral-800 focus:text-white ${
                         scheduleView === option.value ? "bg-neutral-800" : ""
                       }`}
@@ -12287,9 +13041,10 @@ export default function Schedules() {
                     viewingSchedule?.schedule_id ??
                     null
                   }
+                  weekStart={weekStart}
                   onOpenDay={(date) => {
                     selectDate(date);
-                    setScheduleView("day");
+                    changeScheduleView("day");
                   }}
                   onCreateDay={(date, _anchorElement, draft) =>
                     openCreateSidebarPanel(date, draft, {
@@ -12318,7 +13073,7 @@ export default function Schedules() {
                   }
                   onOpenDay={(date) => {
                     selectDate(date);
-                    setScheduleView("day");
+                    changeScheduleView("day");
                   }}
                   onCreateDay={(date, anchorElement, draft) =>
                     openCreatePanel(date, anchorElement, draft)
@@ -12446,6 +13201,24 @@ export default function Schedules() {
             <ScheduleReadonlyPanel
               schedule={viewingSchedule}
               onClose={closePanel}
+              departments={companyDepartmentsQuery.data ?? []}
+              requestDepartmentPending={
+                createCompanyTargetDepartmentRequestMutation.isPending
+              }
+              onRequestDepartment={async (departmentId, reason) => {
+                const updatedSchedule =
+                  await createCompanyTargetDepartmentRequestMutation.mutateAsync(
+                    {
+                      companyScheduleId:
+                        companyScheduleSourceId(viewingSchedule),
+                      payload: {
+                        target_department_ids: [departmentId],
+                        reason,
+                      },
+                    },
+                  );
+                setViewingSchedule(companyScheduleToSchedule(updatedSchedule));
+              }}
               floatingStyle={floatingPanelStyle}
               panelLayout={schedulePanelLayout}
             />
@@ -12469,17 +13242,27 @@ export default function Schedules() {
               onClose={closePanel}
               onPreviewChange={updateDraftPreviewForms}
               companyName={companyAdminMeQuery.data?.company?.name}
-              onCompanySubmit={async (payload) => {
-                const createdSchedule =
-                  await createCompanyScheduleMutation.mutateAsync(payload);
-                const start = new Date(
-                  createdSchedule?.start_datetime ?? payload.start_datetime,
-                );
-                if (!Number.isNaN(start.getTime())) {
-                  selectDate(start);
-                }
-                closePanel();
-              }}
+              defaultOwner={
+                hasCompanyMembership && filters.owner === "company"
+                  ? "company"
+                  : "personal"
+              }
+              onCompanySubmit={
+                hasCompanyMembership
+                  ? async (payload) => {
+                      const createdSchedule =
+                        await createCompanyScheduleMutation.mutateAsync(payload);
+                      const start = new Date(
+                        createdSchedule?.start_datetime ??
+                          payload.start_datetime,
+                      );
+                      if (!Number.isNaN(start.getTime())) {
+                        selectDate(start);
+                      }
+                      closePanel();
+                    }
+                  : undefined
+              }
               floatingStyle={floatingPanelStyle}
               panelLayout={schedulePanelLayout}
               deletePending={deleteMutation.isPending}

@@ -16,6 +16,9 @@ export interface Reminder {
   reminder_type: ReminderType;
   is_sent?: boolean;
   sent_at?: string | null;
+  send_attempts?: number;
+  last_send_error_code?: string | null;
+  last_send_error_message?: string | null;
   created_at?: string;
   updated_at?: string;
 }

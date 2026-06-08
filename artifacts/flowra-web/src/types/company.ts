@@ -3,6 +3,7 @@ export interface CompanyInviteCompany {
   public_uid?: string;
   name: string;
   status?: string;
+  company_schedule_create_policy?: string | null;
 }
 
 export interface CompanyInviteDepartment {
@@ -41,9 +42,25 @@ export interface AcceptCompanyInviteData {
 }
 
 export interface CompanyScheduleTarget {
-  target_type?: string;
+  target_type?: "company" | "department" | "member" | string;
   target_id?: number | string | null;
+  department_id?: number | string | null;
+  company_member_id?: number | string | null;
   name?: string | null;
+  status?:
+    | "pending_origin_approval"
+    | "pending_target_approval"
+    | "active"
+    | "rejected"
+    | "removed"
+    | string
+    | null;
+  approval_status?: CompanyScheduleApprovalStatus | string | null;
+  department?: CompanyInviteDepartment | null;
+  member?: CompanyMember | null;
+  requested_by_department_id?: number | string | null;
+  requested_by_company_member_id?: number | string | null;
+  approved_by_company_member_id?: number | string | null;
   [key: string]: unknown;
 }
 
@@ -58,7 +75,17 @@ export interface CompanySchedule {
   all_day: boolean;
   location?: string | null;
   source_type?: string | null;
+  status?: "active" | "pending_approval" | "cancelled" | string | null;
+  origin_department?: CompanyInviteDepartment | null;
+  created_by_company_member?: CompanyMember | null;
+  updated_by_company_member?: CompanyMember | null;
+  is_collaboration?: boolean;
+  is_modified?: boolean;
+  approval_status?: string | null;
+  approval_summary?: Record<string, unknown> | null;
   targets?: CompanyScheduleTarget[];
+  approvals?: CompanyScheduleApproval[];
+  change_requests?: unknown[];
   created_at?: string;
   updated_at?: string;
 }
@@ -90,6 +117,8 @@ export interface CompanyAdminMe {
   name: string;
   status: string;
   company: CompanyInviteCompany;
+  department_id?: number | null;
+  department?: CompanyInviteDepartment | null;
   role?: CompanyAdminRole | string | null;
   permissions?: CompanyAdminPermission[];
 }
@@ -98,14 +127,18 @@ export interface CompanyAdminDepartment {
   department_id: number;
   parent_department_id?: number | null;
   leader_company_member_id?: number | null;
+  approval_delegate_company_member_id?: number | null;
+  approval_delegate_enabled?: boolean;
   leader?: CompanyAdminMember | null;
   name: string;
   code?: string | null;
   depth_level?: number;
   external_department_id?: string | null;
   status?: string;
+  schedule_create_policy?: string | null;
   sort_order?: number | null;
   children?: CompanyAdminDepartment[];
+  _count?: Record<string, number>;
 }
 
 export interface CompanyAdminMember {
@@ -136,4 +169,59 @@ export interface CreateCompanyScheduleRequest {
   location?: string | null;
   status?: "active" | "cancelled";
   targets: CompanyScheduleCreateTarget[];
+}
+
+export type CompanyScheduleApprovalStatus =
+  | "pending"
+  | "approved"
+  | "rejected";
+
+export type CompanyScheduleApprovalRole = "approver" | "requested";
+
+export type CompanyScheduleApprovalType =
+  | "create_collaboration_origin"
+  | "create_collaboration"
+  | "add_department_target_origin"
+  | "add_department_target"
+  | "update_collaboration"
+  | "delete_schedule"
+  | "remove_department_target"
+  | string;
+
+export interface CompanyScheduleApproval {
+  approval_id?: number;
+  company_schedule_approval_id?: number;
+  approval_type: CompanyScheduleApprovalType;
+  status: CompanyScheduleApprovalStatus | string;
+  company_schedule_id?: number;
+  schedule?: CompanySchedule | null;
+  company_schedule?: CompanySchedule | null;
+  target_department_id?: number | null;
+  target_department?: CompanyInviteDepartment | null;
+  department?: CompanyInviteDepartment | null;
+  requested_by_company_member?: CompanyMember | null;
+  approver_company_member?: CompanyMember | null;
+  approved_by_company_member?: CompanyMember | null;
+  rejected_by_company_member?: CompanyMember | null;
+  reason?: string | null;
+  comment?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  decided_at?: string | null;
+  [key: string]: unknown;
+}
+
+export interface CompanyScheduleApprovalListQuery {
+  status?: CompanyScheduleApprovalStatus;
+  role?: CompanyScheduleApprovalRole;
+}
+
+export interface CompanyScheduleApprovalActionRequest {
+  comment?: string;
+  reason?: string;
+}
+
+export interface CreateCompanyScheduleTargetDepartmentRequest {
+  target_department_ids: number[];
+  reason?: string;
 }

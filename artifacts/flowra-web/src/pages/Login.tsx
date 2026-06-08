@@ -2,11 +2,11 @@ import { useCallback } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Sparkles } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { loginSchema, type LoginFormValues } from "@/lib/schemas";
 import { getErrorMessage } from "@/lib/error";
 import { toast } from "@/lib/toast";
-import { Sparkles } from "lucide-react";
 
 interface LocationState {
   from?: { pathname: string; search?: string; hash?: string };

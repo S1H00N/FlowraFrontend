@@ -2,8 +2,8 @@ import { memo, useCallback, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-  useCompleteTask,
   useDeleteTask,
+  useSetTaskCompletion,
   useUpdateTask,
 } from "@/hooks/useTasks";
 import { type Schedule, type Task } from "@/types";
@@ -23,6 +23,7 @@ import {
 import { useCategories } from "@/hooks/useCategories";
 import { CalendarClock } from "lucide-react";
 import { localInputToOffsetISOString } from "@/utils/dateUtils";
+import TaskCompletionToggleButton from "@/components/TaskCompletionToggleButton";
 
 function formatDue(iso?: string | null) {
   if (!iso) return "마감 없음";
@@ -56,7 +57,7 @@ function TaskItemBase({
 
   const updateMutation = useUpdateTask();
   const deleteMutation = useDeleteTask();
-  const completeMutation = useCompleteTask();
+  const completionMutation = useSetTaskCompletion();
   const { data: categories = [] } = useCategories("task");
   const classificationSettings = useClassificationSettings();
   const priorityOptions = getClassificationOptions(
@@ -138,13 +139,21 @@ function TaskItemBase({
     }
   }, [deleteMutation, task.task_id]);
 
-  const handleComplete = useCallback(async () => {
-    try {
-      await completeMutation.mutateAsync(task.task_id);
-    } catch {
-      /* global toast */
-    }
-  }, [completeMutation, task.task_id]);
+  const handleCompletionChange = useCallback(
+    async (completed: boolean) => {
+      if (completed === isDone) return;
+
+      try {
+        await completionMutation.mutateAsync({
+          taskId: task.task_id,
+          completed,
+        });
+      } catch {
+        /* global toast */
+      }
+    },
+    [completionMutation, isDone, task.task_id],
+  );
 
   if (isEditing) {
     return (
@@ -252,19 +261,12 @@ function TaskItemBase({
       }`}
     >
       <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleComplete}
-          disabled={isDone || completeMutation.isPending}
-          aria-label={isDone ? "완료됨" : "완료로 표시"}
-          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition ${
-            isDone
-              ? "border-emerald-500 bg-emerald-500 text-white"
-              : "border-slate-300 bg-white hover:border-emerald-500"
-          }`}
-        >
-          {isDone ? "✓" : null}
-        </button>
+        <TaskCompletionToggleButton
+          completed={isDone}
+          disabled={completionMutation.isPending}
+          compact
+          onCompletedChange={handleCompletionChange}
+        />
 
         <button
           type="button"

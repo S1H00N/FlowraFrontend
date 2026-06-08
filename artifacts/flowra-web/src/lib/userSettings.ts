@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 export type UserTheme = "light" | "dark" | "system";
+export type ResolvedUserTheme = "light" | "dark";
 export type WeekStartDay = "sunday" | "monday";
 export type DefaultCalendarView = "month" | "week";
 
@@ -17,6 +18,7 @@ export interface UserSettings {
 
 const storageKey = "flowra:user-settings";
 const changeEvent = "flowra:user-settings-changed";
+const systemDarkQuery = "(prefers-color-scheme: dark)";
 
 export function getDefaultUserSettings(): UserSettings {
   return {
@@ -29,6 +31,28 @@ export function getDefaultUserSettings(): UserSettings {
     highlightToday: true,
     showScheduleCountBadge: true,
   };
+}
+
+export function getSystemTheme(): ResolvedUserTheme {
+  if (typeof window === "undefined") return "light";
+
+  return window.matchMedia(systemDarkQuery).matches ? "dark" : "light";
+}
+
+export function resolveUserTheme(theme: UserTheme): ResolvedUserTheme {
+  return theme === "system" ? getSystemTheme() : theme;
+}
+
+export function applyUserTheme(theme: UserTheme) {
+  if (typeof document === "undefined") return;
+
+  const resolvedTheme = resolveUserTheme(theme);
+  const root = document.documentElement;
+
+  root.classList.toggle("dark", resolvedTheme === "dark");
+  root.dataset.theme = theme;
+  root.dataset.resolvedTheme = resolvedTheme;
+  root.style.colorScheme = resolvedTheme;
 }
 
 function isUserTheme(value: unknown): value is UserTheme {
@@ -94,10 +118,13 @@ export function readUserSettings(): UserSettings {
 
 export function saveUserSettings(settings: UserSettings) {
   if (typeof window === "undefined") return;
+  const normalized = normalizeUserSettings(settings);
+
   window.localStorage.setItem(
     storageKey,
-    JSON.stringify(normalizeUserSettings(settings)),
+    JSON.stringify(normalized),
   );
+  applyUserTheme(normalized.theme);
   window.dispatchEvent(new Event(changeEvent));
 }
 
@@ -124,4 +151,20 @@ export function useUserSettings() {
   }, []);
 
   return settings;
+}
+
+export function useApplyUserTheme() {
+  const { theme } = useUserSettings();
+
+  useEffect(() => {
+    applyUserTheme(theme);
+
+    if (theme !== "system" || typeof window === "undefined") return;
+
+    const mediaQuery = window.matchMedia(systemDarkQuery);
+    const updateTheme = () => applyUserTheme("system");
+
+    mediaQuery.addEventListener("change", updateTheme);
+    return () => mediaQuery.removeEventListener("change", updateTheme);
+  }, [theme]);
 }

@@ -60,6 +60,12 @@ export interface Schedule {
   source_ai_result_id?: number | null;
   source_type?: string | null;
   targets?: Array<Record<string, unknown>>;
+  is_collaboration?: boolean;
+  approval_status?: string | null;
+  approval_summary?: Record<string, unknown> | null;
+  origin_department?: unknown;
+  created_by_company_member?: unknown;
+  updated_by_company_member?: unknown;
   created_at: string;
   updated_at?: string;
 }

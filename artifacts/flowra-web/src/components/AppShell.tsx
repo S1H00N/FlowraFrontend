@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCompanyAdminMe } from "@/hooks/useCompanyAdmin";
+import { useGravatarProfileImage } from "@/hooks/useGravatarProfileImage";
 import { useMe } from "@/hooks/useMe";
 import {
   DropdownMenu,
@@ -20,6 +22,8 @@ import {
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import AiChatWidget from "@/components/AiChatWidget";
+import { formatCompanyAffiliation } from "@/lib/companyAffiliation";
 
 const navigation = [
   {
@@ -64,6 +68,7 @@ function ProfileMenu({
   variant,
   displayName,
   displayEmail,
+  affiliationLabel,
   profileImageUrl,
   initials,
   compact,
@@ -74,6 +79,7 @@ function ProfileMenu({
   variant: "icon" | "card";
   displayName: string;
   displayEmail: string;
+  affiliationLabel?: string;
   profileImageUrl: string | null;
   initials: string;
   compact?: boolean;
@@ -111,13 +117,15 @@ function ProfileMenu({
             </AvatarFallback>
           </Avatar>
           {isCard && (
-            <span className="min-w-0">
+            <span className="min-w-0 flex-1 overflow-hidden">
               <span className="block truncate text-xs font-semibold text-slate-950">
                 {displayName}
               </span>
-              <span className="mt-0.5 block truncate text-[11px] font-medium text-slate-400">
-                무료 플랜
-              </span>
+              {affiliationLabel && (
+                <span className="mt-0.5 block truncate text-[11px] font-medium text-slate-400">
+                  {affiliationLabel}
+                </span>
+              )}
             </span>
           )}
         </button>
@@ -129,8 +137,7 @@ function ProfileMenu({
         className="w-44 rounded-lg border-slate-200 bg-white p-2 text-slate-900 shadow-xl shadow-slate-900/10"
       >
         <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault();
+          onSelect={() => {
             onOpenSettings();
           }}
           className="h-10 cursor-pointer gap-2.5 rounded-lg px-3 text-sm font-medium text-slate-700 focus:bg-emerald-50 focus:text-emerald-700"
@@ -176,7 +183,9 @@ export default function AppShell({
 }) {
   const { user: cachedUser, logout } = useAuth();
   const meQuery = useMe();
+  const companyAdminMeQuery = useCompanyAdminMe();
   const location = useLocation();
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarPreviewOpen, setSidebarPreviewOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
@@ -198,8 +207,15 @@ export default function AppShell({
 
   const displayName = meQuery.data?.name ?? cachedUser?.name ?? "사용자";
   const displayEmail = meQuery.data?.email ?? cachedUser?.email ?? "";
-  const profileImageUrl =
-    meQuery.data?.profile_image_url ?? cachedUser?.profile_image_url ?? null;
+  const storedProfileImageUrl =
+    (
+      meQuery.data?.profile_image_url ??
+      cachedUser?.profile_image_url ??
+      ""
+    ).trim() || null;
+  const gravatarProfileImageUrl = useGravatarProfileImage(displayEmail, 160);
+  const profileImageUrl = storedProfileImageUrl ?? gravatarProfileImageUrl;
+  const affiliationLabel = formatCompanyAffiliation(companyAdminMeQuery.data);
   const activeItem =
     location.pathname === settingsNavigationItem.to
       ? settingsNavigationItem
@@ -239,6 +255,10 @@ export default function AppShell({
 
     return () => mediaQuery.removeEventListener("change", handleChange);
   }, []);
+
+  const handleLogout = async () => {
+    await logout();
+  };
 
   const closeSidebarOnMobile = () => {
     if (window.matchMedia("(max-width: 599px)").matches) {
@@ -410,10 +430,11 @@ export default function AppShell({
             variant="card"
             displayName={displayName}
             displayEmail={displayEmail}
+            affiliationLabel={affiliationLabel}
             profileImageUrl={profileImageUrl}
             initials={initials}
             onOpenSettings={openSettingsDialog}
-            onLogout={logout}
+            onLogout={handleLogout}
             onOpenChange={handleProfileMenuOpenChange}
           />
         </div>
@@ -553,6 +574,8 @@ export default function AppShell({
           );
         })}
       </nav>
+
+      <AiChatWidget />
     </div>
   );
 }

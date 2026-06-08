@@ -88,3 +88,19 @@ export async function completeTask(taskId: number) {
   );
   return { ...res.data, data: { task: unwrapTask(res.data.data) } };
 }
+
+export async function setTaskCompletion(taskId: number, completed: boolean) {
+  const res = await apiClient.patch<ApiResponse<TaskData>>(
+    `/tasks/${taskId}`,
+    completed
+      ? {
+          status: "done",
+          completed_at: toOffsetISOString(new Date()),
+        }
+      : {
+          status: "todo",
+          completed_at: null,
+        },
+  );
+  return { ...res.data, data: { task: unwrapTask(res.data.data) } };
+}

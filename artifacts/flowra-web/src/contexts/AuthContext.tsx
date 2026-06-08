@@ -10,7 +10,13 @@ import {
 import { useNavigate } from "react-router-dom";
 import { authStorage } from "@/lib/auth-storage";
 import * as authApi from "@/api/auth";
+import { unregisterPushDevice } from "@/api/pushDevices";
 import { setOnAuthFailure } from "@/api/client";
+import {
+  clearStoredBrowserPushToken,
+  deleteCurrentBrowserPushToken,
+  getStoredBrowserPushToken,
+} from "@/lib/browserPush";
 import type { LoginRequest, SignupRequest, User } from "@/types";
 
 interface AuthContextValue {
@@ -19,14 +25,17 @@ interface AuthContextValue {
   isInitializing: boolean;
   login: (payload: LoginRequest) => Promise<void>;
   signup: (payload: SignupRequest) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
-  const [user, setUser] = useState<User | null>(() => authStorage.getUser<User>());
+  const [user, setUser] = useState<User | null>(() => {
+    const token = authStorage.getAccessToken();
+    return token ? authStorage.getUser<User>() : null;
+  });
   const [isInitializing, setIsInitializing] = useState<boolean>(true);
 
   useEffect(() => {
@@ -34,14 +43,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const cached = authStorage.getUser<User>();
     if (token && cached) {
       setUser(cached);
+    } else if (!token && cached) {
+      authStorage.clear();
+      setUser(null);
     }
     setIsInitializing(false);
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    const browserPushToken = getStoredBrowserPushToken();
+    if (browserPushToken) {
+      try {
+        await unregisterPushDevice({ device_token: browserPushToken });
+      } catch {
+        // If the server unlink fails, invalidate the FCM token but keep the user's
+        // browser-level notification preference for the next login.
+        try {
+          await deleteCurrentBrowserPushToken({ keepEnabledPreference: true });
+        } catch {
+          clearStoredBrowserPushToken({ keepEnabledPreference: true });
+        }
+      }
+    }
+
     const refreshToken = authStorage.getRefreshToken();
     if (refreshToken) {
-      void authApi.logout(refreshToken).catch(() => {
+      await authApi.logout(refreshToken).catch(() => {
         // Local logout must still complete when the server token is already invalid.
       });
     }
@@ -52,6 +79,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setOnAuthFailure(() => {
+      const browserPushToken = getStoredBrowserPushToken();
+      if (browserPushToken) {
+        void deleteCurrentBrowserPushToken({ keepEnabledPreference: true }).catch(() =>
+          clearStoredBrowserPushToken({ keepEnabledPreference: true }),
+        );
+      } else {
+        clearStoredBrowserPushToken({ keepEnabledPreference: true });
+      }
       setUser(null);
       navigate("/login", { replace: true });
     });
@@ -90,7 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
-      isAuthenticated: !!user,
+      isAuthenticated: !!user && !!authStorage.getAccessToken(),
       isInitializing,
       login,
       signup,

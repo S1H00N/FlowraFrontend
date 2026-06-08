@@ -1150,6 +1150,10 @@ CompanySchedule 주요 필드:
 - `approval_status`
 - `approval_summary`
 - `targets[]`
+  - `status`: `pending_origin_approval` | `pending_target_approval` | `active` | `rejected` | `removed`
+  - `requested_by_department_id`
+  - `requested_by_company_member_id`
+  - `approved_by_company_member_id`
 
 ### `GET /company-schedules/:company_schedule_id`
 
@@ -1192,9 +1196,17 @@ Request body:
 - 요청자는 해당 회사의 active 멤버여야 합니다.
 - 요청자는 active 부서에 소속되어 있어야 합니다.
 - 요청자 부서는 자동으로 target에 포함됩니다.
+- 회사 전체 일정은 `target_type = "company"`로 요청합니다.
+- 회사 전체 일정 등록은 회사의 `company_schedule_create_policy`를 따릅니다.
+  - `company_admin_only`: 일반 사용자 API에서 회사 전체 일정 등록 불가
+  - `department_leaders`: 부서장만 회사 전체 일정 등록 가능
+  - `members`: 부서원도 회사 전체 일정 등록 가능
 - 요청자 부서의 `schedule_create_policy`가 `leader_only`이면 부서장만 등록할 수 있습니다.
 - `schedule_create_policy`가 `members`이면 부서원도 등록할 수 있습니다.
-- target 부서가 2개 이상이면 협업 일정으로 생성되며, 요청자 부서를 제외한 모든 target 부서장의 승인이 필요합니다.
+- target 부서가 2개 이상이면 협업 일정으로 생성됩니다.
+- 요청자가 최초 등록 부서의 부서장, 상위 부서장 또는 활성화된 승인 대행자이면 요청자 부서 승인은 생략하고 대상 부서 승인으로 바로 전달합니다.
+- 요청자가 일반 회사 사용자이면 먼저 요청자 부서 관리자 승인(`create_collaboration_origin`)이 필요합니다. 승인 후 요청자 부서를 제외한 모든 대상 부서 관리자에게 `create_collaboration` 요청이 전달됩니다.
+- 요청자 부서 관리자가 반려하면 대상 부서에는 요청이 전달되지 않고 일정은 `cancelled`, `approval_status = rejected`가 됩니다.
 - 협업 승인이 완료되기 전에는 `status = pending_approval`, `approval_status = pending` 입니다.
 
 ### `PATCH /company-schedules/:company_schedule_id`
@@ -1242,6 +1254,27 @@ Response data:
 - `change_requests`
 - `approval_summary`
 
+### `POST /company-schedules/:company_schedule_id/target-department-requests`
+
+기존 협업 일정에 다음 협업 부서를 추가 요청합니다. A -> B 협업 일정에서 B가 C에게 협업을 요청하는 흐름에 사용합니다.
+
+Request body:
+
+```json
+{
+  "target_department_ids": [30],
+  "reason": "릴리즈 검수 단계 협업 요청"
+}
+```
+
+비고:
+
+- 요청자는 해당 일정의 active 참여 부서 소속 멤버여야 합니다.
+- 요청자가 본인 부서의 부서장, 상위 부서장 또는 활성화된 승인 대행자이면 대상 부서 승인(`add_department_target`)으로 바로 전달됩니다.
+- 요청자가 일반 회사 사용자이면 먼저 요청자 부서 관리자 승인(`add_department_target_origin`)이 필요합니다. 승인 후 대상 부서 관리자에게 `add_department_target` 요청이 전달됩니다.
+- 대상 부서가 승인하면 해당 target은 `active`가 되고 기존 협업 일정에 참여 부서로 추가됩니다.
+- 대상 부서가 반려해도 기존 협업 일정은 유지되며, 해당 target만 `rejected` 상태가 됩니다.
+
 ## Company Schedule Approvals
 
 모든 Company Schedule Approvals API는 인증 필요.
@@ -1259,7 +1292,10 @@ Query params:
 
 승인 유형:
 
+- `create_collaboration_origin`: 협업 일정 생성 전 요청자 부서 관리자 선승인
 - `create_collaboration`: 협업 일정 생성 승인
+- `add_department_target_origin`: 기존 협업 일정에 부서 추가 전 요청자 부서 관리자 선승인
+- `add_department_target`: 기존 협업 일정에 부서 추가 승인
 - `update_collaboration`: 협업 일정 수정 승인
 - `delete_schedule`: 협업 일정 전체 삭제 승인
 - `remove_department_target`: 협업 일정에서 특정 부서 target 제거 승인
@@ -1270,18 +1306,28 @@ Query params:
 
 ### `POST /company-schedule-approvals/:approval_id/approve`
 
-부서장이 승인 요청을 승인합니다.
+부서장, 상위 부서장 또는 활성화된 승인 대행자가 승인 요청을 승인합니다.
+
+승인 가능자:
+
+- 승인 대상 부서의 부서장
+- 승인 대상 부서의 상위 부서장
+- 승인 대상 부서에 지정된 `approval_delegate_company_member_id` 멤버
+  - 단, 해당 부서의 `approval_delegate_enabled = true`인 경우에만 승인 가능
 
 비고:
 
+- `create_collaboration_origin`은 승인 후 대상 부서의 `create_collaboration` 요청을 생성합니다.
 - `create_collaboration`은 모든 대상 부서장이 승인하면 일정이 active로 전환됩니다.
+- `add_department_target_origin`은 승인 후 대상 부서의 `add_department_target` 요청을 생성합니다.
+- `add_department_target`은 승인 후 해당 부서 target이 active로 전환됩니다.
 - `update_collaboration`은 승인 후 변경 payload가 일정에 반영됩니다.
 - `delete_schedule`은 승인 후 일정이 `cancelled` 처리됩니다.
 - `remove_department_target`은 승인 후 해당 부서 target이 `removed` 처리됩니다.
 
 ### `POST /company-schedule-approvals/:approval_id/reject`
 
-부서장이 승인 요청을 반려합니다.
+부서장, 상위 부서장 또는 활성화된 승인 대행자가 승인 요청을 반려합니다.
 
 비고:
 
@@ -1312,6 +1358,8 @@ Response data:
   - `department_id`
   - `parent_department_id`
   - `leader_company_member_id`
+  - `approval_delegate_company_member_id`
+  - `approval_delegate_enabled`
   - `name`
   - `code`
   - `depth_level`
@@ -1335,6 +1383,28 @@ Response data:
 ### `GET /companies/:company_id/departments/:department_id/members`
 
 본인이 속한 회사의 특정 부서원 조회.
+
+### `PATCH /companies/:company_id/departments/:department_id/approval-delegate-mode`
+
+부서장 부재 시 대행승인 모드를 켜거나 끕니다.
+
+권한:
+
+- 해당 부서의 부서장
+- 해당 부서의 상위 부서장
+
+Request body:
+
+```json
+{
+  "approval_delegate_enabled": true
+}
+```
+
+비고:
+
+- `approval_delegate_company_member_id`가 사전에 지정된 부서만 활성화할 수 있습니다.
+- 모드가 비활성화된 상태에서는 지정된 대행승인자라도 승인/반려할 수 없습니다.
 
 ## Company Memberships
 
@@ -1805,9 +1875,109 @@ Response data:
 - `409 AI_RESULT_ALREADY_APPLIED`
 - `409 AI_RESULT_REJECTED`
 
+## Push Devices
+
+모든 Push Devices API는 인증 필요.
+
+웹/Android 프론트에서 발급한 FCM registration token을 백엔드에 등록합니다. Firebase 서비스 계정 JSON은 백엔드 전용이며 프론트로 전달하지 않습니다.
+
+### `GET /push/devices`
+
+현재 로그인 사용자의 푸시 디바이스 목록 조회.
+
+Response data:
+
+- `devices[]`
+  - `push_device_id`
+  - `user_id`
+  - `provider`: `fcm`
+  - `platform`: `web` | `android`
+  - `device_name`
+  - `app_version`
+  - `status`: `active` | `inactive`
+  - `last_seen_at`
+  - `failed_count`
+  - `last_error_code`
+  - `last_error_message`
+  - `created_at`
+  - `updated_at`
+
+비고:
+
+- `device_token` 원문과 `token_hash`는 응답에 포함하지 않습니다.
+
+### `POST /push/devices`
+
+FCM registration token 등록/갱신.
+
+Request body:
+
+| 필드 | 타입 | 필수 | 기본값 | 설명 |
+| --- | --- | --- | --- | --- |
+| `provider` | `fcm` | X | `fcm` | 발송 provider |
+| `platform` | `web` \| `android` | O | - | 토큰이 발급된 플랫폼 |
+| `device_token` | string | O | - | FCM registration token |
+| `device_name` | string \| null | X | - | 브라우저/기기 표시명 |
+| `app_version` | string \| null | X | - | 앱/웹 버전 |
+
+Request 예시:
+
+```json
+{
+  "provider": "fcm",
+  "platform": "web",
+  "device_token": "fcm-registration-token",
+  "device_name": "Chrome",
+  "app_version": "1.0.0"
+}
+```
+
+Response data:
+
+- `device`: PushDevice
+
+비고:
+
+- 같은 `device_token`을 다시 등록하면 새 row를 만들지 않고 기존 row를 active로 갱신합니다.
+- 같은 토큰이 다른 사용자에게 등록되어 있던 경우 현재 사용자 소유로 갱신됩니다.
+
+### `POST /push/devices/unregister`
+
+FCM registration token으로 디바이스를 비활성화합니다. 로그아웃 또는 토큰 폐기 시 사용합니다.
+
+Request body:
+
+```json
+{
+  "device_token": "fcm-registration-token"
+}
+```
+
+Response data:
+
+- `device`: PushDevice
+
+상태 코드:
+
+- `404 PUSH_DEVICE_NOT_FOUND`
+
+### `DELETE /push/devices/:push_device_id`
+
+디바이스 ID로 디바이스를 비활성화합니다.
+
+Response data:
+
+- `device`: PushDevice
+
+상태 코드:
+
+- `404 PUSH_DEVICE_NOT_FOUND`
+
 ## Reminders
 
 모든 Reminders API는 인증 필요.
+
+`reminder_type = push`인 리마인더는 백엔드 job이 `remind_at` 이후 FCM으로 발송합니다. 발송 대상은 해당 사용자의 active push device입니다.
 
 ### `GET /reminders`
 
@@ -1829,6 +1999,12 @@ Query params:
 Response data:
 
 - `reminders`: Reminder[]
+
+Reminder 추가 발송 필드:
+
+- `send_attempts`: 푸시 발송 시도 횟수
+- `last_send_error_code`: 최근 발송 오류 코드
+- `last_send_error_message`: 최근 발송 오류 메시지
 
 ### `GET /reminders/:reminder_id`
 
@@ -1897,6 +2073,7 @@ Request body:
 
 - `is_sent`를 true로 바꾸고 `sent_at`을 생략하면 기존 `sent_at`이 있으면 유지하고, 없으면 현재 시각을 설정합니다.
 - `is_sent`가 false이면 `sent_at`은 null이 됩니다.
+- `is_sent`를 false로 변경하거나 `remind_at`, `reminder_type`을 변경하면 푸시 발송 시도/오류 정보가 초기화됩니다.
 
 Response data:
 
