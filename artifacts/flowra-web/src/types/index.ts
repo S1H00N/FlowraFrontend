@@ -9,5 +9,6 @@ export * from "./aiChat";
 export * from "./category";
 export * from "./reminder";
 export * from "./push";
+export * from "./notification";
 export * from "./company";
 export * from "./holiday";

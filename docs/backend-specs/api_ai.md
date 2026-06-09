@@ -436,6 +436,31 @@ Request body:
 }
 ```
 
+Response 예시:
+
+```json
+{
+  "success": true,
+  "message": "AI chat session created",
+  "data": {
+    "session": {
+      "ai_chat_session_id": 5,
+      "user_id": 1,
+      "title": "이번 주 일정 정리",
+      "status": "active",
+      "last_message_at": "2026-06-08T18:50:43.747Z",
+      "created_at": "2026-06-08T18:50:43.747Z",
+      "updated_at": "2026-06-08T18:50:43.747Z"
+    }
+  }
+}
+```
+
+설명:
+
+- 이후 메시지 API의 `:session_id`에는 응답의 `session.ai_chat_session_id` 값을 사용합니다.
+- 예: `POST /api/v1/ai-chat/sessions/5/messages`
+
 ### `GET /api/v1/ai-chat/sessions`
 
 채팅 세션 목록을 조회합니다.
@@ -445,9 +470,50 @@ Query params:
 - `status`: `active` | `archived`, 기본 `active`
 - `limit`: 1~100, 기본 30
 
+Response 예시:
+
+```json
+{
+  "success": true,
+  "message": "AI chat sessions retrieved",
+  "data": {
+    "sessions": [
+      {
+        "ai_chat_session_id": 5,
+        "user_id": 1,
+        "title": "이번 주 일정 정리",
+        "status": "active",
+        "last_message_at": "2026-06-08T18:50:43.747Z",
+        "created_at": "2026-06-08T18:50:43.747Z",
+        "updated_at": "2026-06-08T18:50:43.747Z",
+        "_count": {
+          "messages": 2
+        },
+        "messages": [
+          {
+            "ai_chat_message_id": 12,
+            "role": "assistant",
+            "content": "내일 오후 2시 일정 제안을 만들었어요."
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+설명:
+
+- 세션 목록의 각 항목도 `ai_chat_session_id`를 사용합니다.
+- `messages`는 각 세션의 최신 메시지 1개만 포함됩니다.
+
 ### `POST /api/v1/ai-chat/sessions/:session_id/messages`
 
 사용자 메시지를 저장하고 AI 응답을 생성합니다.
+
+Path params:
+
+- `session_id`: `ai_chat_session_id` 값
 
 Request body:
 
@@ -460,7 +526,9 @@ Request body:
 Response 주요 필드:
 
 - `user_message`: 저장된 사용자 메시지
+  - `ai_chat_message_id`: 사용자 메시지 ID
 - `assistant_message`: AI 응답 메시지
+  - `ai_chat_message_id`: assistant 메시지 ID
   - `content`: 사용자에게 보여줄 답변
   - `response_type`: `answer` | `suggestion` | `clarification`
   - `suggested_actions`: 생성 가능한 일정/할 일 액션
@@ -470,9 +538,17 @@ Response 주요 필드:
 
 세션 메시지 목록과 적용 이력을 조회합니다.
 
+Path params:
+
+- `session_id`: `ai_chat_session_id` 값
+
 ### `POST /api/v1/ai-chat/messages/:message_id/apply`
 
 AI 채팅의 assistant 메시지에 포함된 제안을 실제 일정/할 일/반복 일정/리마인더로 생성합니다.
+
+Path params:
+
+- `message_id`: assistant 메시지의 `ai_chat_message_id` 값
 
 Request body:
 

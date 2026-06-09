@@ -4,9 +4,22 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/contexts/AuthContext";
 import { signupSchema, type SignupFormValues } from "@/lib/schemas";
-import { getErrorMessage } from "@/lib/error";
+import { getErrorCode, getErrorMessage } from "@/lib/error";
 import { toast } from "@/lib/toast";
 import { Sparkles } from "lucide-react";
+
+function getSignupErrorMessage(err: unknown) {
+  switch (getErrorCode(err)) {
+    case "SIGNUP_DISABLED":
+      return "현재 회원가입이 닫혀 있습니다. 관리자에게 문의해 주세요.";
+    case "SIGNUP_DOMAIN_NOT_ALLOWED":
+      return "허용된 이메일 도메인으로만 가입할 수 있습니다.";
+    case "EMAIL_ALREADY_EXISTS":
+      return "이미 등록된 이메일입니다.";
+    default:
+      return getErrorMessage(err, "회원가입에 실패했습니다.");
+  }
+}
 
 export default function Signup() {
   const { signup } = useAuth();
@@ -27,7 +40,7 @@ export default function Signup() {
         await signup(values);
         navigate("/", { replace: true });
       } catch (err) {
-        toast.error(getErrorMessage(err, "회원가입에 실패했습니다."));
+        toast.error(getSignupErrorMessage(err));
       }
     },
     [signup, navigate],

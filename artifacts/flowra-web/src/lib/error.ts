@@ -1,5 +1,15 @@
 import axios from "axios";
 
+export function getErrorCode(err: unknown): string | null {
+  if (axios.isAxiosError(err)) {
+    const data = err.response?.data as
+      | { error?: { code?: string }; code?: string }
+      | undefined;
+    return data?.error?.code ?? data?.code ?? null;
+  }
+  return null;
+}
+
 export function getErrorMessage(err: unknown, fallback = "오류가 발생했습니다."): string {
   if (axios.isAxiosError(err)) {
     const data = err.response?.data as { message?: string } | undefined;

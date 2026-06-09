@@ -9,7 +9,6 @@ import type {
   CompanyInviteDepartment,
   CompanyInviteCompany,
   CompanySchedule,
-  CreateCompanyScheduleTargetDepartmentRequest,
   CreateCompanyScheduleRequest,
 } from "@/types";
 
@@ -438,7 +437,6 @@ async function resolveTargetDepartmentIds(
 async function normalizeCompanySchedulePayload(
   payload: CreateCompanyScheduleRequest,
   options: {
-    includeOwnDepartmentTarget?: boolean;
     idFormat?: "string" | "number";
   } = {},
 ): Promise<CompanyScheduleApiPayload> {
@@ -448,10 +446,8 @@ async function normalizeCompanySchedulePayload(
     throw new Error("회사 정보를 찾지 못했습니다.");
   }
 
-  const ownDepartmentId = options.includeOwnDepartmentTarget
-    ? await getFallbackDepartmentId()
-    : null;
-  if (options.includeOwnDepartmentTarget && !ownDepartmentId) {
+  const ownDepartmentId = await getFallbackDepartmentId();
+  if (!ownDepartmentId) {
     throw new Error("회사 일정은 활성 소속 부서가 있어야 추가할 수 있습니다.");
   }
 
@@ -460,7 +456,9 @@ async function normalizeCompanySchedulePayload(
   );
   const targetDepartmentIds = isCompanyWideSchedule
     ? []
-    : await resolveTargetDepartmentIds(payload.targets);
+    : (await resolveTargetDepartmentIds(payload.targets)).filter(
+        (departmentId) => departmentId !== ownDepartmentId,
+      );
 
   return compactParams({
     company_id: toApiId(companyId, idFormat),
@@ -576,9 +574,7 @@ export async function listCompanyAdminMembers() {
 export async function createCompanyAdminSchedule(
   payload: CreateCompanyScheduleRequest,
 ) {
-  const requestPayload = await normalizeCompanySchedulePayload(payload, {
-    includeOwnDepartmentTarget: true,
-  });
+  const requestPayload = await normalizeCompanySchedulePayload(payload);
 
   let res;
   try {
@@ -600,53 +596,7 @@ export async function createCompanyAdminSchedule(
 
     res = await apiClient.post<ApiResponse<CompanyAdminScheduleData>>(
       "/company-schedules",
-      await normalizeCompanySchedulePayload(payload, {
-        includeOwnDepartmentTarget: true,
-        idFormat: "number",
-      }),
-    );
-  }
-
-  return {
-    ...res.data,
-    data: { schedule: unwrapCompanySchedule(res.data.data) },
-  };
-}
-
-export async function createCompanyScheduleTargetDepartmentRequest(
-  companyScheduleId: number,
-  payload: CreateCompanyScheduleTargetDepartmentRequest,
-) {
-  const targetDepartmentIds = uniqNumbers(
-    payload.target_department_ids.map((departmentId) =>
-      toPositiveNumber(departmentId),
-    ),
-  );
-
-  if (targetDepartmentIds.length === 0) {
-    throw new Error("추가할 협업 부서를 선택해 주세요.");
-  }
-
-  let res;
-  try {
-    res = await apiClient.post<ApiResponse<CompanyAdminScheduleData>>(
-      `/company-schedules/${companyScheduleId}/target-department-requests`,
-      compactParams({
-        target_department_ids: targetDepartmentIds.map((departmentId) =>
-          String(departmentId),
-        ),
-        reason: payload.reason?.trim() || undefined,
-      }),
-    );
-  } catch (error) {
-    if (!shouldRetryCompanyScheduleWithNumericIds(error)) throw error;
-
-    res = await apiClient.post<ApiResponse<CompanyAdminScheduleData>>(
-      `/company-schedules/${companyScheduleId}/target-department-requests`,
-      compactParams({
-        target_department_ids: targetDepartmentIds,
-        reason: payload.reason?.trim() || undefined,
-      }),
+      await normalizeCompanySchedulePayload(payload, { idFormat: "number" }),
     );
   }
 

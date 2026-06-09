@@ -1,13 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import {
-  createCompanyScheduleTargetDepartmentRequest,
   createCompanyAdminSchedule,
   getCompanyAdminMe,
   listCompanyAdminDepartments,
   listCompanyAdminMembers,
 } from "@/api/companyAdmin";
-import { COMPANY_SCHEDULE_APPROVALS_QUERY_KEY } from "@/hooks/useCompanyScheduleApprovals";
 import { COMPANY_SCHEDULES_QUERY_KEY } from "@/hooks/useCompanySchedules";
 import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
 import type {
@@ -17,7 +15,6 @@ import type {
   CompanyAdminPermission,
   CompanySchedule,
   CompanyScheduleListQuery,
-  CreateCompanyScheduleTargetDepartmentRequest,
   CreateCompanyScheduleRequest,
 } from "@/types";
 
@@ -201,44 +198,6 @@ export function useCreateCompanyAdminSchedule() {
     meta: {
       successMessage: "회사 일정을 추가했습니다.",
       errorMessage: "회사 일정 추가에 실패했습니다.",
-    },
-  });
-}
-
-export function useCreateCompanyScheduleTargetDepartmentRequest() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      companyScheduleId,
-      payload,
-    }: {
-      companyScheduleId: number;
-      payload: CreateCompanyScheduleTargetDepartmentRequest;
-    }) => {
-      const res = await createCompanyScheduleTargetDepartmentRequest(
-        companyScheduleId,
-        payload,
-      );
-      if (!res.success) {
-        throw new Error(res.message || "협업 부서 요청에 실패했습니다.");
-      }
-      return res.data.schedule;
-    },
-    onSuccess: (schedule) => {
-      syncCreatedCompanySchedulesToListCaches(queryClient, [schedule]);
-      void queryClient.invalidateQueries({
-        queryKey: COMPANY_SCHEDULES_QUERY_KEY,
-      });
-      void queryClient.invalidateQueries({
-        queryKey: COMPANY_SCHEDULE_APPROVALS_QUERY_KEY,
-      });
-      void queryClient.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
-      void queryClient.invalidateQueries({ queryKey: COMPANY_ADMIN_QUERY_KEY });
-    },
-    meta: {
-      successMessage: "협업 부서 요청을 보냈습니다.",
-      errorMessage: "협업 부서 요청에 실패했습니다.",
     },
   });
 }

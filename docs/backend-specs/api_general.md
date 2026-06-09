@@ -12,6 +12,8 @@
 - 날짜 query 중 `date`, `start_date`, `end_date`는 `YYYY-MM-DD` 형식입니다.
 - ID 값은 요청 path/query/body에서 숫자가 아닌 숫자형 문자열로 보냅니다. 예: `"1"`
 - 응답의 ID는 JSON 직렬화 과정에서 숫자형으로 내려올 수 있습니다.
+- 모든 API 응답에는 `X-Request-Id` 헤더가 포함됩니다.
+- 요청 시 `X-Request-Id`를 전달하면 40자 이하 값에 한해 그대로 사용합니다.
 
 공개 API:
 
@@ -259,6 +261,13 @@ Response 예시:
 
 인증: 불필요
 
+운영 설정:
+
+- 시스템 관리자 패널의 회원가입 설정에서 회원가입을 전체 ON/OFF 할 수 있습니다.
+- 긴급 봇 유입 방지를 위해 기본값은 OFF입니다. 운영자가 패널에서 ON으로 바꿔야 일반 회원가입이 열립니다.
+- 허용 이메일 도메인이 설정되어 있으면 해당 도메인의 이메일만 가입할 수 있습니다.
+- 허용 도메인 목록이 비어 있으면 도메인 제한 없이 가입 가능합니다.
+
 Request body:
 
 | 필드 | 타입 | 필수 | 제약 |
@@ -288,6 +297,11 @@ Response data:
 | `tokens.refresh_expires_at` | string | refresh token 만료 시각 |
 
 상태 코드:
+
+- `201`: 가입 성공
+- `403 SIGNUP_DISABLED`: 회원가입 기능이 OFF 상태
+- `403 SIGNUP_DOMAIN_NOT_ALLOWED`: 이메일 도메인이 허용 목록에 없음
+- `409 EMAIL_ALREADY_EXISTS`: 이미 등록된 이메일
 
 - `201 Created`
 - `409 EMAIL_ALREADY_EXISTS`
@@ -1150,10 +1164,6 @@ CompanySchedule 주요 필드:
 - `approval_status`
 - `approval_summary`
 - `targets[]`
-  - `status`: `pending_origin_approval` | `pending_target_approval` | `active` | `rejected` | `removed`
-  - `requested_by_department_id`
-  - `requested_by_company_member_id`
-  - `approved_by_company_member_id`
 
 ### `GET /company-schedules/:company_schedule_id`
 
@@ -1203,10 +1213,7 @@ Request body:
   - `members`: 부서원도 회사 전체 일정 등록 가능
 - 요청자 부서의 `schedule_create_policy`가 `leader_only`이면 부서장만 등록할 수 있습니다.
 - `schedule_create_policy`가 `members`이면 부서원도 등록할 수 있습니다.
-- target 부서가 2개 이상이면 협업 일정으로 생성됩니다.
-- 요청자가 최초 등록 부서의 부서장, 상위 부서장 또는 활성화된 승인 대행자이면 요청자 부서 승인은 생략하고 대상 부서 승인으로 바로 전달합니다.
-- 요청자가 일반 회사 사용자이면 먼저 요청자 부서 관리자 승인(`create_collaboration_origin`)이 필요합니다. 승인 후 요청자 부서를 제외한 모든 대상 부서 관리자에게 `create_collaboration` 요청이 전달됩니다.
-- 요청자 부서 관리자가 반려하면 대상 부서에는 요청이 전달되지 않고 일정은 `cancelled`, `approval_status = rejected`가 됩니다.
+- target 부서가 2개 이상이면 협업 일정으로 생성되며, 요청자 부서를 제외한 모든 target 부서장의 승인이 필요합니다.
 - 협업 승인이 완료되기 전에는 `status = pending_approval`, `approval_status = pending` 입니다.
 
 ### `PATCH /company-schedules/:company_schedule_id`
@@ -1254,27 +1261,6 @@ Response data:
 - `change_requests`
 - `approval_summary`
 
-### `POST /company-schedules/:company_schedule_id/target-department-requests`
-
-기존 협업 일정에 다음 협업 부서를 추가 요청합니다. A -> B 협업 일정에서 B가 C에게 협업을 요청하는 흐름에 사용합니다.
-
-Request body:
-
-```json
-{
-  "target_department_ids": [30],
-  "reason": "릴리즈 검수 단계 협업 요청"
-}
-```
-
-비고:
-
-- 요청자는 해당 일정의 active 참여 부서 소속 멤버여야 합니다.
-- 요청자가 본인 부서의 부서장, 상위 부서장 또는 활성화된 승인 대행자이면 대상 부서 승인(`add_department_target`)으로 바로 전달됩니다.
-- 요청자가 일반 회사 사용자이면 먼저 요청자 부서 관리자 승인(`add_department_target_origin`)이 필요합니다. 승인 후 대상 부서 관리자에게 `add_department_target` 요청이 전달됩니다.
-- 대상 부서가 승인하면 해당 target은 `active`가 되고 기존 협업 일정에 참여 부서로 추가됩니다.
-- 대상 부서가 반려해도 기존 협업 일정은 유지되며, 해당 target만 `rejected` 상태가 됩니다.
-
 ## Company Schedule Approvals
 
 모든 Company Schedule Approvals API는 인증 필요.
@@ -1292,10 +1278,7 @@ Query params:
 
 승인 유형:
 
-- `create_collaboration_origin`: 협업 일정 생성 전 요청자 부서 관리자 선승인
 - `create_collaboration`: 협업 일정 생성 승인
-- `add_department_target_origin`: 기존 협업 일정에 부서 추가 전 요청자 부서 관리자 선승인
-- `add_department_target`: 기존 협업 일정에 부서 추가 승인
 - `update_collaboration`: 협업 일정 수정 승인
 - `delete_schedule`: 협업 일정 전체 삭제 승인
 - `remove_department_target`: 협업 일정에서 특정 부서 target 제거 승인
@@ -1317,10 +1300,7 @@ Query params:
 
 비고:
 
-- `create_collaboration_origin`은 승인 후 대상 부서의 `create_collaboration` 요청을 생성합니다.
 - `create_collaboration`은 모든 대상 부서장이 승인하면 일정이 active로 전환됩니다.
-- `add_department_target_origin`은 승인 후 대상 부서의 `add_department_target` 요청을 생성합니다.
-- `add_department_target`은 승인 후 해당 부서 target이 active로 전환됩니다.
 - `update_collaboration`은 승인 후 변경 payload가 일정에 반영됩니다.
 - `delete_schedule`은 승인 후 일정이 `cancelled` 처리됩니다.
 - `remove_department_target`은 승인 후 해당 부서 target이 `removed` 처리됩니다.
@@ -1407,6 +1387,80 @@ Request body:
 - 모드가 비활성화된 상태에서는 지정된 대행승인자라도 승인/반려할 수 없습니다.
 
 ## Company Memberships
+
+### `GET /company-memberships/invites`
+
+로그인한 사용자의 이메일과 일치하는 pending 회사 구성원 초대 목록을 조회합니다.
+
+인증: 필요
+
+비고:
+
+- 앱 초대함에서 사용하는 인증 기반 조회 API입니다.
+- `invite_token`은 응답하지 않습니다.
+- 만료된 pending 초대는 조회 시 `expired`로 갱신되고 목록에서 제외됩니다.
+
+Response data:
+
+- `invites[]`
+  - `company_invite_id`
+  - `email`
+  - `name`
+  - `expires_at`
+  - `company`
+  - `department`
+
+### `GET /company-memberships/invites/by-id/:company_invite_id`
+
+로그인한 사용자의 이메일과 일치하는 회사 구성원 초대 상세를 조회합니다.
+
+인증: 필요
+
+Path params:
+
+| 이름 | 타입 | 필수 |
+| --- | --- | --- |
+| `company_invite_id` | numeric string | O |
+
+Response data:
+
+- `company_invite_id`
+- `email`
+- `name`
+- `expires_at`
+- `company`
+- `department`
+
+상태 코드:
+
+- `404 COMPANY_INVITE_NOT_FOUND`
+- `400 COMPANY_INVITE_NOT_PENDING`
+- `400 COMPANY_INVITE_EXPIRED`
+
+### `POST /company-memberships/invites/by-id/:company_invite_id/accept`
+
+로그인한 사용자가 회사 구성원 초대를 token 없이 수락합니다.
+
+인증: 필요
+
+비고:
+
+- 앱 수락용 API입니다.
+- 백엔드는 로그인 사용자 이메일과 초대 이메일이 일치하는지 검증합니다.
+- 웹 이메일 링크 수락은 기존 token 기반 API를 사용합니다.
+
+Response data:
+
+- `member`
+- `company`
+- `department`
+
+상태 코드:
+
+- `404 COMPANY_INVITE_NOT_FOUND`
+- `400 COMPANY_INVITE_NOT_PENDING`
+- `400 COMPANY_INVITE_EXPIRED`
+- `403 COMPANY_INACTIVE`
 
 ### `GET /company-memberships/invites/:token`
 
@@ -2096,6 +2150,68 @@ Response data:
 상태 코드:
 
 - `404 REMINDER_NOT_FOUND`
+
+## Notifications
+
+모든 Notifications API는 인증 필요.
+
+알림센터용 인앱 알림 조회/읽음 처리 API입니다. 푸시 알림은 놓칠 수 있으므로, 앱/웹은 이 API로 사용자의 알림 목록과 unread count를 다시 조회합니다.
+
+### `GET /notifications`
+
+로그인한 사용자의 알림 목록 조회.
+
+Query params:
+
+| 이름 | 타입 | 필수 | 기본값 | 설명 |
+| --- | --- | --- | --- | --- |
+| `page` | number | X | `1` | 페이지 |
+| `page_size` | number | X | `20` | 최대 `100` |
+| `unread_only` | `true` \| `false` | X | - | 미읽음만 조회 |
+| `type` | string | X | - | 알림 유형 필터 |
+
+Response data:
+
+- `notifications[]`
+  - `notification_recipient_id`
+  - `notification_id`
+  - `type`
+  - `title`
+  - `body`
+  - `data`
+  - `read_at`
+  - `push_sent_at`
+  - `push_status`
+  - `created_at`
+- `meta`
+
+### `GET /notifications/unread-count`
+
+로그인한 사용자의 미읽음 알림 수 조회.
+
+Response data:
+
+- `unread_count`
+
+### `PATCH /notifications/:notification_recipient_id/read`
+
+알림 1건을 읽음 처리합니다.
+
+Response data:
+
+- `notification`
+
+상태 코드:
+
+- `404 NOTIFICATION_NOT_FOUND`
+
+### `PATCH /notifications/read-all`
+
+로그인한 사용자의 모든 미읽음 알림을 읽음 처리합니다.
+
+Response data:
+
+- `updated_count`
 
 ## Briefings
 

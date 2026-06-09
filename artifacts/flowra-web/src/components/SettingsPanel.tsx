@@ -9,11 +9,14 @@ import {
   Bell,
   BellOff,
   BellRing,
+  Building2,
   CalendarDays,
+  CalendarClock,
   Check,
   ChevronRight,
   Download,
   LogOut,
+  Mail,
   Monitor,
   Moon,
   Pencil,
@@ -37,6 +40,10 @@ import {
   useUpdateCategory,
 } from "@/hooks/useCategories";
 import { useCompanyAdminMe } from "@/hooks/useCompanyAdmin";
+import {
+  useAcceptMyCompanyInvite,
+  useMyCompanyInvites,
+} from "@/hooks/useCompanyInvites";
 import { useGravatarProfileImage } from "@/hooks/useGravatarProfileImage";
 import { useMe, useUpdateMe } from "@/hooks/useMe";
 import {
@@ -1255,6 +1262,136 @@ function AccountAction({
   );
 }
 
+function formatInviteDate(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleString("ko-KR", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function CompanyInviteInboxSection() {
+  const invitesQuery = useMyCompanyInvites();
+  const acceptInviteMutation = useAcceptMyCompanyInvite();
+  const [acceptingInviteId, setAcceptingInviteId] = useState<number | null>(
+    null,
+  );
+  const invites = invitesQuery.data ?? [];
+
+  const acceptInvite = async (companyInviteId: number) => {
+    setAcceptingInviteId(companyInviteId);
+    try {
+      await acceptInviteMutation.mutateAsync(companyInviteId);
+    } catch {
+      /* mutation cache handles toast */
+    } finally {
+      setAcceptingInviteId(null);
+    }
+  };
+
+  return (
+    <section className="overflow-hidden rounded-lg bg-slate-50/80">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-slate-950">회사 초대함</h3>
+          <p className="mt-1 text-xs font-medium text-slate-400">
+            내 이메일로 도착한 회사 초대
+          </p>
+        </div>
+        {invites.length > 0 && (
+          <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
+            {invites.length}건
+          </span>
+        )}
+      </div>
+
+      {invitesQuery.isLoading ? (
+        <div className="flex items-center gap-2 px-5 py-4 text-sm font-medium text-slate-500">
+          <Spinner size="xs" />
+          초대를 불러오는 중...
+        </div>
+      ) : invitesQuery.isError ? (
+        <div className="p-4">
+          <ErrorState
+            compact
+            title="초대를 불러오지 못했습니다"
+            message={(invitesQuery.error as Error).message}
+            onRetry={() => invitesQuery.refetch()}
+            retrying={invitesQuery.isFetching}
+          />
+        </div>
+      ) : invites.length === 0 ? (
+        <p className="px-5 py-5 text-sm font-medium text-slate-400">
+          대기 중인 회사 초대가 없습니다.
+        </p>
+      ) : (
+        <ul className="divide-y divide-slate-100">
+          {invites.map((invite) => {
+            const accepting = acceptingInviteId === invite.company_invite_id;
+
+            return (
+              <li key={invite.company_invite_id} className="px-5 py-4">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-700 ring-1 ring-emerald-100">
+                    <Building2 className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-slate-950">
+                      {invite.company.name}
+                    </p>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-medium text-slate-500">
+                      {invite.department && (
+                        <span className="inline-flex min-w-0 items-center gap-1">
+                          <Building2 className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                          <span className="truncate">
+                            {invite.department.name}
+                          </span>
+                        </span>
+                      )}
+                      <span className="inline-flex min-w-0 items-center gap-1">
+                        <Mail className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                        <span className="truncate">{invite.email}</span>
+                      </span>
+                      <span className="inline-flex min-w-0 items-center gap-1">
+                        <CalendarClock className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                        <span className="truncate">
+                          {formatInviteDate(invite.expires_at)}
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void acceptInvite(invite.company_invite_id)}
+                  disabled={acceptInviteMutation.isPending}
+                  className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-600 disabled:opacity-60"
+                >
+                  {accepting ? (
+                    <Spinner
+                      size="xs"
+                      className="border-white/40 border-t-white"
+                    />
+                  ) : (
+                    <Check className="h-4 w-4" />
+                  )}
+                  초대 수락
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function AccountSection() {
   const { user: cachedUser, logout } = useAuth();
   const meQuery = useMe();
@@ -1401,6 +1538,8 @@ function AccountSection() {
           </form>
         )}
       </section>
+
+      <CompanyInviteInboxSection />
 
       <section className="overflow-hidden rounded-lg bg-slate-50/80">
         <AccountAction

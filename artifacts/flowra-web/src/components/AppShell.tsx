@@ -1,6 +1,8 @@
 import { NavLink, useLocation } from "react-router-dom";
 import {
+  Bell,
   CalendarDays,
+  CheckCheck,
   LayoutDashboard,
   LogOut,
   NotebookPen,
@@ -8,22 +10,40 @@ import {
   Settings,
   CheckSquare2,
 } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCompanyAdminMe } from "@/hooks/useCompanyAdmin";
 import { useGravatarProfileImage } from "@/hooks/useGravatarProfileImage";
 import { useMe } from "@/hooks/useMe";
+import {
+  useMarkAllNotificationsRead,
+  useMarkNotificationRead,
+  useNotificationUnreadCount,
+  useNotifications,
+} from "@/hooks/useNotifications";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import Spinner from "@/components/ui/Spinner";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import AiChatWidget from "@/components/AiChatWidget";
 import { formatCompanyAffiliation } from "@/lib/companyAffiliation";
+import type { NotificationRecipient } from "@/types";
 
 const navigation = [
   {
@@ -164,12 +184,141 @@ function ProfileMenu({
   );
 }
 
+function formatNotificationTime(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleString("ko-KR", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function NotificationCenter() {
+  const [open, setOpen] = useState(false);
+  const notificationsQuery = useNotifications({ page_size: 8 }, open);
+  const unreadCountQuery = useNotificationUnreadCount();
+  const markReadMutation = useMarkNotificationRead();
+  const markAllReadMutation = useMarkAllNotificationsRead();
+  const notifications = notificationsQuery.data?.notifications ?? [];
+  const unreadCount = unreadCountQuery.data ?? 0;
+
+  const markRead = (notification: NotificationRecipient) => {
+    if (notification.read_at || markReadMutation.isPending) return;
+    markReadMutation.mutate(notification.notification_recipient_id);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="알림"
+          title="알림"
+          className="relative inline-flex h-9 w-9 items-center justify-center rounded-lg bg-transparent text-slate-500 transition hover:bg-slate-100 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+        >
+          <Bell className="h-4 w-4" />
+          {unreadCount > 0 && (
+            <span className="absolute right-1 top-1 min-w-4 rounded-full bg-red-500 px-1 text-[10px] font-bold leading-4 text-white ring-2 ring-white">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={10}
+        className="w-[min(360px,calc(100vw-2rem))] overflow-hidden rounded-lg border border-slate-200 bg-white p-0 text-slate-900 shadow-xl shadow-slate-900/10"
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-slate-950">알림</h2>
+            <p className="mt-0.5 text-xs font-medium text-slate-400">
+              {unreadCount > 0 ? `읽지 않음 ${unreadCount}건` : "모두 읽음"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => markAllReadMutation.mutate()}
+            disabled={unreadCount === 0 || markAllReadMutation.isPending}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+          >
+            {markAllReadMutation.isPending ? (
+              <Spinner size="xs" />
+            ) : (
+              <CheckCheck className="h-3.5 w-3.5" />
+            )}
+            모두 읽음
+          </button>
+        </div>
+
+        <div className="max-h-[min(420px,70vh)] overflow-y-auto">
+          {notificationsQuery.isLoading ? (
+            <div className="flex items-center gap-2 px-4 py-6 text-sm font-medium text-slate-500">
+              <Spinner size="xs" />
+              알림을 불러오는 중...
+            </div>
+          ) : notificationsQuery.isError ? (
+            <div className="px-4 py-6 text-sm font-medium text-red-600">
+              알림을 불러오지 못했습니다.
+            </div>
+          ) : notifications.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm font-medium text-slate-400">
+              새 알림이 없습니다.
+            </div>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {notifications.map((notification) => {
+                const unread = !notification.read_at;
+
+                return (
+                  <li key={notification.notification_recipient_id}>
+                    <button
+                      type="button"
+                      onClick={() => markRead(notification)}
+                      className="flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-slate-50"
+                    >
+                      <span
+                        className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
+                          unread ? "bg-emerald-500" : "bg-slate-200"
+                        }`}
+                        aria-hidden
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-slate-900">
+                          {notification.title}
+                        </span>
+                        {notification.body && (
+                          <span className="mt-1 line-clamp-2 block text-xs font-medium leading-5 text-slate-500">
+                            {notification.body}
+                          </span>
+                        )}
+                        <span className="mt-1 block text-[11px] font-semibold text-slate-400">
+                          {formatNotificationTime(notification.created_at)}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export default function AppShell({
   children,
   fullBleed = false,
   sidebarExtra,
   titleMeta,
   headerActions,
+  aiChatButtonOffset,
   onSidebarCollapsedChange,
   onSidebarPreviewChange,
 }: {
@@ -178,6 +327,7 @@ export default function AppShell({
   sidebarExtra?: ReactNode;
   titleMeta?: ReactNode;
   headerActions?: ReactNode;
+  aiChatButtonOffset?: string;
   onSidebarCollapsedChange?: (collapsed: boolean) => void;
   onSidebarPreviewChange?: (open: boolean) => void;
 }) {
@@ -539,6 +689,7 @@ export default function AppShell({
                   {headerActions}
                 </div>
               )}
+              <NotificationCenter />
             </div>
           </div>
         </header>
@@ -575,7 +726,7 @@ export default function AppShell({
         })}
       </nav>
 
-      <AiChatWidget />
+      <AiChatWidget buttonRightOffset={aiChatButtonOffset} />
     </div>
   );
 }

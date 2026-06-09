@@ -48,8 +48,6 @@ export interface CompanyScheduleTarget {
   company_member_id?: number | string | null;
   name?: string | null;
   status?:
-    | "pending_origin_approval"
-    | "pending_target_approval"
     | "active"
     | "rejected"
     | "removed"
@@ -58,9 +56,6 @@ export interface CompanyScheduleTarget {
   approval_status?: CompanyScheduleApprovalStatus | string | null;
   department?: CompanyInviteDepartment | null;
   member?: CompanyMember | null;
-  requested_by_department_id?: number | string | null;
-  requested_by_company_member_id?: number | string | null;
-  approved_by_company_member_id?: number | string | null;
   [key: string]: unknown;
 }
 
@@ -179,10 +174,7 @@ export type CompanyScheduleApprovalStatus =
 export type CompanyScheduleApprovalRole = "approver" | "requested";
 
 export type CompanyScheduleApprovalType =
-  | "create_collaboration_origin"
   | "create_collaboration"
-  | "add_department_target_origin"
-  | "add_department_target"
   | "update_collaboration"
   | "delete_schedule"
   | "remove_department_target"
@@ -218,10 +210,5 @@ export interface CompanyScheduleApprovalListQuery {
 
 export interface CompanyScheduleApprovalActionRequest {
   comment?: string;
-  reason?: string;
-}
-
-export interface CreateCompanyScheduleTargetDepartmentRequest {
-  target_department_ids: number[];
   reason?: string;
 }

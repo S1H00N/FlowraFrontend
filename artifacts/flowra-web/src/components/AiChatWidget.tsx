@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from "react";
 import {
   Bot,
@@ -321,7 +322,13 @@ function AiChatMessageBubble({
   );
 }
 
-export default function AiChatWidget() {
+interface AiChatWidgetProps {
+  buttonRightOffset?: string;
+}
+
+export default function AiChatWidget({
+  buttonRightOffset = "0px",
+}: AiChatWidgetProps) {
   const [open, setOpen] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
   const [preferNewSession, setPreferNewSession] = useState(false);
@@ -440,6 +447,9 @@ export default function AiChatWidget() {
       content: pendingContent,
     };
   }, [pendingContent]);
+  const offsetStyle = {
+    "--flowra-ai-chat-button-offset": buttonRightOffset,
+  } as CSSProperties;
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -447,7 +457,8 @@ export default function AiChatWidget() {
         <section
           id={PANEL_ID}
           aria-label="Flowra AI 채팅"
-          className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] top-16 z-50 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl shadow-slate-900/20 min-[600px]:inset-auto min-[600px]:bottom-24 min-[600px]:right-6 min-[600px]:h-[min(72dvh,620px)] min-[600px]:w-[min(420px,calc(100vw-2rem))]"
+          className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] top-16 z-50 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl shadow-slate-900/20 transition-[right] duration-200 min-[600px]:inset-auto min-[600px]:bottom-24 min-[600px]:right-[calc(1.5rem+var(--flowra-ai-chat-button-offset,0px))] min-[600px]:h-[min(72dvh,620px)] min-[600px]:w-[min(420px,calc(100vw-2rem))]"
+          style={offsetStyle}
         >
           <header className="flex min-h-14 items-center justify-between gap-3 border-b border-slate-200 px-4">
             <div className="flex min-w-0 items-center gap-3">
@@ -580,7 +591,8 @@ export default function AiChatWidget() {
             aria-label={open ? "AI 채팅 닫기" : "AI 채팅 열기"}
             aria-controls={PANEL_ID}
             aria-expanded={open}
-            className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-xl shadow-emerald-900/25 transition hover:bg-emerald-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 min-[600px]:bottom-6 min-[600px]:right-6"
+            className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-xl shadow-emerald-900/25 transition-[background-color,box-shadow,right] duration-200 hover:bg-emerald-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 min-[600px]:bottom-6 min-[600px]:right-[calc(1.5rem+var(--flowra-ai-chat-button-offset,0px))]"
+            style={offsetStyle}
             onClick={() => setOpen((value) => !value)}
           >
             {open ? (

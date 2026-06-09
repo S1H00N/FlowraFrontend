@@ -55,7 +55,6 @@ import {
   useCompanyAdminMe,
   useCompanyAdminMembers,
   useCreateCompanyAdminSchedule,
-  useCreateCompanyScheduleTargetDepartmentRequest,
 } from "@/hooks/useCompanyAdmin";
 import {
   getCompanyScheduleApprovalId,
@@ -6274,7 +6273,7 @@ export function ScheduleFormPanel({
             </div>
           ) : (
             <p className="px-1 text-[11px] font-medium text-slate-400">
-              일반 사용자의 요청은 소속 부서 관리자 승인 후 대상 부서로 전달됩니다.
+              내 소속 부서는 자동 포함되며, 추가한 부서는 부서장 승인 후 참여합니다.
             </p>
           )}
         </div>
@@ -7233,6 +7232,7 @@ function TimelineItem({
   const preview = isPreviewSchedule(schedule);
   const company = isCompanySchedule(schedule);
   const readOnly = company || preview;
+  const creator = company ? companyScheduleCreatorDisplay(schedule) : null;
   const accentColor = scheduleAccentColor(schedule);
   const cardColor =
     (company ? companyScheduleAccent : category?.color) ?? fallbackCategoryColor;
@@ -7349,6 +7349,20 @@ function TimelineItem({
               </PriorityMetaChip>
             )}
             {category && <CategoryMetaChip category={category} />}
+            {creator && (
+              <span
+                className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-blue-100 bg-white px-2 py-0.5 text-[11px] font-medium leading-5 text-slate-600"
+                title={
+                  creator.email
+                    ? `추가한 사람: ${creator.label} (${creator.email})`
+                    : `추가한 사람: ${creator.label}`
+                }
+              >
+                <UserRound className="h-3 w-3 shrink-0 text-blue-500" />
+                <span className="shrink-0 text-slate-400">추가</span>
+                <span className="min-w-0 truncate">{creator.label}</span>
+              </span>
+            )}
           </ListCardMeta>
 
           {(schedule.location || schedule.description) && (
@@ -7418,6 +7432,39 @@ function scheduleRecordString(
   return null;
 }
 
+function companyScheduleMemberDisplay(value: unknown) {
+  const member = asScheduleRecord(value);
+  if (!member) return null;
+
+  const user = asScheduleRecord(member.user);
+  const label =
+    scheduleRecordString(member, ["name", "display_name", "full_name"]) ??
+    scheduleRecordString(user, ["name", "display_name", "full_name"]) ??
+    scheduleRecordString(member, ["email"]) ??
+    scheduleRecordString(user, ["email"]);
+  if (!label) return null;
+
+  const email =
+    scheduleRecordString(member, ["email"]) ??
+    scheduleRecordString(user, ["email"]);
+
+  return {
+    label,
+    email: email && email !== label ? email : null,
+  };
+}
+
+function companyScheduleCreatorDisplay(schedule: Schedule) {
+  const record = schedule as unknown as Record<string, unknown>;
+
+  return companyScheduleMemberDisplay(
+    schedule.created_by_company_member ??
+      record.created_by_member ??
+      record.created_by ??
+      record.creator,
+  );
+}
+
 function companyScheduleTargetDepartmentId(target: Record<string, unknown>) {
   const department = asScheduleRecord(target.department);
   const targetType = String(target.target_type ?? target.type ?? "");
@@ -7432,10 +7479,6 @@ function companyScheduleTargetDepartmentId(target: Record<string, unknown>) {
 
 function companyScheduleTargetStatusLabel(status?: string | null) {
   switch (status) {
-    case "pending_origin_approval":
-      return "소속 부서 승인 대기";
-    case "pending_target_approval":
-      return "대상 부서 승인 대기";
     case "active":
       return "참여 중";
     case "rejected":
@@ -7483,10 +7526,7 @@ function companyScheduleTargetLabel(
 }
 
 const companyScheduleApprovalTypeLabels: Record<string, string> = {
-  create_collaboration_origin: "소속 부서 협업 승인",
   create_collaboration: "협업 일정 승인",
-  add_department_target_origin: "협업 부서 추가 내부 승인",
-  add_department_target: "협업 부서 추가 승인",
   update_collaboration: "협업 일정 수정 승인",
   delete_schedule: "협업 일정 삭제 승인",
   remove_department_target: "협업 부서 제외 승인",
@@ -7666,26 +7706,16 @@ function ScheduleReadonlyPanel({
   schedule,
   onClose,
   departments,
-  requestDepartmentPending,
-  onRequestDepartment,
   floatingStyle,
   panelLayout,
 }: {
   schedule: Schedule;
   onClose: () => void;
   departments: CompanyAdminDepartment[];
-  requestDepartmentPending?: boolean;
-  onRequestDepartment?: (
-    departmentId: number,
-    reason?: string,
-  ) => Promise<void> | void;
   floatingStyle: SchedulePanelFloatingStyle;
   panelLayout: SchedulePanelLayout;
 }) {
   const classificationSettings = useClassificationSettings();
-  const [targetDepartmentId, setTargetDepartmentId] = useState("");
-  const [requestReason, setRequestReason] = useState("");
-  const [requestError, setRequestError] = useState<string | null>(null);
   const { start, end } = scheduleDateRange(schedule);
   const sameDay = toDateKey(start) === toDateKey(end);
   const dateLabel = sameDay
@@ -7696,37 +7726,8 @@ function ScheduleReadonlyPanel({
     : `${formatTime(schedule.start_datetime)}${
         schedule.end_datetime ? ` - ${formatTime(schedule.end_datetime)}` : ""
       }`;
+  const creator = companyScheduleCreatorDisplay(schedule);
   const targets = (schedule.targets ?? []) as Array<Record<string, unknown>>;
-  const targetDepartmentIds = new Set(
-    targets
-      .map((target) => companyScheduleTargetDepartmentId(target))
-      .filter((departmentId): departmentId is number => departmentId !== null),
-  );
-  const requestableDepartments = departments.filter(
-    (department) => !targetDepartmentIds.has(department.department_id),
-  );
-  const canRequestDepartment =
-    !!onRequestDepartment &&
-    targetDepartmentId !== "" &&
-    !requestDepartmentPending;
-
-  const handleRequestDepartment = async () => {
-    const departmentId = Number(targetDepartmentId);
-    if (!Number.isFinite(departmentId) || departmentId <= 0) {
-      setRequestError("추가할 협업 부서를 선택해 주세요.");
-      return;
-    }
-
-    try {
-      setRequestError(null);
-      await onRequestDepartment?.(departmentId, requestReason.trim() || undefined);
-      setTargetDepartmentId("");
-      setRequestReason("");
-    } catch (err) {
-      setRequestError(getErrorMessage(err, "협업 부서 요청에 실패했습니다."));
-    }
-  };
-
   return (
     <>
       <div
@@ -7774,6 +7775,24 @@ function ScheduleReadonlyPanel({
                 {schedule.company?.name ?? "회사 일정"}
               </dd>
             </div>
+            {creator && (
+              <div>
+                <dt className="text-xs font-medium text-slate-500">
+                  추가한 사람
+                </dt>
+                <dd className="mt-1 flex min-w-0 items-center gap-1.5 text-slate-900">
+                  <UserRound className="h-4 w-4 shrink-0 text-blue-500" />
+                  <span className="min-w-0 truncate font-medium">
+                    {creator.label}
+                  </span>
+                  {creator.email && (
+                    <span className="min-w-0 truncate text-xs text-slate-500">
+                      {creator.email}
+                    </span>
+                  )}
+                </dd>
+              </div>
+            )}
             {(schedule.approval_status || schedule.is_collaboration) && (
               <div>
                 <dt className="text-xs font-medium text-slate-500">
@@ -7851,67 +7870,6 @@ function ScheduleReadonlyPanel({
                       </div>
                     );
                   })}
-                </dd>
-              </div>
-            )}
-            {onRequestDepartment && (
-              <div>
-                <dt className="text-xs font-medium text-slate-500">
-                  협업 부서 추가
-                </dt>
-                <dd className="mt-2 space-y-2">
-                  <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-1.5">
-                    <select
-                      value={targetDepartmentId}
-                      onChange={(event) =>
-                        setTargetDepartmentId(event.target.value)
-                      }
-                      disabled={
-                        requestDepartmentPending ||
-                        requestableDepartments.length === 0
-                      }
-                      className="h-9 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-900 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100 disabled:text-slate-400"
-                      aria-label="추가 협업 부서"
-                    >
-                      <option value="">
-                        {requestableDepartments.length === 0
-                          ? "추가 가능한 부서 없음"
-                          : "부서 선택"}
-                      </option>
-                      {requestableDepartments.map((department) => (
-                        <option
-                          key={department.department_id}
-                          value={department.department_id}
-                        >
-                          {department.name}
-                          {department.code ? ` (${department.code})` : ""}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={handleRequestDepartment}
-                      disabled={!canRequestDepartment}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
-                      aria-label="협업 부서 요청"
-                      title="협업 부서 요청"
-                    >
-                      <Plus className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <input
-                    type="text"
-                    value={requestReason}
-                    onChange={(event) => setRequestReason(event.target.value)}
-                    disabled={requestDepartmentPending}
-                    placeholder="요청 메모"
-                    className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100 disabled:text-slate-400"
-                  />
-                  {requestError && (
-                    <p className="text-xs font-semibold text-red-600">
-                      {requestError}
-                    </p>
-                  )}
                 </dd>
               </div>
             )}
@@ -11572,8 +11530,6 @@ export default function Schedules() {
     hasCompanyMembership || !!viewingSchedule,
   );
   const createCompanyScheduleMutation = useCreateCompanyAdminSchedule();
-  const createCompanyTargetDepartmentRequestMutation =
-    useCreateCompanyScheduleTargetDepartmentRequest();
   const companyApprovalsEnabled = hasCompanyMembership;
   const approverApprovalsQuery = useCompanyScheduleApprovals(
     { status: "pending", role: "approver" },
@@ -12493,6 +12449,7 @@ export default function Schedules() {
     <AppShell
       fullBleed
       titleMeta={currentViewSummary}
+      aiChatButtonOffset={sidePanelOpen ? "340px" : "0px"}
       headerActions={
         <div
           data-flowra-schedule-controls
@@ -13202,23 +13159,6 @@ export default function Schedules() {
               schedule={viewingSchedule}
               onClose={closePanel}
               departments={companyDepartmentsQuery.data ?? []}
-              requestDepartmentPending={
-                createCompanyTargetDepartmentRequestMutation.isPending
-              }
-              onRequestDepartment={async (departmentId, reason) => {
-                const updatedSchedule =
-                  await createCompanyTargetDepartmentRequestMutation.mutateAsync(
-                    {
-                      companyScheduleId:
-                        companyScheduleSourceId(viewingSchedule),
-                      payload: {
-                        target_department_ids: [departmentId],
-                        reason,
-                      },
-                    },
-                  );
-                setViewingSchedule(companyScheduleToSchedule(updatedSchedule));
-              }}
               floatingStyle={floatingPanelStyle}
               panelLayout={schedulePanelLayout}
             />

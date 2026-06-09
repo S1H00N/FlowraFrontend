@@ -11,15 +11,18 @@ import { getErrorMessage } from "@/lib/error";
 import { cn } from "@/lib/utils";
 import { localInputToOffsetISOString } from "@/utils/dateUtils";
 import { ListCardMeta, PriorityMetaChip } from "@/components/ListCardMeta";
-import { Calendar } from "@/components/ui/calendar";
+import {
+  CompactDateInput,
+  CompactTimeInput,
+  dateKeyFromLocalInput,
+  localInputWithDateKey,
+  localInputWithTime,
+  timeFromLocalInput,
+  toDateKey,
+} from "@/components/CompactDateTimeInputs";
 import CustomSelect, {
   type CustomSelectOption,
 } from "@/components/ui/CustomSelect";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import TaskCompletionToggleButton from "@/components/TaskCompletionToggleButton";
 import type { Schedule, Task, TaskPriority } from "@/types";
 
@@ -51,10 +54,6 @@ function pad(value: number) {
   return String(value).padStart(2, "0");
 }
 
-function toDateKey(date: Date) {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
 function toLocalDateTimeInput(iso?: string | null) {
   if (!iso) return "";
   const date = new Date(iso);
@@ -65,49 +64,6 @@ function toLocalDateTimeInput(iso?: string | null) {
 
 function defaultTaskDueLocal(schedule: Schedule) {
   return toLocalDateTimeInput(schedule.end_datetime ?? schedule.start_datetime);
-}
-
-function dateKeyFromLocalInput(value: string) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
-  if (!match) return "";
-  return `${match[1]}-${match[2]}-${match[3]}`;
-}
-
-function dateFromLocalInput(value: string) {
-  const dateKey = dateKeyFromLocalInput(value);
-  if (!dateKey) return undefined;
-  const [year, month, day] = dateKey.split("-").map(Number);
-  const date = new Date(year, month - 1, day);
-  return Number.isNaN(date.getTime()) ? undefined : date;
-}
-
-function timeFromLocalInput(value: string) {
-  const match = /T(\d{2}:\d{2})/.exec(value);
-  return match?.[1] ?? "";
-}
-
-function localInputWithDate(value: string, date: Date) {
-  const time = timeFromLocalInput(value) || "09:00";
-  return `${toDateKey(date)}T${time}`;
-}
-
-function localInputWithTime(value: string, time: string, fallbackValue: string) {
-  const dateKey =
-    dateKeyFromLocalInput(value) ||
-    dateKeyFromLocalInput(fallbackValue) ||
-    toDateKey(new Date());
-  return `${dateKey}T${time}`;
-}
-
-function formatDueDateLabel(value: string) {
-  const date = dateFromLocalInput(value);
-  if (!date) return "날짜 선택";
-
-  return date.toLocaleDateString("ko-KR", {
-    month: "long",
-    day: "numeric",
-    weekday: "short",
-  });
 }
 
 function formatTaskDue(iso?: string | null) {
@@ -212,8 +168,9 @@ function TaskDueDateTimeControl({
   fallbackValue: string;
   onChange: (value: string) => void;
 }) {
-  const [datePickerOpen, setDatePickerOpen] = useState(false);
-  const selectedDate = dateFromLocalInput(value);
+  const fallbackDateKey =
+    dateKeyFromLocalInput(fallbackValue) || toDateKey(new Date());
+  const dateKey = dateKeyFromLocalInput(value) || fallbackDateKey;
   const timeValue =
     timeFromLocalInput(value) || timeFromLocalInput(fallbackValue) || "09:00";
 
@@ -221,41 +178,29 @@ function TaskDueDateTimeControl({
     <div className="block">
       <span className="text-xs font-bold text-slate-500">마감시간</span>
       <div className="mt-1 grid grid-cols-[minmax(0,1fr)_5rem] gap-1.5">
-        <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              className="inline-flex h-10 min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-left text-sm font-semibold text-slate-900 outline-none transition hover:border-slate-300 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
-              aria-label="마감 날짜 선택"
-            >
-              <CalendarClock className="h-4 w-4 shrink-0 text-slate-400" />
-              <span className="min-w-0 truncate">
-                {formatDueDateLabel(value)}
-              </span>
-            </button>
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-auto p-0">
-            <Calendar
-              mode="single"
-              selected={selectedDate}
-              onSelect={(date) => {
-                if (!date) return;
-                onChange(localInputWithDate(value || fallbackValue, date));
-                setDatePickerOpen(false);
-              }}
-            />
-          </PopoverContent>
-        </Popover>
-        <input
-          type="time"
-          value={timeValue}
-          onChange={(event) =>
+        <CompactDateInput
+          value={dateKey}
+          ariaLabel="\uB9C8\uAC10 \uB0A0\uC9DC \uC120\uD0DD"
+          onChange={(nextDateKey) =>
             onChange(
-              localInputWithTime(value, event.target.value, fallbackValue),
+              localInputWithDateKey(
+                value || fallbackValue,
+                nextDateKey,
+                timeValue,
+              ),
             )
           }
-          aria-label="마감 시간"
-          className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-sm font-semibold text-slate-900 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+          className="h-10 w-full border-slate-200 bg-white px-3 shadow-sm hover:border-slate-300"
+        />
+        <CompactTimeInput
+          value={timeValue}
+          ariaLabel="\uB9C8\uAC10 \uC2DC\uAC04"
+          onChange={(nextTime) =>
+            onChange(
+              localInputWithTime(value || fallbackValue, nextTime, dateKey),
+            )
+          }
+          className="h-10 border-slate-200 bg-white px-2 shadow-sm hover:border-slate-300"
         />
       </div>
     </div>

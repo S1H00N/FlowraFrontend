@@ -825,6 +825,7 @@ export default function Tasks() {
   const error = schedulesQuery.error ?? tasksQuery.error;
   const isError = schedulesQuery.isError || tasksQuery.isError;
   const isFetching = schedulesQuery.isFetching || tasksQuery.isFetching;
+  const sidePanelOpen = scheduleAddPanelOpen || taskPanelScheduleId !== null;
 
   const selectDate = (date: Date) => {
     const key = toDateKey(date);
@@ -866,11 +867,12 @@ export default function Tasks() {
   return (
     <AppShell
       fullBleed
+      aiChatButtonOffset={sidePanelOpen ? "340px" : "0px"}
       titleMeta={`완료 ${visibleDoneCount} / 전체 ${visibleTaskCount}`}
       headerActions={
         <div
           className={`flex min-w-0 items-center gap-2 transition-[margin] ${
-            scheduleAddPanelOpen || taskPanelScheduleId !== null ? "md:mr-[300px] lg:mr-[340px]" : ""
+            sidePanelOpen ? "md:mr-[300px] lg:mr-[340px]" : ""
           }`}
         >
           <label className="relative hidden min-[760px]:block">

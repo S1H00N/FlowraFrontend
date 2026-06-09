@@ -40,6 +40,16 @@ export const apiClient = axios.create({
   },
 });
 
+function createRequestId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 12)}`.slice(0, 40);
+}
+
 // ---- Auth failure callback (set by AuthProvider) ----
 
 let onAuthFailure: (() => void) | null = null;
@@ -78,7 +88,12 @@ async function refreshAccessToken(): Promise<string> {
   }>(
     `${baseURL}/auth/refresh`,
     { refresh_token: refreshToken },
-    { headers: { "Content-Type": "application/json" } },
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "X-Request-Id": createRequestId(),
+      },
+    },
   );
 
   const tokens = res.data?.data?.tokens ?? res.data?.data;
@@ -101,6 +116,9 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = authStorage.getAccessToken();
   if (token) {
     config.headers.set("Authorization", `Bearer ${token}`);
+  }
+  if (!config.headers.has("X-Request-Id")) {
+    config.headers.set("X-Request-Id", createRequestId());
   }
   return config;
 });

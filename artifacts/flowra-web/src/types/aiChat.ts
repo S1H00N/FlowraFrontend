@@ -11,12 +11,17 @@ export type AiChatActionStatus =
 
 export interface AiChatSession {
   session_id: number;
+  ai_chat_session_id?: number;
   user_id?: number;
   title?: string | null;
   status?: AiChatSessionStatus | string;
   last_message_at?: string | null;
   created_at?: string;
   updated_at?: string | null;
+  _count?: {
+    messages?: number;
+  };
+  messages?: AiChatMessage[];
 }
 
 export interface AiChatAppliedAction {
@@ -28,7 +33,9 @@ export interface AiChatAppliedAction {
 
 export interface AiChatMessage {
   message_id: number;
+  ai_chat_message_id?: number;
   session_id?: number;
+  ai_chat_session_id?: number;
   role: AiChatMessageRole | string;
   content: string;
   response_type?: AiChatResponseType | string | null;
