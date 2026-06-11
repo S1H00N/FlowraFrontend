@@ -131,9 +131,14 @@ apiClient.interceptors.response.use(
     const original = error.config as RetriableConfig | undefined;
     const status = error.response?.status;
     const code = error.response?.data?.error?.code;
+    const isPublicAuthError =
+      code === "INVALID_CREDENTIALS" ||
+      code === "INVALID_EMAIL_TOKEN" ||
+      code === "INVALID_REFRESH_TOKEN";
 
     const isAuthError =
-      status === 401 || code === "TOKEN_EXPIRED" || code === "UNAUTHORIZED";
+      !isPublicAuthError &&
+      (status === 401 || code === "TOKEN_EXPIRED" || code === "UNAUTHORIZED");
 
     if (
       !isAuthError ||

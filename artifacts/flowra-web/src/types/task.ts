@@ -80,4 +80,5 @@ export interface TaskListQuery {
   q?: string;
   due_from?: string;
   due_to?: string;
+  include_no_due?: boolean;
 }

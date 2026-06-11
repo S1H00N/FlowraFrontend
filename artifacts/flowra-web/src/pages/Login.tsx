@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Sparkles } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { loginSchema, type LoginFormValues } from "@/lib/schemas";
-import { getErrorMessage } from "@/lib/error";
+import { getErrorCode, getErrorMessage } from "@/lib/error";
 import { toast } from "@/lib/toast";
 
 interface LocationState {
@@ -36,6 +36,10 @@ export default function Login() {
         await login(values);
         navigate(from, { replace: true });
       } catch (err) {
+        if (getErrorCode(err) === "EMAIL_NOT_VERIFIED") {
+          toast.error("이메일 인증 후 로그인할 수 있습니다.");
+          return;
+        }
         toast.error(getErrorMessage(err, "로그인에 실패했습니다."));
       }
     },
@@ -99,12 +103,20 @@ export default function Login() {
             </div>
 
             <div>
-              <label
-                className="block text-sm font-medium text-slate-700"
-                htmlFor="password"
-              >
-                비밀번호
-              </label>
+              <div className="flex items-center justify-between gap-3">
+                <label
+                  className="block text-sm font-medium text-slate-700"
+                  htmlFor="password"
+                >
+                  비밀번호
+                </label>
+                <Link
+                  to="/forgot-password"
+                  className="text-xs font-medium text-emerald-700 hover:underline"
+                >
+                  비밀번호 찾기
+                </Link>
+              </div>
               <input
                 id="password"
                 type="password"

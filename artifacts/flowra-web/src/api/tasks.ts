@@ -39,6 +39,10 @@ function normalizeTaskQuery(query: TaskListQuery) {
     q: query.q,
     due_from: query.due_from,
     due_to: query.due_to,
+    include_no_due:
+      query.include_no_due === undefined
+        ? undefined
+        : String(query.include_no_due),
   });
 }
 
@@ -53,6 +57,11 @@ export async function listTasks(query: TaskListQuery = {}) {
       pagination: res.data.data.pagination,
     },
   };
+}
+
+export async function getTask(taskId: number) {
+  const res = await apiClient.get<ApiResponse<TaskData>>(`/tasks/${taskId}`);
+  return { ...res.data, data: { task: unwrapTask(res.data.data) } };
 }
 
 export async function createTask(payload: CreateTaskRequest) {

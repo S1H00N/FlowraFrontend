@@ -17,3 +17,22 @@ export interface HolidayRangeQuery {
   country_code?: string;
   public_only?: boolean;
 }
+
+export interface HolidayListQuery {
+  year: number;
+  month?: number;
+  country_code?: string;
+  public_only?: boolean;
+}
+
+export interface HolidayCheckQuery {
+  date: string;
+  country_code?: string;
+}
+
+export interface HolidayCheckResult {
+  date: string;
+  country_code: string;
+  is_holiday: boolean;
+  holidays: Holiday[];
+}

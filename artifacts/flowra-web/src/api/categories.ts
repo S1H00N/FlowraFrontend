@@ -31,6 +31,13 @@ export async function listCategories(type?: CategoryType) {
   };
 }
 
+export async function getCategory(categoryId: number) {
+  const res = await apiClient.get<ApiResponse<CategoryData>>(
+    `/categories/${categoryId}`,
+  );
+  return { ...res.data, data: { category: unwrapCategory(res.data.data) } };
+}
+
 export async function createCategory(payload: CreateCategoryRequest) {
   const res = await apiClient.post<ApiResponse<CategoryData>>(
     "/categories",

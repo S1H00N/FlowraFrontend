@@ -8,6 +8,7 @@ import {
   completeTask,
   createTask,
   deleteTask,
+  getTask,
   listTasks,
   setTaskCompletion,
   updateTask,
@@ -26,6 +27,10 @@ export const TASKS_QUERY_KEY = ["tasks"] as const;
 
 export function tasksListKey(query: TaskListQuery = {}) {
   return [...TASKS_QUERY_KEY, "list", query] as const;
+}
+
+export function taskDetailKey(taskId: number) {
+  return [...TASKS_QUERY_KEY, "detail", taskId] as const;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -88,7 +93,7 @@ function taskMatchesListQuery(task: Task, query: TaskListQuery) {
 
   if (query.due_from || query.due_to) {
     const dueTime = dateTimeValue(task.due_datetime);
-    if (dueTime === null) return false;
+    if (dueTime === null) return query.include_no_due === true;
 
     const dueFrom = dateTimeValue(query.due_from);
     if (dueFrom !== null && dueTime < dueFrom) return false;
@@ -196,6 +201,20 @@ export function useTasks(query: TaskListQuery = {}) {
         throw new Error(res.message || "할 일을 불러오지 못했습니다.");
       }
       return res.data.tasks ?? [];
+    },
+  });
+}
+
+export function useTask(taskId: number | null, enabled = true) {
+  return useQuery<Task>({
+    queryKey: taskDetailKey(taskId ?? 0),
+    enabled: enabled && taskId !== null,
+    queryFn: async () => {
+      const res = await getTask(taskId as number);
+      if (!res.success) {
+        throw new Error(res.message || "할 일을 불러오지 못했습니다.");
+      }
+      return res.data.task;
     },
   });
 }

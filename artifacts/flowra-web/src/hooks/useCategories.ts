@@ -6,6 +6,7 @@ import {
 import {
   createCategory,
   deleteCategory,
+  getCategory,
   listCategories,
   updateCategory,
 } from "@/api/categories";
@@ -33,6 +34,24 @@ export function useCategories(type?: CategoryType) {
       if (!res.success)
         throw new Error(res.message || "카테고리를 불러오지 못했습니다.");
       return res.data.categories ?? [];
+    },
+  });
+}
+
+export function categoryKey(categoryId: number) {
+  return [...CATEGORIES_QUERY_KEY, "detail", categoryId] as const;
+}
+
+export function useCategory(categoryId: number | null, enabled = true) {
+  return useQuery<Category>({
+    queryKey: categoryKey(categoryId ?? 0),
+    enabled: enabled && categoryId !== null,
+    staleTime: 1000 * 60 * 5,
+    queryFn: async () => {
+      const res = await getCategory(categoryId as number);
+      if (!res.success)
+        throw new Error(res.message || "카테고리를 불러오지 못했습니다.");
+      return res.data.category;
     },
   });
 }

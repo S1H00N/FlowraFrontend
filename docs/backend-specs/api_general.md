@@ -22,6 +22,10 @@
 - `POST /auth/login`
 - `POST /auth/refresh`
 - `POST /auth/logout`
+- `POST /auth/verify-email`
+- `POST /auth/resend-verification-email`
+- `POST /auth/forgot-password`
+- `POST /auth/reset-password`
 - `GET /company-memberships/invites/:token`
 - `GET /schedule-share-links/:token`
 - `GET /holidays`
@@ -153,6 +157,21 @@
 | `created_at` | string | 생성 시각 |
 | `updated_at` | string | 수정 시각 |
 
+### Notice
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `notice_id` | number | 공지 ID |
+| `category` | `system` | 사용자 API는 현재 시스템 공지만 반환 |
+| `title` | string | 제목 |
+| `body` | string | 본문 |
+| `body_format` | `markdown` \| `plain` \| `html` | 본문 포맷 |
+| `is_pinned` | boolean | 상단 고정 여부 |
+| `publish_start_at` | string | 게시 시작 시각 |
+| `publish_end_at` | string \| null | 게시 종료 시각. `null`이면 무기한 |
+| `created_at` | string | 생성 시각 |
+| `updated_at` | string | 수정 시각 |
+
 ### Schedule
 
 | 필드 | 타입 | 설명 |
@@ -169,12 +188,35 @@
 | `end_datetime` | string \| null | 종료 시각 |
 | `all_day` | boolean | 종일 여부 |
 | `location` | string \| null | 장소 |
-| `visibility` | `private` | 공개 범위. 현재 `private`만 허용 |
+| `visibility` | `private` \| `link` \| `friends` | 공개 범위. 직접 생성/수정 시에는 현재 `private`만 허용하며 공유 API가 `link`/`friends`로 갱신할 수 있음 |
 | `recurrence_group_id` | string \| null | 반복 일정 그룹 ID |
 | `recurrence_sequence` | number \| null | 반복 일정 내 순번 |
 | `recurrence_rule` | object \| null | 반복 일정 생성 규칙 |
 | `source_memo_id` | number \| null | 원본 메모 ID |
 | `source_ai_result_id` | number \| null | 원본 AI 결과 ID |
+| `created_at` | string | 생성 시각 |
+| `updated_at` | string | 수정 시각 |
+
+### Friend
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `friendship_id` | number | 친구 관계 ID |
+| `status` | `pending` \| `accepted` \| `rejected` \| `blocked` | 친구 관계 상태 |
+| `direction` | `incoming` \| `outgoing` | 현재 사용자 기준 요청 방향 |
+| `friend` | PublicUserSummary | 상대 사용자. `public_uid`, `name`, `profile_image_url`만 포함 |
+| `requested_at` | string | 요청 시각 |
+| `responded_at` | string \| null | 응답 시각 |
+
+### FriendPreset
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `friend_preset_id` | number | 프리셋 ID |
+| `name` | string | 이름 |
+| `description` | string \| null | 설명 |
+| `version` | number | 멤버/설정 변경 버전. 현재는 스냅샷 공유 출처 기록용 |
+| `members` | FriendPresetMember[] | 프리셋 멤버. 멤버 사용자 정보는 PublicUserSummary만 포함 |
 | `created_at` | string | 생성 시각 |
 | `updated_at` | string | 수정 시각 |
 
@@ -257,7 +299,9 @@ Response 예시:
 
 ### `POST /auth/signup`
 
-로컬 계정 회원가입. 사용자, 로컬 auth account, 기본 카테고리 3개를 함께 생성합니다.
+로컬 계정 회원가입. 사용자, 로컬 auth account, 기본 카테고리 3개를 함께 생성하고 이메일 인증 메일을 발송합니다. 이메일 인증 전에는 access/refresh token을 발급하지 않으며 로그인도 차단됩니다.
+
+회원가입 후 3일 동안 이메일 인증이 완료되지 않은 공개 회원가입 계정은 자동 삭제 대상입니다.
 
 인증: 불필요
 
@@ -291,10 +335,9 @@ Response data:
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
 | `user` | User | 생성된 사용자 |
-| `tokens.access_token` | string | access token |
-| `tokens.refresh_token` | string | refresh token |
-| `tokens.expires_in` | number | access token 만료 초. 현재 3600 |
-| `tokens.refresh_expires_at` | string | refresh token 만료 시각 |
+| `requires_email_verification` | boolean | 항상 `true` |
+| `email_sent` | boolean | 인증 메일 발송 성공 여부 |
+| `verification_expires_at` | string | 인증 링크 만료 시각 |
 
 상태 코드:
 
@@ -302,9 +345,6 @@ Response data:
 - `403 SIGNUP_DISABLED`: 회원가입 기능이 OFF 상태
 - `403 SIGNUP_DOMAIN_NOT_ALLOWED`: 이메일 도메인이 허용 목록에 없음
 - `409 EMAIL_ALREADY_EXISTS`: 이미 등록된 이메일
-
-- `201 Created`
-- `409 EMAIL_ALREADY_EXISTS`
 
 ### `POST /auth/login`
 
@@ -331,6 +371,7 @@ Response data:
 
 - `200 OK`
 - `401 INVALID_CREDENTIALS`
+- `403 EMAIL_NOT_VERIFIED`
 - `403 USER_INACTIVE`
 - `403 USER_BANNED`
 
@@ -374,6 +415,99 @@ Request body:
 Response data:
 
 - 빈 객체
+
+### `POST /auth/verify-email`
+
+회원가입 인증 메일의 `token`으로 이메일 인증을 완료합니다. 성공 시 token pair를 발급합니다.
+
+인증: 불필요
+
+Request body:
+
+| 필드 | 타입 | 필수 | 제약 |
+| --- | --- | --- | --- |
+| `token` | string | O | 이메일 인증 token |
+
+Response data:
+
+- `user`: User
+- `tokens.access_token`
+- `tokens.refresh_token`
+- `tokens.expires_in`
+- `tokens.refresh_expires_at`
+
+상태 코드:
+
+- `200 OK`
+- `401 INVALID_EMAIL_TOKEN`: token 오류 또는 만료
+
+### `POST /auth/resend-verification-email`
+
+미인증 로컬 계정에 인증 메일 재발송을 요청합니다. 계정 존재 여부 노출을 막기 위해 항상 접수 응답을 반환합니다.
+사용자 직접 재발송은 최초 발송 또는 직전 사용자 재발송 후 5분이 지나야 가능하며, 24시간 기준 최대 5회까지 허용됩니다.
+
+인증: 불필요
+
+Request body:
+
+| 필드 | 타입 | 필수 | 제약 |
+| --- | --- | --- | --- |
+| `email` | string | O | 이메일, 최대 255자 |
+
+Response data:
+
+- `accepted`: boolean
+
+상태 코드:
+
+- `200 OK`
+- `429 EMAIL_VERIFICATION_RESEND_TOO_SOON`: 5분 재발송 대기 시간 미충족
+- `429 EMAIL_VERIFICATION_RESEND_LIMIT_EXCEEDED`: 24시간 재발송 5회 제한 초과
+
+### `POST /auth/forgot-password`
+
+비밀번호 재설정 메일 발송을 요청합니다. 계정 존재 여부 노출을 막기 위해 항상 접수 응답을 반환합니다.
+
+인증: 불필요
+
+Request body:
+
+| 필드 | 타입 | 필수 | 제약 |
+| --- | --- | --- | --- |
+| `email` | string | O | 이메일, 최대 255자 |
+
+Response data:
+
+- `accepted`: boolean
+
+### `POST /auth/reset-password`
+
+비밀번호 찾기 또는 관리자 패널에서 발급한 재설정 링크의 `token`으로 로컬 계정 비밀번호를 변경합니다.
+
+인증: 불필요
+
+Request body:
+
+| 필드 | 타입 | 필수 | 제약 |
+| --- | --- | --- | --- |
+| `token` | string | O | 비밀번호 재설정 token |
+| `new_password` | string | O | 8-72자 |
+| `new_password_confirm` | string | O | `new_password`와 동일 |
+
+Response data:
+
+- 빈 객체
+
+비고:
+
+- 성공 시 해당 사용자의 활성 refresh token은 모두 revoke 됩니다.
+- token 만료 시간은 서버 설정 `PASSWORD_RESET_EXPIRES_MINUTES`를 따릅니다.
+
+상태 코드:
+
+- `200 OK`
+- `400 BAD_REQUEST`: 로컬 계정이 아님
+- `401 INVALID_EMAIL_TOKEN`: token 오류 또는 만료
 
 ## Users
 
@@ -428,6 +562,170 @@ Response data:
 비고:
 
 - 사용자에 종속된 데이터는 DB 관계 설정에 따라 함께 삭제됩니다.
+
+## Friends
+
+모든 Friends API는 인증 필요.
+
+친구 요청 대상은 `public_uid` 또는 정확한 `email`로 지정합니다. 이메일 요청은 가입 여부 노출을 막기 위해 항상 접수 응답을 반환합니다.
+
+### `GET /friends`
+
+수락된 친구 목록 조회.
+
+Response data:
+
+- `friends`: Friend[]
+
+### `GET /friends/requests`
+
+대기 중인 받은/보낸 친구 요청 목록 조회. 단, 이메일로 보낸 요청은 가입 여부 추론을 막기 위해 보낸 요청 목록에 노출하지 않습니다.
+
+Response data:
+
+- `requests`: Friend[]
+
+### `POST /friends/requests`
+
+친구 요청 생성.
+
+Request body:
+
+```json
+{
+  "public_uid": "usr_1234abcd5678ef00"
+}
+```
+
+또는:
+
+```json
+{
+  "email": "friend@example.com"
+}
+```
+
+Response data:
+
+- `accepted`: boolean
+- `request`: Friend \| null
+
+비고:
+
+- `public_uid` 요청은 대상이 존재하면 `request`를 반환합니다.
+- `email` 요청은 가입된 계정이 있으면 내부적으로 친구 요청을 생성하지만 응답은 항상 `{ "accepted": true, "request": null }` 형태입니다.
+- `email` 요청 대상이 없거나 자기 자신이어도 같은 접수 응답을 반환합니다.
+
+상태 코드:
+
+- `201 Created`
+- `400 FRIEND_SELF_NOT_ALLOWED`: `public_uid` 요청에서 자기 자신을 지정한 경우
+- `404 USER_NOT_FOUND`: `public_uid` 요청에서 대상이 없는 경우
+
+### `POST /friends/requests/:friendship_id/accept`
+
+받은 친구 요청 수락.
+
+Response data:
+
+- `friendship`: Friend
+
+### `POST /friends/requests/:friendship_id/reject`
+
+받은 친구 요청 거절.
+
+Response data:
+
+- `friendship`: Friend
+
+### `DELETE /friends/by-public-uid/:public_uid`
+
+친구 삭제. 양쪽 사용자의 프리셋 멤버에서도 서로를 제거합니다.
+
+Response data:
+
+- 빈 객체
+
+### `DELETE /friends/:friend_user_id`
+
+친구 삭제. 숫자 내부 ID 기반 호환용 엔드포인트입니다. 신규 프론트에서는 `DELETE /friends/by-public-uid/:public_uid` 사용을 권장합니다.
+
+Response data:
+
+- 빈 객체
+
+## Friend Presets
+
+모든 Friend Presets API는 인증 필요. 프리셋 멤버는 수락된 친구만 지정할 수 있습니다.
+
+현재 프리셋 공유는 스냅샷 방식입니다. 프리셋 변경은 과거에 이미 공유된 일정의 대상자를 자동 변경하지 않으며, `version`은 향후 동기화 기능을 위한 기록값입니다.
+
+### `GET /friend-presets`
+
+내 친구 프리셋 목록 조회.
+
+Response data:
+
+- `presets`: FriendPreset[]
+
+### `POST /friend-presets`
+
+친구 프리셋 생성.
+
+Request body:
+
+```json
+{
+  "name": "가족",
+  "description": "가족 공유용",
+  "friend_public_uids": ["usr_1234abcd5678ef00", "usr_abcdef1234567890"]
+}
+```
+
+Response data:
+
+- `preset`: FriendPreset
+
+### `PATCH /friend-presets/:friend_preset_id`
+
+프리셋 이름/설명 수정. 수정 시 `version`이 증가합니다.
+
+Request body:
+
+```json
+{
+  "name": "가족/친척",
+  "description": "가족 일정 공유"
+}
+```
+
+Response data:
+
+- `preset`: FriendPreset
+
+### `PUT /friend-presets/:friend_preset_id/members`
+
+프리셋 멤버 전체 교체. 교체 시 `version`이 증가합니다.
+
+Request body:
+
+```json
+{
+  "friend_public_uids": ["usr_1234abcd5678ef00", "usr_abcdef1234567890"]
+}
+```
+
+Response data:
+
+- `preset`: FriendPreset
+
+### `DELETE /friend-presets/:friend_preset_id`
+
+프리셋 삭제.
+
+Response data:
+
+- 빈 객체
 
 ## Categories
 
@@ -602,7 +900,7 @@ Request body:
 | `end_datetime` | datetime string \| null | X | `null` | offset 포함, 시작 이후여야 함 |
 | `all_day` | boolean | X | `false` | - |
 | `location` | string \| null | X | `null` | 최대 255자 |
-| `visibility` | `private` | X | `private` | 현재 `private`만 허용 |
+| `visibility` | `private` | X | `private` | 직접 생성 시 현재 `private`만 허용 |
 
 Request 예시:
 
@@ -717,7 +1015,7 @@ Request body:
 | `end_datetime` | datetime string \| null | X | `null`로 종료 시각 제거 |
 | `all_day` | boolean | X | - |
 | `location` | string \| null | X | 최대 255자 |
-| `visibility` | `private` | X | 현재 `private`만 허용 |
+| `visibility` | `private` | X | 직접 수정 시 현재 `private`만 허용 |
 
 Response data:
 
@@ -860,7 +1158,6 @@ Response data:
   - `all_day`
   - `location`
 - `owner`
-  - `user_id`
   - `public_uid`
   - `name`
   - `profile_image_url`
@@ -893,8 +1190,53 @@ Response data:
 
 - `share`
 - `schedule`
-- `owner`
+- `owner`: PublicUserSummary
 - `joined`: 새로 참가했으면 `true`, 이미 참가 중이면 `false`
+
+### `POST /schedules/:schedule_id/friend-shares`
+
+친구 전체 또는 친구 프리셋의 현재 멤버에게 일정을 스냅샷 방식으로 공유합니다.
+
+인증 필요. 일정 소유자만 호출할 수 있습니다.
+
+Request body:
+
+전체 친구 공유:
+
+```json
+{
+  "scope": "all_friends",
+  "permission": "viewer"
+}
+```
+
+프리셋 공유:
+
+```json
+{
+  "scope": "preset",
+  "friend_preset_id": "3",
+  "permission": "viewer"
+}
+```
+
+비고:
+
+- 호출 시점의 accepted 친구 또는 프리셋 멤버에게 `ScheduleShare`를 생성/재활성화합니다.
+- 이후 프리셋 멤버를 변경해도 이미 생성된 공유 대상은 자동 변경되지 않습니다.
+- `schedule_shares.source_type`은 `all_friends` 또는 `preset`으로 기록됩니다.
+- 프리셋 공유는 `source_preset_id`, `source_preset_version`을 함께 기록해 향후 동기화 기능에 사용할 수 있습니다.
+- 일정의 `visibility`는 `friends`로 갱신됩니다.
+
+Response data:
+
+- `schedule_id`
+- `scope`: `all_friends` | `preset`
+- `friend_preset_id`
+- `friend_preset_version`
+- `permission`
+- `shared_count`
+- `shares`: ScheduleShare[]
 
 ### `GET /schedules/:schedule_id/shares`
 
@@ -905,6 +1247,11 @@ Response data:
 Response data:
 
 - `shares`: ScheduleShare[]
+  - `shared_user`: PublicUserSummary
+  - `source_type`: `manual` | `link` | `all_friends` | `preset`
+  - `source_preset_id`
+  - `source_preset_version`
+  - `source_preset`
 
 ### `PATCH /schedules/:schedule_id/shares/:schedule_share_id`
 
@@ -1165,6 +1512,11 @@ CompanySchedule 주요 필드:
 - `approval_summary`
 - `targets[]`
 
+비고:
+
+- 조직 일정 응답의 회사 멤버 객체(`created_by_company_member`, `updated_by_company_member`, `targets[].company_member`, `approvals[].requested_by_company_member`, `change_requests[].requested_by_company_member`)는 내부 `user_id`를 노출하지 않습니다.
+- Flowra 계정과 연결된 회사 멤버는 `user_public_uid`를 포함합니다.
+
 ### `GET /company-schedules/:company_schedule_id`
 
 조직 일정 상세 조회. 사용자가 볼 수 있는 일정이거나, 본인이 요청한 승인 대기 일정만 조회할 수 있습니다.
@@ -1321,6 +1673,10 @@ Query params:
 
 로그인한 사용자의 active 회사 멤버십 목록을 회사 정보와 함께 조회합니다.
 
+비고:
+
+- 멤버십 응답은 내부 `user_id`를 노출하지 않고, 연결된 Flowra 계정 식별자는 `user_public_uid`로 제공합니다.
+
 ### `GET /companies/:company_id/departments`
 
 본인이 속한 회사의 부서 목록 조회.
@@ -1345,8 +1701,12 @@ Response data:
   - `depth_level`
   - `status`
   - `schedule_create_policy`
-  - `leader`
-  - `_count`
+- `leader`
+- `_count`
+
+비고:
+
+- `leader` 멤버 객체는 내부 `user_id`를 노출하지 않고 `user_public_uid`를 포함합니다.
 
 ### `GET /companies/:company_id/org-chart`
 
@@ -1359,6 +1719,10 @@ Response data:
   - 부서 트리
   - `members[]`
 - `unassigned_members[]`
+
+비고:
+
+- `members[]`, `unassigned_members[]`, `leader` 멤버 객체는 내부 `user_id`를 노출하지 않고 `user_public_uid`를 포함합니다.
 
 ### `GET /companies/:company_id/departments/:department_id/members`
 
@@ -1523,7 +1887,7 @@ CompanyMember 주요 필드:
 
 - `company_member_id`
 - `company_id`
-- `user_id`
+- `user_public_uid`
 - `department_id`
 - `email`
 - `name`
@@ -1578,6 +1942,7 @@ Query params:
 | `q` | string | X | 제목/설명 부분 검색 |
 | `due_from` | datetime string | X | `due_datetime >= due_from` |
 | `due_to` | datetime string | X | `due_datetime <= due_to` |
+| `include_no_due` | `true` \| `false` | X | 날짜 범위 조회 시 `due_datetime = null`인 할 일도 함께 포함 |
 
 정렬:
 
@@ -1587,6 +1952,13 @@ Query params:
 Response data:
 
 - `tasks`: Task[]
+
+예시:
+
+- `GET /tasks?due_from=2026-05-01T00:00:00+09:00&due_to=2026-05-31T23:59:59+09:00`
+  - 5월 마감 할 일만 조회
+- `GET /tasks?due_from=2026-05-01T00:00:00+09:00&due_to=2026-05-31T23:59:59+09:00&include_no_due=true`
+  - 5월 마감 할 일과 마감 없는 할 일을 함께 조회
 
 ### `GET /tasks/:task_id`
 
@@ -1868,8 +2240,6 @@ AiParseResult 주요 필드:
 - `extracted_end_datetime`
 - `extracted_due_datetime`
 - `extracted_priority`
-- `suggested_schedule`
-- `suggested_task`
 - `suggested_actions`
 - `confidence_score`
 - `status`: `suggested` | `approved` | `rejected`
@@ -2150,6 +2520,62 @@ Response data:
 상태 코드:
 
 - `404 REMINDER_NOT_FOUND`
+
+## Notices
+
+모든 Notices API는 인증 필요.
+
+현재는 게시 상태(`published`)이고 게시 기간 안에 있는 시스템 공지만 반환합니다. 회사 공지는 DB/API 구조만 준비되어 있으며 사용자 노출 API는 별도 구현 예정입니다.
+
+### `GET /notices`
+
+시스템 공지 목록 조회. 상단 고정 공지가 먼저 오고, 그 안에서는 게시 시작일 최신순입니다.
+
+Query params:
+
+| 이름 | 타입 | 필수 | 기본값 | 설명 |
+| --- | --- | --- | --- | --- |
+| `page` | number | X | `1` | 페이지 |
+| `page_size` | number | X | `20` | 페이지 크기. 최대 `50` |
+
+Response data:
+
+```json
+{
+  "notices": [
+    {
+      "notice_id": 1,
+      "category": "system",
+      "title": "CBT 설문조사 안내",
+      "body": "설문 링크: https://...",
+      "body_format": "markdown",
+      "is_pinned": true,
+      "publish_start_at": "2026-06-10T00:00:00.000Z",
+      "publish_end_at": null,
+      "created_at": "2026-06-10T00:00:00.000Z",
+      "updated_at": "2026-06-10T00:00:00.000Z"
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "page_size": 20,
+    "total": 1,
+    "total_pages": 1
+  }
+}
+```
+
+### `GET /notices/:notice_id`
+
+시스템 공지 상세 조회.
+
+Response data:
+
+- `notice`: Notice
+
+상태 코드:
+
+- `404 NOTICE_NOT_FOUND`
 
 ## Notifications
 

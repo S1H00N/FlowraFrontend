@@ -17,6 +17,9 @@ import { useApplyUserTheme } from "@/lib/userSettings";
 const Home = lazy(() => import("@/pages/Home"));
 const Login = lazy(() => import("@/pages/Login"));
 const Signup = lazy(() => import("@/pages/Signup"));
+const VerifyEmail = lazy(() => import("@/pages/VerifyEmail"));
+const ForgotPassword = lazy(() => import("@/pages/ForgotPassword"));
+const ResetPassword = lazy(() => import("@/pages/ResetPassword"));
 const Tasks = lazy(() => import("@/pages/Tasks"));
 const Schedules = lazy(() => import("@/pages/Schedules"));
 const Memos = lazy(() => import("@/pages/Memos"));
@@ -81,6 +84,9 @@ function App() {
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
+              <Route path="/verify-email" element={<VerifyEmail />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/company-invites/:token" element={<CompanyInvite />} />
               <Route
                 path="/"

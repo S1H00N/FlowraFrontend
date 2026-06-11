@@ -3,8 +3,10 @@ import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import {
   createCompanyAdminSchedule,
   getCompanyAdminMe,
+  listCompanyDepartmentMembers,
   listCompanyAdminDepartments,
   listCompanyAdminMembers,
+  updateCompanyDepartmentApprovalDelegateMode,
 } from "@/api/companyAdmin";
 import { COMPANY_SCHEDULES_QUERY_KEY } from "@/hooks/useCompanySchedules";
 import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
@@ -173,6 +175,59 @@ export function useCompanyAdminMembers(enabled = true) {
     },
     enabled,
     staleTime: 1000 * 60 * 5,
+  });
+}
+
+export function useCompanyDepartmentMembers(
+  companyId: number | null,
+  departmentId: number | null,
+  enabled = true,
+) {
+  return useQuery<CompanyAdminMember[]>({
+    queryKey: [
+      ...COMPANY_ADMIN_QUERY_KEY,
+      "department-members",
+      companyId,
+      departmentId,
+    ],
+    queryFn: async () => {
+      if (companyId === null || departmentId === null) return [];
+      const res = await listCompanyDepartmentMembers(companyId, departmentId);
+      if (!res.success) {
+        throw new Error(res.message || "부서원을 불러오지 못했습니다.");
+      }
+      return res.data.members ?? [];
+    },
+    enabled: enabled && companyId !== null && departmentId !== null,
+    staleTime: 1000 * 60 * 5,
+  });
+}
+
+export function useUpdateCompanyDepartmentApprovalDelegateMode() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      companyId,
+      departmentId,
+      approvalDelegateEnabled,
+    }: {
+      companyId: number;
+      departmentId: number;
+      approvalDelegateEnabled: boolean;
+    }) => {
+      const res = await updateCompanyDepartmentApprovalDelegateMode(
+        companyId,
+        departmentId,
+        approvalDelegateEnabled,
+      );
+      if (!res.success) {
+        throw new Error(res.message || "대행승인 모드 변경에 실패했습니다.");
+      }
+      return res.data.department;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: COMPANY_ADMIN_QUERY_KEY });
+    },
   });
 }
 

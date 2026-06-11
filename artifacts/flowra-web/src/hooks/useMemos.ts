@@ -7,6 +7,7 @@ import {
   applyMemo,
   createMemo,
   deleteMemo,
+  getMemo,
   getMemoParseResult,
   listMemos,
   parseMemo,
@@ -30,6 +31,10 @@ export function memosListKey(query: MemoListQuery = {}) {
   return [...MEMOS_QUERY_KEY, "list", query] as const;
 }
 
+export function memoDetailKey(memoId: number) {
+  return [...MEMOS_QUERY_KEY, "detail", memoId] as const;
+}
+
 export function memoParseResultKey(memoId: number) {
   return [...MEMOS_QUERY_KEY, "parse-result", memoId] as const;
 }
@@ -50,6 +55,20 @@ export function useMemos(query: MemoListQuery = {}) {
         (m) => m.parse_status === "pending" || m.parse_status === "processing",
       );
       return hasInflight ? 3000 : false;
+    },
+  });
+}
+
+export function useMemoDetail(memoId: number | null, enabled = true) {
+  return useQuery<Memo>({
+    queryKey: memoDetailKey(memoId ?? 0),
+    enabled: enabled && memoId !== null,
+    queryFn: async () => {
+      const res = await getMemo(memoId as number);
+      if (!res.success) {
+        throw new Error(res.message || "메모를 불러오지 못했습니다.");
+      }
+      return res.data.memo;
     },
   });
 }

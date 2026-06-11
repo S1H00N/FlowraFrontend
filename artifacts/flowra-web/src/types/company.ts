@@ -25,7 +25,8 @@ export interface CompanyInvite {
 export interface CompanyMember {
   company_member_id: number;
   company_id: number;
-  user_id: number;
+  user_id?: number | null;
+  user_public_uid?: string | null;
   department_id?: number | null;
   email: string;
   name: string;
@@ -38,6 +39,19 @@ export interface CompanyMember {
 export interface AcceptCompanyInviteData {
   member: CompanyMember;
   company: CompanyInviteCompany;
+  department?: CompanyInviteDepartment | null;
+}
+
+export interface CompanyMembership {
+  company_member_id: number;
+  company_id: number;
+  user_public_uid?: string | null;
+  department_id?: number | null;
+  email: string;
+  name: string;
+  role: string;
+  status: string;
+  company?: CompanyInviteCompany;
   department?: CompanyInviteDepartment | null;
 }
 
@@ -90,6 +104,22 @@ export interface CompanyScheduleListQuery {
   start_to?: string;
 }
 
+export interface UpdateCompanyScheduleRequest {
+  title?: string;
+  description?: string | null;
+  schedule_type?: import("./schedule").ScheduleType;
+  start_datetime?: string;
+  end_datetime?: string | null;
+  all_day?: boolean;
+  location?: string | null;
+  status?: "active" | "cancelled";
+}
+
+export interface CompanyScheduleApprovalStatusData {
+  schedule: CompanySchedule;
+  approvals: CompanyScheduleApproval[];
+}
+
 export type CompanyAdminPermission =
   | string
   | {
@@ -108,6 +138,7 @@ export interface CompanyAdminRole {
 export interface CompanyAdminMe {
   company_admin_id: number;
   user_id?: number | null;
+  user_public_uid?: string | null;
   email: string;
   name: string;
   status: string;
@@ -139,6 +170,7 @@ export interface CompanyAdminDepartment {
 export interface CompanyAdminMember {
   company_member_id: number;
   user_id?: number | null;
+  user_public_uid?: string | null;
   department_id?: number | null;
   department?: CompanyInviteDepartment | null;
   name: string;

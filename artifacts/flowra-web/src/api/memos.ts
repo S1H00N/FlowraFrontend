@@ -59,6 +59,11 @@ export async function listMemos(query: MemoListQuery = {}) {
   };
 }
 
+export async function getMemo(memoId: number) {
+  const res = await apiClient.get<ApiResponse<MemoData>>(`/memos/${memoId}`);
+  return { ...res.data, data: { memo: unwrapMemo(res.data.data) } };
+}
+
 export async function createMemo(payload: CreateMemoRequest) {
   const res = await apiClient.post<ApiResponse<MemoData>>(
     "/memos",

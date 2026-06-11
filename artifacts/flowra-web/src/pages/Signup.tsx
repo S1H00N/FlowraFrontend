@@ -1,8 +1,9 @@
-import { useCallback } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useCallback, useState } from "react";
+import { Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/contexts/AuthContext";
+import * as authApi from "@/api/auth";
 import { signupSchema, type SignupFormValues } from "@/lib/schemas";
 import { getErrorCode, getErrorMessage } from "@/lib/error";
 import { toast } from "@/lib/toast";
@@ -23,7 +24,11 @@ function getSignupErrorMessage(err: unknown) {
 
 export default function Signup() {
   const { signup } = useAuth();
-  const navigate = useNavigate();
+  const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
+  const [verificationExpiresAt, setVerificationExpiresAt] = useState<
+    string | null
+  >(null);
+  const [resending, setResending] = useState(false);
 
   const {
     register,
@@ -37,14 +42,28 @@ export default function Signup() {
   const onSubmit = useCallback(
     async (values: SignupFormValues) => {
       try {
-        await signup(values);
-        navigate("/", { replace: true });
+        const data = await signup(values);
+        setVerificationEmail(values.email);
+        setVerificationExpiresAt(data.verification_expires_at);
       } catch (err) {
         toast.error(getSignupErrorMessage(err));
       }
     },
-    [signup, navigate],
+    [signup],
   );
+
+  const handleResend = useCallback(async () => {
+    if (!verificationEmail) return;
+    setResending(true);
+    try {
+      await authApi.resendVerificationEmail({ email: verificationEmail });
+      toast.success("인증 메일 재발송 요청이 접수되었습니다.");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "인증 메일 재발송에 실패했습니다."));
+    } finally {
+      setResending(false);
+    }
+  }, [verificationEmail]);
 
   const inputClass = (hasError: boolean) =>
     `mt-1 w-full rounded-lg border px-3 py-2.5 text-sm shadow-sm outline-none transition focus:ring-2 ${
@@ -74,11 +93,30 @@ export default function Signup() {
             Flowra에서 오늘의 실행 흐름을 정리해 보세요.
           </p>
 
-          <form
-            onSubmit={handleSubmit(onSubmit)}
-            noValidate
-            className="mt-6 space-y-4"
-          >
+          {verificationEmail ? (
+            <div className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-800">
+              <p className="font-medium">인증 메일을 보냈습니다.</p>
+              <p className="mt-1">{verificationEmail} 주소의 인증 링크를 확인해 주세요.</p>
+              {verificationExpiresAt && (
+                <p className="mt-2 text-xs text-emerald-700">
+                  링크 만료: {new Date(verificationExpiresAt).toLocaleString("ko-KR")}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={resending}
+                className="mt-4 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+              >
+                {resending ? "재발송 요청 중..." : "인증 메일 다시 받기"}
+              </button>
+            </div>
+          ) : (
+            <form
+              onSubmit={handleSubmit(onSubmit)}
+              noValidate
+              className="mt-6 space-y-4"
+            >
             <div>
               <label
                 className="block text-sm font-medium text-slate-700"
@@ -154,7 +192,8 @@ export default function Signup() {
             >
               {isSubmitting ? "가입 중..." : "회원가입"}
             </button>
-          </form>
+            </form>
+          )}
 
           <p className="mt-6 text-center text-sm text-slate-500">
             이미 계정이 있으신가요?{" "}

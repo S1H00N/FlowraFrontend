@@ -6,6 +6,7 @@ export * from "./task";
 export * from "./schedule";
 export * from "./memo";
 export * from "./aiChat";
+export * from "./friend";
 export * from "./category";
 export * from "./reminder";
 export * from "./push";

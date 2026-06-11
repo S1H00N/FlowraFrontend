@@ -1,22 +1,48 @@
 import apiClient from "./client";
 import { compactParams } from "./normalize";
-import type { ApiResponse, Holiday, HolidayRangeQuery } from "@/types";
+import type {
+  ApiResponse,
+  Holiday,
+  HolidayCheckQuery,
+  HolidayCheckResult,
+  HolidayListQuery,
+  HolidayRangeQuery,
+} from "@/types";
 
 interface HolidayListData {
   holidays?: Holiday[];
+}
+
+function normalizeHolidayParams(
+  query: HolidayListQuery | HolidayRangeQuery | HolidayCheckQuery,
+) {
+  return compactParams({
+    ...query,
+    public_only:
+      "public_only" in query && query.public_only !== undefined
+        ? String(query.public_only)
+        : undefined,
+  });
+}
+
+export async function listHolidays(query: HolidayListQuery) {
+  const res = await apiClient.get<ApiResponse<HolidayListData>>("/holidays", {
+    params: normalizeHolidayParams(query),
+  });
+
+  return {
+    ...res.data,
+    data: {
+      holidays: res.data.data.holidays ?? [],
+    },
+  };
 }
 
 export async function listHolidaysInRange(query: HolidayRangeQuery) {
   const res = await apiClient.get<ApiResponse<HolidayListData>>(
     "/holidays/range",
     {
-      params: compactParams({
-        start_date: query.start_date,
-        end_date: query.end_date,
-        country_code: query.country_code,
-        public_only:
-          query.public_only === undefined ? undefined : String(query.public_only),
-      }),
+      params: normalizeHolidayParams(query),
     },
   );
 
@@ -26,4 +52,14 @@ export async function listHolidaysInRange(query: HolidayRangeQuery) {
       holidays: res.data.data.holidays ?? [],
     },
   };
+}
+
+export async function checkHoliday(query: HolidayCheckQuery) {
+  const res = await apiClient.get<ApiResponse<HolidayCheckResult>>(
+    "/holidays/check",
+    {
+      params: normalizeHolidayParams(query),
+    },
+  );
+  return res.data;
 }

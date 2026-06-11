@@ -2,11 +2,19 @@ import apiClient from "./client";
 import type {
   ApiResponse,
   AuthTokens,
+  ForgotPasswordRequest,
+  ForgotPasswordResponseData,
   LoginRequest,
   LoginResponseData,
+  ResendVerificationEmailRequest,
+  ResendVerificationEmailResponseData,
+  ResetPasswordRequest,
   SignupRequest,
+  SignupResponseData,
   UpdateUserRequest,
   User,
+  VerifyEmailRequest,
+  VerifyEmailResponseData,
 } from "@/types";
 
 type RawLoginResponseData =
@@ -44,11 +52,47 @@ export async function login(payload: LoginRequest) {
 }
 
 export async function signup(payload: SignupRequest) {
-  const res = await apiClient.post<ApiResponse<RawLoginResponseData>>(
+  const res = await apiClient.post<ApiResponse<SignupResponseData>>(
     "/auth/signup",
     payload,
   );
-  return { ...res.data, data: normalizeLoginData(res.data.data) };
+  return res.data;
+}
+
+export async function verifyEmail(payload: VerifyEmailRequest) {
+  const res = await apiClient.post<ApiResponse<RawLoginResponseData>>(
+    "/auth/verify-email",
+    payload,
+  );
+  return {
+    ...res.data,
+    data: normalizeLoginData(res.data.data) satisfies VerifyEmailResponseData,
+  };
+}
+
+export async function resendVerificationEmail(
+  payload: ResendVerificationEmailRequest,
+) {
+  const res = await apiClient.post<
+    ApiResponse<ResendVerificationEmailResponseData>
+  >("/auth/resend-verification-email", payload);
+  return res.data;
+}
+
+export async function forgotPassword(payload: ForgotPasswordRequest) {
+  const res = await apiClient.post<ApiResponse<ForgotPasswordResponseData>>(
+    "/auth/forgot-password",
+    payload,
+  );
+  return res.data;
+}
+
+export async function resetPassword(payload: ResetPasswordRequest) {
+  const res = await apiClient.post<ApiResponse<Record<string, never>>>(
+    "/auth/reset-password",
+    payload,
+  );
+  return res.data;
 }
 
 export async function getMe() {

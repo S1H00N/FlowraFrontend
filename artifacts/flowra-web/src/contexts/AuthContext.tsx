@@ -17,14 +17,15 @@ import {
   deleteCurrentBrowserPushToken,
   getStoredBrowserPushToken,
 } from "@/lib/browserPush";
-import type { LoginRequest, SignupRequest, User } from "@/types";
+import type { LoginRequest, SignupRequest, SignupResponseData, User } from "@/types";
 
 interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
   isInitializing: boolean;
   login: (payload: LoginRequest) => Promise<void>;
-  signup: (payload: SignupRequest) => Promise<void>;
+  signup: (payload: SignupRequest) => Promise<SignupResponseData>;
+  verifyEmail: (token: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -93,34 +94,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => setOnAuthFailure(null);
   }, [navigate]);
 
-  const login = useCallback(async (payload: LoginRequest) => {
-    const res = await authApi.login(payload);
-    if (!res.success) {
-      throw new Error(res.message || "Login failed.");
-    }
-    const { user: nextUser, access_token, refresh_token } = res.data;
+  const persistLogin = useCallback((data: {
+    user: User;
+    access_token?: string;
+    refresh_token?: string;
+  }) => {
+    const { user: nextUser, access_token, refresh_token } = data;
     if (!access_token || !refresh_token) {
-      throw new Error("Login response does not include tokens.");
+      throw new Error("Auth response does not include tokens.");
     }
     authStorage.setTokens(access_token, refresh_token);
     authStorage.setUser(nextUser);
     setUser(nextUser);
   }, []);
+
+  const login = useCallback(async (payload: LoginRequest) => {
+    const res = await authApi.login(payload);
+    if (!res.success) {
+      throw new Error(res.message || "Login failed.");
+    }
+    persistLogin(res.data);
+  }, [persistLogin]);
 
   const signup = useCallback(async (payload: SignupRequest) => {
     const res = await authApi.signup(payload);
     if (!res.success) {
       throw new Error(res.message || "Signup failed.");
     }
-
-    const { user: nextUser, access_token, refresh_token } = res.data;
-    if (!access_token || !refresh_token) {
-      throw new Error("Signup response does not include tokens.");
-    }
-    authStorage.setTokens(access_token, refresh_token);
-    authStorage.setUser(nextUser);
-    setUser(nextUser);
+    return res.data;
   }, []);
+
+  const verifyEmail = useCallback(async (token: string) => {
+    const res = await authApi.verifyEmail({ token });
+    if (!res.success) {
+      throw new Error(res.message || "Email verification failed.");
+    }
+    persistLogin(res.data);
+  }, [persistLogin]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -129,9 +139,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isInitializing,
       login,
       signup,
+      verifyEmail,
       logout,
     }),
-    [user, isInitializing, login, signup, logout],
+    [user, isInitializing, login, signup, verifyEmail, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

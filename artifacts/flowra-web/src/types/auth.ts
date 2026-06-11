@@ -46,7 +46,40 @@ export interface LegacyTokenResponseData {
   tokens: AuthTokens;
 }
 
-export type SignupResponseData = LoginResponseData;
+export interface SignupResponseData {
+  user: User;
+  requires_email_verification: boolean;
+  email_sent: boolean;
+  verification_expires_at: string;
+}
+
+export interface VerifyEmailRequest {
+  token: string;
+}
+
+export type VerifyEmailResponseData = LoginResponseData;
+
+export interface ResendVerificationEmailRequest {
+  email: string;
+}
+
+export interface ResendVerificationEmailResponseData {
+  accepted: boolean;
+}
+
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+export interface ForgotPasswordResponseData {
+  accepted: boolean;
+}
+
+export interface ResetPasswordRequest {
+  token: string;
+  new_password: string;
+  new_password_confirm: string;
+}
 
 export type RefreshResponseData = AuthTokens;
 

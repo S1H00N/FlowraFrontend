@@ -1,4 +1,5 @@
 import type { TaskPriority } from "./task";
+import type { FriendPreset, PublicUserSummary } from "./friend";
 
 export type ScheduleType =
   | "personal"
@@ -7,7 +8,8 @@ export type ScheduleType =
   | "deadline"
   | "other";
 
-export type ScheduleVisibility = "private";
+export type ScheduleVisibility = "private" | "link" | "friends";
+export type EditableScheduleVisibility = "private";
 
 export const SCHEDULE_TYPES: ScheduleType[] = [
   "personal",
@@ -29,6 +31,8 @@ export const SCHEDULE_VISIBILITY_LABELS: Partial<
   Record<ScheduleVisibility, string>
 > = {
   private: "비공개",
+  link: "링크 공유",
+  friends: "친구 공유",
 };
 
 export interface Schedule {
@@ -59,6 +63,8 @@ export interface Schedule {
   source_memo_id?: number | null;
   source_ai_result_id?: number | null;
   source_type?: string | null;
+  is_shared?: boolean;
+  shared_permission?: ScheduleSharePermission | null;
   targets?: Array<Record<string, unknown>>;
   is_collaboration?: boolean;
   approval_status?: string | null;
@@ -96,6 +102,125 @@ export interface UpdateScheduleRequest {
   location?: string | null;
   category_id?: string | number | null;
   visibility?: ScheduleVisibility;
+}
+
+export type ScheduleSharePermission = "viewer" | "editor";
+export type ScheduleShareStatus = "active" | "revoked";
+export type ScheduleShareLinkStatus = "active" | "disabled";
+export type ScheduleShareSourceType =
+  | "manual"
+  | "link"
+  | "all_friends"
+  | "preset";
+
+export interface ScheduleShare {
+  schedule_share_id: number;
+  schedule_id: number;
+  shared_user_id?: number | null;
+  shared_user?: PublicUserSummary | null;
+  permission: ScheduleSharePermission | string;
+  status: ScheduleShareStatus | string;
+  source_type?: ScheduleShareSourceType | string | null;
+  source_preset_id?: number | null;
+  source_preset_version?: number | null;
+  source_preset?: FriendPreset | null;
+  joined_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ScheduleShareLink {
+  schedule_share_link_id: number;
+  schedule_id: number;
+  token?: string;
+  permission: ScheduleSharePermission | string;
+  status: ScheduleShareLinkStatus | string;
+  max_uses?: number | null;
+  used_count?: number;
+  expires_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CreateScheduleShareLinkRequest {
+  permission: ScheduleSharePermission;
+  max_uses?: number | null;
+  expires_at?: string | null;
+}
+
+export interface CreateScheduleShareLinkResponse {
+  share_link: ScheduleShareLink;
+  url: string;
+  token: string;
+}
+
+export interface UpdateScheduleShareLinkRequest {
+  permission?: ScheduleSharePermission;
+  status?: ScheduleShareLinkStatus;
+  max_uses?: number | null;
+  expires_at?: string | null;
+}
+
+export interface ScheduleShareLinkPreview {
+  schedule: Pick<
+    Schedule,
+    | "schedule_id"
+    | "title"
+    | "description"
+    | "schedule_type"
+    | "start_datetime"
+    | "end_datetime"
+    | "all_day"
+    | "location"
+  >;
+  owner: PublicUserSummary;
+  permission: ScheduleSharePermission | string;
+  max_uses?: number | null;
+  used_count?: number;
+  expires_at?: string | null;
+  requires_login: boolean;
+}
+
+export interface JoinScheduleShareLinkResponse {
+  share: ScheduleShare;
+  schedule: Schedule;
+  owner: PublicUserSummary;
+  joined: boolean;
+}
+
+export interface CreateScheduleFriendShareRequest {
+  scope: "all_friends" | "preset";
+  permission: ScheduleSharePermission;
+  friend_preset_id?: string | number;
+}
+
+export interface CreateScheduleFriendShareResponse {
+  schedule_id: number;
+  scope: "all_friends" | "preset";
+  friend_preset_id?: number | null;
+  friend_preset_version?: number | null;
+  permission: ScheduleSharePermission | string;
+  shared_count: number;
+  shares: ScheduleShare[];
+}
+
+export interface UpdateScheduleShareRequest {
+  permission?: ScheduleSharePermission;
+  status?: ScheduleShareStatus;
+}
+
+export interface SharedSchedule {
+  schedule_share_id: number;
+  permission: ScheduleSharePermission | string;
+  status: ScheduleShareStatus | string;
+  joined_at?: string | null;
+  owner?: PublicUserSummary;
+  schedule: Schedule;
+}
+
+export interface SharedSchedulesQuery {
+  start_from?: string;
+  start_to?: string;
 }
 
 export type ScheduleWeekday =

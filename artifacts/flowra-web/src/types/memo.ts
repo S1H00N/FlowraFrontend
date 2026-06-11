@@ -131,6 +131,7 @@ export interface AiParseResult {
   suggested_task?: AiSuggestedTask | null;
   suggested_actions?: AiSuggestedAction[] | null;
   confidence_score?: number | null;
+  model_used?: string | null;
   status?: string;
   created_at?: string;
   updated_at?: string;

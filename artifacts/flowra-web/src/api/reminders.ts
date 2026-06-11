@@ -41,6 +41,13 @@ export async function listReminders(query: ReminderListQuery = {}) {
   };
 }
 
+export async function getReminder(reminderId: number) {
+  const res = await apiClient.get<ApiResponse<ReminderData>>(
+    `/reminders/${reminderId}`,
+  );
+  return { ...res.data, data: { reminder: unwrapReminder(res.data.data) } };
+}
+
 export async function createReminder(payload: CreateReminderRequest) {
   const res = await apiClient.post<ApiResponse<ReminderData>>(
     "/reminders",

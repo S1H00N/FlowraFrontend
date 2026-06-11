@@ -65,44 +65,13 @@ AI가 메모를 어떤 성격으로 판단했는지 나타냅니다.
 - `extracted_end_datetime`
 - `extracted_due_datetime`
 - `extracted_priority`
-- `suggested_schedule`
-- `suggested_task`
 - `suggested_actions`
 - `confidence_score`
 - `status`
 
-### suggested_schedule 형식
-
-```json
-{
-  "title": "팀 회의",
-  "description": "프로젝트 점검",
-  "schedule_type": "meeting",
-  "start_datetime": "2026-04-22T05:00:00Z",
-  "end_datetime": "2026-04-22T06:00:00Z",
-  "all_day": false,
-  "location": "회의실 A",
-  "visibility": "private"
-}
-```
-
-### suggested_task 형식
-
-```json
-{
-  "title": "기획안 제출",
-  "description": "수정본 정리 후 제출",
-  "priority": "high",
-  "status": "todo",
-  "due_datetime": "2026-04-22T09:00:00Z",
-  "location": null
-}
-```
-
 ### suggested_actions 형식
 
-현재 확장된 파싱 결과의 주 데이터입니다. `suggested_schedule`, `suggested_task`는
-기존 화면 호환용으로 첫 번째 일정/할 일 액션을 복사해서 내려줍니다.
+AI 파싱 결과의 주 데이터입니다. 일정/할 일 제안은 모두 `suggested_actions` 배열로 내려갑니다.
 
 ```json
 [
@@ -288,24 +257,38 @@ Response 예시:
       "extracted_end_datetime": null,
       "extracted_due_datetime": "2026-04-24T14:59:59Z",
       "extracted_priority": "high",
-      "suggested_schedule": {
-        "title": "디자인 회의",
-        "description": null,
-        "schedule_type": "meeting",
-        "start_datetime": "2026-04-22T05:00:00Z",
-        "end_datetime": null,
-        "all_day": false,
-        "location": null,
-        "visibility": "private"
-      },
-      "suggested_task": {
-        "title": "시안 제출",
-        "description": null,
-        "priority": "high",
-        "status": "todo",
-        "due_datetime": "2026-04-24T14:59:59Z",
-        "location": null
-      },
+      "suggested_actions": [
+        {
+          "type": "create_schedule",
+          "title": "디자인 회의",
+          "description": null,
+          "schedule_type": "meeting",
+          "priority": null,
+          "start_datetime": "2026-04-22T05:00:00Z",
+          "end_datetime": null,
+          "all_day": false,
+          "due_datetime": null,
+          "location": null,
+          "visibility": "private",
+          "recurrence": null,
+          "reminders": []
+        },
+        {
+          "type": "create_task",
+          "title": "시안 제출",
+          "description": null,
+          "schedule_type": null,
+          "priority": "high",
+          "start_datetime": null,
+          "end_datetime": null,
+          "all_day": null,
+          "due_datetime": "2026-04-24T14:59:59Z",
+          "location": null,
+          "visibility": null,
+          "recurrence": null,
+          "reminders": []
+        }
+      ],
       "confidence_score": 0.912,
       "status": "suggested"
     },
@@ -715,6 +698,7 @@ Response data item 예시:
   "extracted_title": "디자인 회의",
   "status": "approved",
   "confidence_score": 0.912,
+  "model_used": "gpt-5.4",
   "created_at": "2026-04-21T04:00:00Z",
   "updated_at": "2026-04-21T04:01:00Z"
 }
@@ -748,9 +732,9 @@ Response 예시:
     "extracted_end_datetime": null,
     "extracted_due_datetime": "2026-04-24T14:59:59Z",
     "extracted_priority": "high",
-    "suggested_schedule": {},
-    "suggested_task": {},
+    "suggested_actions": [],
     "confidence_score": 0.912,
+    "model_used": "gpt-5.4",
     "status": "approved",
     "created_at": "2026-04-21T04:00:00Z",
     "updated_at": "2026-04-21T04:01:00Z"
@@ -802,9 +786,11 @@ Response 예시:
 
 ## 구현 메모
 
-- 실제 AI 호출 모델은 `env.OPENAI_MODEL`
+- 기본 AI 호출 모델은 `env.OPENAI_MODEL`
+- 메모 파싱은 간단한 메모면 `env.OPENAI_MEMO_PARSE_LIGHT_MODEL`, 복잡한 메모면 `env.OPENAI_MEMO_PARSE_MODEL`을 우선 사용하고, 없으면 `env.OPENAI_MODEL`로 fallback
 - 기준 timezone 해석은 `env.AI_DEFAULT_TIMEZONE`
 - 상대 날짜 해석은 현재 시점 기준
+- 연도 없는 월/일 날짜는 기본적으로 현재 연도로 해석하며, 이미 지난 날짜여도 자동으로 다음 해로 넘기지 않음
 - 파싱 결과는 엄격한 JSON schema 검증 후 저장
 - AI 채팅 응답도 엄격한 JSON schema 검증 후 메시지와 제안을 저장
 - 파싱 실패 시 `memo.parse_status = failed`, `memo.parse_error_message` 기록

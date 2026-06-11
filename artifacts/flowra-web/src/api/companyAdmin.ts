@@ -37,6 +37,7 @@ interface CompanyMembershipRecord {
   company_member_id?: number | string | null;
   company_id?: number | string | null;
   user_id?: number | string | null;
+  user_public_uid?: string | null;
   department_id?: number | string | null;
   public_uid?: string | null;
   email?: string | null;
@@ -62,6 +63,10 @@ interface CompanyOrgChartDepartment extends CompanyAdminDepartment {
 interface CompanyOrgChartData {
   departments?: CompanyOrgChartDepartment[];
   unassigned_members?: CompanyAdminMember[];
+}
+
+interface CompanyMembersListData {
+  members?: CompanyAdminMember[];
 }
 
 function unwrapCompanySchedule(data: CompanyAdminScheduleData) {
@@ -242,6 +247,7 @@ function companyAdminMeFromMembership(
     company_admin_id:
       toPositiveNumber(membership.company_member_id) ?? company.company_id,
     user_id: toPositiveNumber(membership.user_id),
+    user_public_uid: membership.user_public_uid ?? null,
     email: membership.email ?? "",
     name: membership.name ?? company.name,
     status: membership.status ?? "active",
@@ -569,6 +575,33 @@ export async function listCompanyAdminMembers() {
       },
     };
   }
+}
+
+export async function listCompanyDepartmentMembers(
+  companyId: number,
+  departmentId: number,
+) {
+  const res = await apiClient.get<ApiResponse<CompanyMembersListData>>(
+    `/companies/${companyId}/departments/${departmentId}/members`,
+  );
+  return {
+    ...res.data,
+    data: {
+      members: res.data.data.members ?? [],
+    },
+  };
+}
+
+export async function updateCompanyDepartmentApprovalDelegateMode(
+  companyId: number,
+  departmentId: number,
+  approvalDelegateEnabled: boolean,
+) {
+  const res = await apiClient.patch<ApiResponse<{ department: CompanyAdminDepartment }>>(
+    `/companies/${companyId}/departments/${departmentId}/approval-delegate-mode`,
+    { approval_delegate_enabled: approvalDelegateEnabled },
+  );
+  return res.data;
 }
 
 export async function createCompanyAdminSchedule(

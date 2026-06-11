@@ -5,19 +5,38 @@ import {
 } from "@tanstack/react-query";
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import {
+  createScheduleFriendShare,
+  createScheduleShareLink,
   createRecurringSchedule,
   createSchedule,
+  deleteScheduleShareLink,
+  deleteScheduleShare,
   deleteSchedule,
   deleteSchedulesBulk,
+  getSchedule,
+  getScheduleShareLinkPreview,
+  joinScheduleShareLink,
+  listScheduleShareLinks,
+  listScheduleShares,
+  listSharedSchedules,
+  updateScheduleShareLink,
+  updateScheduleShare,
   listSchedules,
   updateSchedule,
 } from "@/api/schedules";
 import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
 import type {
   CreateRecurringScheduleRequest,
+  CreateScheduleFriendShareRequest,
   CreateScheduleRequest,
+  CreateScheduleShareLinkRequest,
+  JoinScheduleShareLinkResponse,
   Schedule,
+  ScheduleShareLinkPreview,
   ScheduleListQuery,
+  SharedSchedulesQuery,
+  UpdateScheduleShareLinkRequest,
+  UpdateScheduleShareRequest,
   UpdateScheduleRequest,
 } from "@/types";
 
@@ -25,6 +44,26 @@ export const SCHEDULES_QUERY_KEY = ["schedules"] as const;
 
 export function schedulesListKey(query: ScheduleListQuery = {}) {
   return [...SCHEDULES_QUERY_KEY, "list", query] as const;
+}
+
+export function scheduleDetailKey(scheduleId: number) {
+  return [...SCHEDULES_QUERY_KEY, "detail", scheduleId] as const;
+}
+
+export function scheduleSharesKey(scheduleId: number) {
+  return [...SCHEDULES_QUERY_KEY, "shares", scheduleId] as const;
+}
+
+export function scheduleShareLinksKey(scheduleId: number) {
+  return [...SCHEDULES_QUERY_KEY, "share-links", scheduleId] as const;
+}
+
+export function scheduleShareLinkPreviewKey(token: string) {
+  return [...SCHEDULES_QUERY_KEY, "share-link-preview", token] as const;
+}
+
+export function sharedSchedulesKey(query: SharedSchedulesQuery = {}) {
+  return [...SCHEDULES_QUERY_KEY, "shared", query] as const;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -173,6 +212,77 @@ export function useSchedules(query: ScheduleListQuery = {}) {
   });
 }
 
+export function useSchedule(scheduleId: number | null, enabled = true) {
+  return useQuery<Schedule>({
+    queryKey: scheduleDetailKey(scheduleId ?? 0),
+    enabled: enabled && scheduleId !== null,
+    queryFn: async () => {
+      const res = await getSchedule(scheduleId as number);
+      if (!res.success) {
+        throw new Error(res.message || "일정을 불러오지 못했습니다.");
+      }
+      return res.data.schedule;
+    },
+  });
+}
+
+export function useScheduleShareLinks(
+  scheduleId: number | null,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: scheduleShareLinksKey(scheduleId ?? 0),
+    enabled: enabled && scheduleId !== null,
+    queryFn: async () => {
+      const res = await listScheduleShareLinks(scheduleId as number);
+      if (!res.success)
+        throw new Error(res.message || "일정 공유 링크를 불러오지 못했습니다.");
+      return res.data.share_links;
+    },
+  });
+}
+
+export function useScheduleShareLinkPreview(
+  token: string | null,
+  enabled = true,
+) {
+  return useQuery<ScheduleShareLinkPreview>({
+    queryKey: scheduleShareLinkPreviewKey(token ?? ""),
+    enabled: enabled && Boolean(token),
+    queryFn: async () => {
+      const res = await getScheduleShareLinkPreview(token as string);
+      if (!res.success)
+        throw new Error(res.message || "공유 링크를 불러오지 못했습니다.");
+      return res.data;
+    },
+  });
+}
+
+export function useScheduleShares(scheduleId: number | null, enabled = true) {
+  return useQuery({
+    queryKey: scheduleSharesKey(scheduleId ?? 0),
+    enabled: enabled && scheduleId !== null,
+    queryFn: async () => {
+      const res = await listScheduleShares(scheduleId as number);
+      if (!res.success)
+        throw new Error(res.message || "일정 공유 목록을 불러오지 못했습니다.");
+      return res.data.shares;
+    },
+  });
+}
+
+export function useSharedSchedules(query: SharedSchedulesQuery = {}) {
+  return useQuery({
+    queryKey: sharedSchedulesKey(query),
+    queryFn: async () => {
+      const res = await listSharedSchedules(query);
+      if (!res.success)
+        throw new Error(res.message || "공유받은 일정을 불러오지 못했습니다.");
+      return res.data.shared_schedules;
+    },
+  });
+}
+
 function useInvalidateSchedules() {
   const qc = useQueryClient();
   return () => {
@@ -283,6 +393,179 @@ export function useDeleteSchedule() {
     meta: {
       successMessage: "일정이 삭제되었습니다.",
       errorMessage: "일정 삭제에 실패했습니다.",
+    },
+  });
+}
+
+export function useCreateScheduleShareLink() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      scheduleId,
+      payload,
+    }: {
+      scheduleId: number;
+      payload: CreateScheduleShareLinkRequest;
+    }) => {
+      const res = await createScheduleShareLink(scheduleId, payload);
+      if (!res.success)
+        throw new Error(res.message || "일정 공유 링크 생성에 실패했습니다.");
+      return res.data;
+    },
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({
+        queryKey: scheduleShareLinksKey(vars.scheduleId),
+      });
+      void qc.invalidateQueries({ queryKey: scheduleDetailKey(vars.scheduleId) });
+      void qc.invalidateQueries({ queryKey: SCHEDULES_QUERY_KEY });
+    },
+  });
+}
+
+export function useUpdateScheduleShareLink() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      scheduleId,
+      scheduleShareLinkId,
+      payload,
+    }: {
+      scheduleId: number;
+      scheduleShareLinkId: number;
+      payload: UpdateScheduleShareLinkRequest;
+    }) => {
+      const res = await updateScheduleShareLink(
+        scheduleId,
+        scheduleShareLinkId,
+        payload,
+      );
+      if (!res.success)
+        throw new Error(res.message || "일정 공유 링크 수정에 실패했습니다.");
+      return res.data.share_link;
+    },
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({
+        queryKey: scheduleShareLinksKey(vars.scheduleId),
+      });
+      void qc.invalidateQueries({ queryKey: SCHEDULES_QUERY_KEY });
+    },
+  });
+}
+
+export function useDeleteScheduleShareLink() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      scheduleId,
+      scheduleShareLinkId,
+    }: {
+      scheduleId: number;
+      scheduleShareLinkId: number;
+    }) => {
+      const res = await deleteScheduleShareLink(
+        scheduleId,
+        scheduleShareLinkId,
+      );
+      if (!res.success)
+        throw new Error(res.message || "일정 공유 링크 삭제에 실패했습니다.");
+      return res.data;
+    },
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({
+        queryKey: scheduleShareLinksKey(vars.scheduleId),
+      });
+      void qc.invalidateQueries({ queryKey: SCHEDULES_QUERY_KEY });
+    },
+  });
+}
+
+export function useJoinScheduleShareLink() {
+  const qc = useQueryClient();
+  return useMutation<JoinScheduleShareLinkResponse, Error, string>({
+    mutationFn: async (token: string) => {
+      const res = await joinScheduleShareLink(token);
+      if (!res.success)
+        throw new Error(res.message || "공유 일정 참가에 실패했습니다.");
+      return res.data;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: SCHEDULES_QUERY_KEY });
+      void qc.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
+    },
+  });
+}
+
+export function useCreateScheduleFriendShare() {
+  const invalidate = useInvalidateSchedules();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      scheduleId,
+      payload,
+    }: {
+      scheduleId: number;
+      payload: CreateScheduleFriendShareRequest;
+    }) => {
+      const res = await createScheduleFriendShare(scheduleId, payload);
+      if (!res.success)
+        throw new Error(res.message || "친구 일정 공유에 실패했습니다.");
+      return res.data;
+    },
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: scheduleSharesKey(vars.scheduleId) });
+      invalidate();
+    },
+    meta: {
+      successMessage: "친구에게 일정을 공유했습니다.",
+      errorMessage: "친구 일정 공유에 실패했습니다.",
+    },
+  });
+}
+
+export function useUpdateScheduleShare() {
+  const invalidate = useInvalidateSchedules();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      scheduleId,
+      scheduleShareId,
+      payload,
+    }: {
+      scheduleId: number;
+      scheduleShareId: number;
+      payload: UpdateScheduleShareRequest;
+    }) => {
+      const res = await updateScheduleShare(scheduleId, scheduleShareId, payload);
+      if (!res.success)
+        throw new Error(res.message || "일정 공유 수정에 실패했습니다.");
+      return res.data.share;
+    },
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: scheduleSharesKey(vars.scheduleId) });
+      invalidate();
+    },
+  });
+}
+
+export function useDeleteScheduleShare() {
+  const invalidate = useInvalidateSchedules();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      scheduleId,
+      scheduleShareId,
+    }: {
+      scheduleId: number;
+      scheduleShareId: number;
+    }) => {
+      const res = await deleteScheduleShare(scheduleId, scheduleShareId);
+      if (!res.success)
+        throw new Error(res.message || "일정 공유 해제에 실패했습니다.");
+      return res.data;
+    },
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: scheduleSharesKey(vars.scheduleId) });
+      invalidate();
     },
   });
 }

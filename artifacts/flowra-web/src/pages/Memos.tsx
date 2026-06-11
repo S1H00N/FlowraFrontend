@@ -25,6 +25,8 @@ import {
   MEMO_TYPES,
   MEMO_TYPE_LABELS,
   PARSE_STATUS_LABELS,
+  type AiParseResult,
+  type AiSuggestedAction,
   type ApplyMemoResponse,
   type Memo,
   type MemoParseResult,
@@ -255,6 +257,38 @@ function FailedPanel({
   );
 }
 
+function getSuggestedActions(result: AiParseResult): AiSuggestedAction[] {
+  if (result.suggested_actions?.length) return result.suggested_actions;
+
+  const actions: AiSuggestedAction[] = [];
+  if (result.suggested_schedule) {
+    actions.push({
+      type: "create_schedule",
+      ...result.suggested_schedule,
+    });
+  }
+  if (result.suggested_task) {
+    actions.push({
+      type: "create_task",
+      ...result.suggested_task,
+    });
+  }
+  return actions;
+}
+
+function getActionTitle(action: AiSuggestedAction) {
+  return action.title?.trim() || (action.type === "create_schedule" ? "새 일정" : "새 할 일");
+}
+
+function getActionMeta(action: AiSuggestedAction) {
+  return [
+    action.start_datetime ? formatDateTime(action.start_datetime) : null,
+    action.due_datetime ? `마감 ${formatDateTime(action.due_datetime)}` : null,
+    action.priority ? `우선순위 ${action.priority}` : null,
+    action.location,
+  ].filter(Boolean);
+}
+
 function getAppliedLink(
   applyType: ApplyMemoResponse["apply_type"],
   resource: unknown,
@@ -266,7 +300,7 @@ function getAppliedLink(
     start_datetime?: string;
   };
 
-  if (applyType === "schedule" && value.schedule_id) {
+  if (value.schedule_id) {
     const params = new URLSearchParams({
       schedule_id: String(value.schedule_id),
     });
@@ -282,7 +316,7 @@ function getAppliedLink(
     return `/schedules?${params.toString()}`;
   }
 
-  if (applyType === "task" && value.task_id) {
+  if (value.task_id) {
     return `/tasks?${new URLSearchParams({ task_id: String(value.task_id) })}`;
   }
 
@@ -315,6 +349,8 @@ function ResultPanel({
     );
   }
 
+  const actions = getSuggestedActions(result);
+
   return (
     <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
@@ -324,112 +360,89 @@ function ResultPanel({
         </span>
         {confidence && <span>신뢰도 {confidence}</span>}
         {result.status && <span>상태 {result.status}</span>}
+        {result.model_used && <span>model {result.model_used}</span>}
       </div>
 
       <div className="mt-3 grid gap-2 md:grid-cols-2">
-        {result.suggested_schedule && (
-          <div className="rounded-lg border border-slate-200 bg-white p-3">
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-              <CalendarClock className="h-3.5 w-3.5 text-sky-600" />
-              추출된 일정
-            </div>
-            <p className="mt-2 text-sm font-medium text-slate-950">
-              {result.suggested_schedule.title}
-            </p>
-            {result.suggested_schedule.start_datetime && (
-              <p className="mt-1 text-xs text-slate-500">
-                {formatDateTime(result.suggested_schedule.start_datetime)}
-              </p>
-            )}
-            {result.suggested_schedule.location && (
-              <p className="mt-1 text-xs text-slate-500">
-                {result.suggested_schedule.location}
-              </p>
-            )}
-            <button
-              type="button"
-              disabled={applyMutation.isPending || result.status === "approved"}
-              onClick={async () => {
-                setApplyError(null);
-                try {
-                  const applied = await applyMutation.mutateAsync({
-                    memoId,
-                    payload: {
-                      apply_type: "schedule",
-                    },
-                  });
-                  setAppliedLink(
-                    getAppliedLink(applied.apply_type, applied.resource),
-                  );
-                } catch (err) {
-                  setApplyError(
-                    getErrorMessage(err, "일정 생성에 실패했습니다."),
-                  );
-                }
-              }}
-              className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100 disabled:opacity-60"
-            >
-              {result.status === "approved"
-                ? "이미 적용됨"
-                : applyMutation.isPending
-                  ? "적용 중..."
-                  : "일정으로 만들기"}
-            </button>
-          </div>
-        )}
+        {actions.map((action, index) => {
+          const isSchedule = action.type === "create_schedule";
+          const Icon = isSchedule ? CalendarClock : CheckSquare2;
+          const meta = getActionMeta(action);
 
-        {result.suggested_task && (
-          <div className="rounded-lg border border-slate-200 bg-white p-3">
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-              <CheckSquare2 className="h-3.5 w-3.5 text-emerald-600" />
-              추출된 할 일
-            </div>
-            <p className="mt-2 text-sm font-medium text-slate-950">
-              {result.suggested_task.title}
-            </p>
-            <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
-              {result.suggested_task.priority && (
-                <span>우선순위 {result.suggested_task.priority}</span>
-              )}
-              {result.suggested_task.due_datetime && (
-                <span>
-                  {formatDateTime(result.suggested_task.due_datetime)}
-                </span>
-              )}
-            </div>
-            <button
-              type="button"
-              disabled={applyMutation.isPending || result.status === "approved"}
-              onClick={async () => {
-                setApplyError(null);
-                try {
-                  const applied = await applyMutation.mutateAsync({
-                    memoId,
-                    payload: {
-                      apply_type: "task",
-                    },
-                  });
-                  setAppliedLink(
-                    getAppliedLink(applied.apply_type, applied.resource),
-                  );
-                } catch (err) {
-                  setApplyError(
-                    getErrorMessage(err, "할 일 생성에 실패했습니다."),
-                  );
-                }
-              }}
-              className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+          return (
+            <div
+              key={`${action.type}-${index}`}
+              className="rounded-lg border border-slate-200 bg-white p-3"
             >
-              {result.status === "approved"
-                ? "이미 적용됨"
-                : applyMutation.isPending
-                  ? "적용 중..."
-                  : "할 일로 만들기"}
-            </button>
-          </div>
-        )}
+              <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+                <Icon
+                  className={`h-3.5 w-3.5 ${
+                    isSchedule ? "text-sky-600" : "text-emerald-600"
+                  }`}
+                />
+                {isSchedule ? "제안 일정" : "제안 할 일"}
+              </div>
+              <p className="mt-2 text-sm font-medium text-slate-950">
+                {getActionTitle(action)}
+              </p>
+              {action.description && (
+                <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+                  {action.description}
+                </p>
+              )}
+              {meta.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5 text-xs text-slate-500">
+                  {meta.map((item) => (
+                    <span
+                      key={String(item)}
+                      className="rounded-md bg-slate-50 px-2 py-1"
+                    >
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                disabled={applyMutation.isPending || result.status === "approved"}
+                onClick={async () => {
+                  setApplyError(null);
+                  try {
+                    const applied = await applyMutation.mutateAsync({
+                      memoId,
+                      payload: {
+                        apply_type: "action",
+                        action_index: index,
+                      },
+                    });
+                    setAppliedLink(
+                      getAppliedLink(applied.apply_type, applied.resource),
+                    );
+                  } catch (err) {
+                    setApplyError(
+                      getErrorMessage(err, "AI 제안 적용에 실패했습니다."),
+                    );
+                  }
+                }}
+                className={`mt-3 rounded-lg border px-3 py-1.5 text-xs font-medium disabled:opacity-60 ${
+                  isSchedule
+                    ? "border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+                    : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                }`}
+              >
+                {result.status === "approved"
+                  ? "이미 적용됨"
+                  : applyMutation.isPending
+                    ? "적용 중..."
+                    : isSchedule
+                      ? "일정으로 만들기"
+                      : "할 일로 만들기"}
+              </button>
+            </div>
+          );
+        })}
 
-        {!result.suggested_schedule && !result.suggested_task && (
+        {actions.length === 0 && (
           <div className="rounded-lg border border-slate-200 bg-white p-3 md:col-span-2">
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
               <FileText className="h-3.5 w-3.5 text-slate-500" />

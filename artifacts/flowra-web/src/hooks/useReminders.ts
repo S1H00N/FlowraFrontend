@@ -6,6 +6,7 @@ import {
 import {
   createReminder,
   deleteReminder,
+  getReminder,
   listReminders,
   updateReminder,
 } from "@/api/reminders";
@@ -23,6 +24,10 @@ export function remindersKey(query: ReminderListQuery = {}) {
   return [...REMINDERS_QUERY_KEY, query] as const;
 }
 
+export function reminderDetailKey(reminderId: number) {
+  return [...REMINDERS_QUERY_KEY, "detail", reminderId] as const;
+}
+
 export function useReminders(query: ReminderListQuery = {}) {
   return useQuery<Reminder[]>({
     queryKey: remindersKey(query),
@@ -32,6 +37,20 @@ export function useReminders(query: ReminderListQuery = {}) {
       if (!res.success)
         throw new Error(res.message || "알림을 불러오지 못했습니다.");
       return res.data.reminders ?? [];
+    },
+  });
+}
+
+export function useReminder(reminderId: number | null, enabled = true) {
+  return useQuery<Reminder>({
+    queryKey: reminderDetailKey(reminderId ?? 0),
+    enabled: enabled && reminderId !== null,
+    staleTime: 1000 * 30,
+    queryFn: async () => {
+      const res = await getReminder(reminderId as number);
+      if (!res.success)
+        throw new Error(res.message || "알림을 불러오지 못했습니다.");
+      return res.data.reminder;
     },
   });
 }
