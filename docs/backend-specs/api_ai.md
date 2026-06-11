@@ -77,6 +77,7 @@ AI 파싱 결과의 주 데이터입니다. 일정/할 일 제안은 모두 `sug
 [
   {
     "type": "create_schedule",
+    "related_action_index": null,
     "title": "러닝",
     "description": "한강 러닝",
     "schedule_type": "personal",
@@ -101,10 +102,20 @@ AI 파싱 결과의 주 데이터입니다. 일정/할 일 제안은 모두 `sug
         "offset_minutes": -30,
         "reminder_type": "push"
       }
-    ]
+    ],
+    "needs_review": false,
+    "review_reason": null,
+    "date_uncertain": false,
+    "time_uncertain": false,
+    "auto_filled": false,
+    "source_text": "매주 월요일 10시에 한강 러닝",
+    "due_datetime_source": null,
+    "related_schedule_title": null,
+    "confidence": "high"
   },
   {
     "type": "create_task",
+    "related_action_index": 0,
     "title": "러닝화 준비",
     "description": null,
     "schedule_type": null,
@@ -116,7 +127,41 @@ AI 파싱 결과의 주 데이터입니다. 일정/할 일 제안은 모두 `sug
     "location": null,
     "visibility": null,
     "recurrence": null,
-    "reminders": []
+    "reminders": [],
+    "needs_review": false,
+    "review_reason": null,
+    "date_uncertain": false,
+    "time_uncertain": false,
+    "auto_filled": false,
+    "source_text": "러닝화 준비는 6월 1일 오전까지",
+    "due_datetime_source": "explicit",
+    "related_schedule_title": "러닝",
+    "confidence": "high"
+  },
+  {
+    "type": "pending_item",
+    "related_action_index": null,
+    "title": "리허설 시간 확정",
+    "description": "수요일 오전 10시 또는 오후 1시 중 가능한 시간으로 추후 확정",
+    "schedule_type": null,
+    "priority": null,
+    "start_datetime": null,
+    "end_datetime": null,
+    "all_day": null,
+    "due_datetime": null,
+    "location": null,
+    "visibility": null,
+    "recurrence": null,
+    "reminders": [],
+    "needs_review": true,
+    "review_reason": "시간이 아직 확정되지 않음",
+    "date_uncertain": true,
+    "time_uncertain": true,
+    "auto_filled": false,
+    "source_text": "수요일 오전 10시 또는 오후 1시 중 가능한 시간으로 추후 확정",
+    "due_datetime_source": "unknown",
+    "related_schedule_title": null,
+    "confidence": "medium"
   }
 ]
 ```
@@ -124,6 +169,10 @@ AI 파싱 결과의 주 데이터입니다. 일정/할 일 제안은 모두 `sug
 지원 범위:
 
 - 복수 일정/할 일 액션
+- `related_action_index`: 같은 `suggested_actions` 배열 안의 일정 액션에 속한 할 일일 때, 연결 대상 `create_schedule` 액션의 0-based index입니다. 없으면 `null`입니다.
+- `pending_item`: 보류/확정 필요 항목. 실제 일정/할 일 생성 대상은 아니며 UI에서 확인 필요 항목으로 표시합니다.
+- `pending_item`은 `/memos/:memo_id/apply`로 직접 적용할 수 없습니다. 사용자가 날짜/시간/타입을 확정한 뒤 일반 일정 생성 API(`/schedules`) 또는 할 일 생성 API(`/tasks`)로 새로 생성해야 합니다.
+- 확인 필요 메타데이터: `needs_review`, `review_reason`, `date_uncertain`, `time_uncertain`, `auto_filled`, `source_text`, `due_datetime_source`, `related_schedule_title`, `confidence`
 - 반복 일정: `repeat_interval_days`, `repeat_until`, `weekday_rules`, `excluded_dates`, `max_occurrences`
 - 리마인더: 절대 시각 `remind_at` 또는 대상 시각 기준 `offset_minutes`
 - 반복 일정에 리마인더가 있으면 각 발생 일정에 리마인더가 생성됩니다.
@@ -271,7 +320,16 @@ Response 예시:
           "location": null,
           "visibility": "private",
           "recurrence": null,
-          "reminders": []
+          "reminders": [],
+          "needs_review": true,
+          "review_reason": "종료 시간이 없어 기본 duration 보정 또는 확인이 필요함",
+          "date_uncertain": false,
+          "time_uncertain": true,
+          "auto_filled": false,
+          "source_text": "디자인 회의",
+          "due_datetime_source": null,
+          "related_schedule_title": null,
+          "confidence": "high"
         },
         {
           "type": "create_task",
@@ -286,7 +344,16 @@ Response 예시:
           "location": null,
           "visibility": null,
           "recurrence": null,
-          "reminders": []
+          "reminders": [],
+          "needs_review": false,
+          "review_reason": null,
+          "date_uncertain": false,
+          "time_uncertain": false,
+          "auto_filled": false,
+          "source_text": "시안 제출은 4월 24일까지",
+          "due_datetime_source": "explicit",
+          "related_schedule_title": null,
+          "confidence": "high"
         }
       ],
       "confidence_score": 0.912,
@@ -343,15 +410,17 @@ Request body:
   - `schedule`: 첫 번째 일정 액션만 적용
   - `task`: 첫 번째 할 일 액션만 적용
   - `action`: `action_index`에 해당하는 액션 1개 적용
-  - `all`: 모든 액션 적용
+  - `all`: 생성 가능한 모든 일정/할 일 액션 적용. `pending_item`은 제외됨
 - `action_index`
   - `apply_type=action`일 때 필수
+  - `pending_item`의 index를 지정하면 `400 AI_ACTION_NOT_APPLICABLE`
   - `suggested_actions` 배열의 0-based index
 - `category_id`
   - 생성할 리소스의 카테고리
   - `apply_type=all`에서 일정과 할 일이 섞여 있으면 사용할 수 없음
 - `schedule_id`
   - `task` 생성 시 연결할 기존 일정 ID
+  - `apply_type=all`에서 `related_action_index`가 있는 할 일은 같은 적용 요청에서 생성된 일정에 자동 연결됨
 
 Response 예시:
 
@@ -384,6 +453,7 @@ Response 예시:
   - `action_index` 액션만 적용
 - `apply_type=all`
   - 모든 액션을 순서대로 적용
+  - `create_task.related_action_index`가 같은 결과 안의 `create_schedule`을 가리키면 생성된 할 일의 `schedule_id`가 해당 일정으로 자동 연결됨
 - 반복 일정 액션은 여러 `Schedule`을 만들고 같은 `recurrence_group_id`로 묶음
 - 액션에 `reminders`가 있으면 일정/할 일 생성 후 리마인더도 함께 생성
 - 적용 성공 시 AI 결과 `status`는 `approved`로 변경
@@ -552,6 +622,7 @@ Request body:
   - `all`: 모든 액션 적용
 - `category_id`: 생성할 일정 또는 할 일 카테고리
 - `schedule_id`: 할 일 생성 시 연결할 기존 일정 ID
+- `apply_type=all`에서 `related_action_index`가 있는 할 일은 같은 적용 요청에서 생성된 일정에 자동 연결됩니다.
 
 중복 방지:
 

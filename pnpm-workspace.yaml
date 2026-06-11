@@ -5,7 +5,6 @@ packages:
   - scripts
 
 allowBuilds:
-  '@firebase/util': false
   esbuild: true
   protobufjs: false
 

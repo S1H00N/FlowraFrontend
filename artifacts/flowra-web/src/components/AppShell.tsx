@@ -684,12 +684,12 @@ export default function AppShell({
                 </DialogContent>
               </Dialog>
 
+              <NotificationCenter />
               {headerActions && (
                 <div className="hidden items-center gap-1 min-[600px]:flex">
                   {headerActions}
                 </div>
               )}
-              <NotificationCenter />
             </div>
           </div>
         </header>

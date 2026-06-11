@@ -2283,8 +2283,14 @@ Response data:
 비고:
 
 - `suggested_actions[].type=create_schedule`는 일반 일정 또는 반복 일정을 생성할 수 있습니다.
+- `suggested_actions[].type=pending_item`은 보류/확정 필요 항목이며 직접 생성 대상이 아닙니다.
+- `pending_item`은 `/memos/:memo_id/apply`로 적용할 수 없습니다. 사용자가 날짜/시간/타입을 확정한 뒤 `/schedules` 또는 `/tasks` 생성 API로 새로 생성해야 합니다.
+- `apply_type=all`은 생성 가능한 `create_schedule`, `create_task`만 적용하며 `pending_item`은 제외합니다.
+- `suggested_actions[].related_action_index`는 같은 파싱 결과 안에서 할 일이 속한 일정 액션의 0-based index입니다.
+- `apply_type=all`에서 `create_task.related_action_index`가 같은 결과 안의 `create_schedule`을 가리키면 생성된 할 일의 `schedule_id`가 해당 일정으로 자동 연결됩니다.
 - 반복 일정은 여러 일정으로 생성되고 같은 `recurrence_group_id`로 묶입니다.
 - `suggested_actions[].reminders`가 있으면 생성된 일정/할 일에 리마인더가 함께 생성됩니다.
+- `needs_review`, `review_reason`, `date_uncertain`, `time_uncertain`, `auto_filled`, `source_text`, `due_datetime_source`, `related_schedule_title`, `confidence`로 확인 필요 여부와 추출 근거를 표시합니다.
 - 중복 방지는 `ai_result_id + action_index` 기준입니다.
 
 상태 코드:

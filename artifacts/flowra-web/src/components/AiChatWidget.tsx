@@ -12,6 +12,8 @@ import {
   CalendarPlus,
   CheckCircle2,
   CheckSquare2,
+  FileText,
+  History,
   Loader2,
   MessageCircle,
   Plus,
@@ -35,76 +37,53 @@ import {
   useCreateAiChatSession,
   useSendAiChatMessage,
 } from "@/hooks/useAiChat";
+import {
+  formatAiSuggestedActionDateTime,
+  getAiSuggestedActionCategoryType,
+  getAiSuggestedActionChatMeta,
+  getAiSuggestedActionLabel,
+  getAiSuggestedActionReviewMeta,
+} from "@/lib/aiSuggestedActions";
 import { cn } from "@/lib/utils";
 import {
-  SCHEDULE_TYPE_LABELS,
-  TASK_PRIORITY_LABELS,
   type AiChatMessage,
+  type AiChatSession,
   type AiSuggestedAction,
-  type CategoryType,
-  type TaskPriority,
 } from "@/types";
 
 const PANEL_ID = "flowra-ai-chat-panel";
-
-function formatDateTime(value?: string | null) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("ko-KR", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function getActionCategoryType(action: AiSuggestedAction): CategoryType {
-  return action.type === "create_task" ? "task" : "schedule";
-}
-
-function getActionLabel(action: AiSuggestedAction) {
-  return action.type === "create_task" ? "할 일" : "일정";
-}
+const SESSION_LIST_LIMIT = 30;
 
 function getActionIcon(action: AiSuggestedAction) {
-  return action.type === "create_task" ? CheckSquare2 : CalendarPlus;
-}
-
-function getActionMeta(action: AiSuggestedAction) {
-  const meta: string[] = [];
-
-  if (action.type === "create_schedule") {
-    const start = formatDateTime(action.start_datetime);
-    const end = formatDateTime(action.end_datetime);
-    if (start) meta.push(end ? `${start} - ${end}` : start);
-    if (action.all_day) meta.push("하루 종일");
-    if (action.schedule_type && action.schedule_type in SCHEDULE_TYPE_LABELS) {
-      meta.push(SCHEDULE_TYPE_LABELS[action.schedule_type]);
-    }
-  } else {
-    const due = formatDateTime(action.due_datetime);
-    if (due) meta.push(`마감 ${due}`);
-    if (action.priority && action.priority in TASK_PRIORITY_LABELS) {
-      meta.push(TASK_PRIORITY_LABELS[action.priority as TaskPriority]);
-    }
-  }
-
-  if (action.location) meta.push(action.location);
-  if (action.recurrence?.repeat_interval_days) {
-    meta.push(`${action.recurrence.repeat_interval_days}일마다 반복`);
-  }
-  if (action.reminders?.length) {
-    meta.push(`알림 ${action.reminders.length}개`);
-  }
-
-  return meta;
+  if (action.type === "create_schedule") return CalendarPlus;
+  if (action.type === "create_task") return CheckSquare2;
+  return FileText;
 }
 
 function createSessionTitle(content: string) {
   const normalized = content.replace(/\s+/g, " ").trim();
   if (!normalized) return "새 AI 대화";
   return normalized.length > 28 ? `${normalized.slice(0, 28)}...` : normalized;
+}
+
+function getSessionTitle(session: AiChatSession) {
+  return session.title?.trim() || "새 AI 대화";
+}
+
+function getSessionPreview(session: AiChatSession) {
+  const content = session.messages?.[0]?.content?.replace(/\s+/g, " ").trim();
+  if (content) {
+    return content.length > 64 ? `${content.slice(0, 64)}...` : content;
+  }
+
+  const count = session._count?.messages ?? 0;
+  return count > 0 ? `${count}개 메시지` : "아직 메시지가 없습니다.";
+}
+
+function formatSessionTime(session: AiChatSession) {
+  return formatAiSuggestedActionDateTime(
+    session.last_message_at ?? session.updated_at ?? session.created_at,
+  ) ?? "";
 }
 
 function isMessageFromUser(message: AiChatMessage) {
@@ -180,9 +159,13 @@ function AiChatActionCard({
 }) {
   const [categoryId, setCategoryId] = useState<number | "">("");
   const Icon = getActionIcon(action);
-  const meta = getActionMeta(action);
-  const categoryType = getActionCategoryType(action);
-  const disabled = applied || applying || !sessionId;
+  const meta = getAiSuggestedActionChatMeta(action);
+  const categoryType = getAiSuggestedActionCategoryType(action);
+  const reviewMeta = getAiSuggestedActionReviewMeta(action, {
+    includeRelatedActionIndex: true,
+  });
+  const canApply = categoryType !== null;
+  const disabled = applied || applying || !sessionId || !canApply;
 
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -192,8 +175,15 @@ function AiChatActionCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="rounded-md border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-              {getActionLabel(action)}
+            <span
+              className={cn(
+                "rounded-md border px-2 py-0.5 text-[11px] font-semibold",
+                canApply
+                  ? "border-emerald-100 bg-emerald-50 text-emerald-700"
+                  : "border-amber-100 bg-amber-50 text-amber-700",
+              )}
+            >
+              {getAiSuggestedActionLabel(action)}
             </span>
             {applied && (
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
@@ -222,41 +212,69 @@ function AiChatActionCard({
               ))}
             </div>
           )}
+          {reviewMeta.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {reviewMeta.map((item) => (
+                <span
+                  key={String(item)}
+                  className="rounded-md bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700 ring-1 ring-amber-100"
+                >
+                  {item}
+                </span>
+              ))}
+            </div>
+          )}
+          {action.review_reason && (
+            <p className="mt-2 break-words text-xs leading-5 text-amber-700">
+              확인 사유: {action.review_reason}
+            </p>
+          )}
+          {action.source_text && (
+            <p className="mt-1 line-clamp-2 break-words text-xs leading-5 text-slate-500">
+              근거: {action.source_text}
+            </p>
+          )}
         </div>
       </div>
 
-      <div className="mt-3 grid gap-2 min-[380px]:grid-cols-[1fr_auto]">
-        <CategorySelect
-          type={categoryType}
-          value={categoryId}
-          onChange={setCategoryId}
-          includeNone
-          disabled={disabled}
-          className="min-h-9 py-1.5 text-xs shadow-none"
-        />
-        <Button
-          type="button"
-          size="sm"
-          disabled={disabled}
-          onClick={() =>
-            onApply({
-              messageId: message.message_id,
-              actionIndex,
-              categoryId,
-            })
-          }
-          className="min-w-20"
-        >
-          {applying ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : applied ? (
-            <CheckCircle2 className="h-4 w-4" />
-          ) : (
-            <CalendarPlus className="h-4 w-4" />
-          )}
-          {applied ? "완료" : "적용"}
-        </Button>
-      </div>
+      {canApply ? (
+        <div className="mt-3 grid gap-2 min-[380px]:grid-cols-[1fr_auto]">
+          <CategorySelect
+            type={categoryType}
+            value={categoryId}
+            onChange={setCategoryId}
+            includeNone
+            disabled={disabled}
+            className="min-h-9 py-1.5 text-xs shadow-none"
+          />
+          <Button
+            type="button"
+            size="sm"
+            disabled={disabled}
+            onClick={() =>
+              onApply({
+                messageId: message.message_id,
+                actionIndex,
+                categoryId,
+              })
+            }
+            className="min-w-20"
+          >
+            {applying ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : applied ? (
+              <CheckCircle2 className="h-4 w-4" />
+            ) : (
+              <CalendarPlus className="h-4 w-4" />
+            )}
+            {applied ? "완료" : "적용"}
+          </Button>
+        </div>
+      ) : (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+          날짜, 시간, 유형을 확정한 뒤 일정이나 할 일로 직접 등록하세요.
+        </div>
+      )}
     </div>
   );
 }
@@ -322,6 +340,74 @@ function AiChatMessageBubble({
   );
 }
 
+function AiChatSessionList({
+  sessions,
+  activeSessionId,
+  isLoading,
+  onSelect,
+}: {
+  sessions: AiChatSession[];
+  activeSessionId: number | null;
+  isLoading: boolean;
+  onSelect: (sessionId: number) => void;
+}) {
+  return (
+    <div className="max-h-56 overflow-y-auto border-b border-slate-200 bg-white px-2 py-2">
+      {isLoading ? (
+        <div className="flex items-center justify-center gap-2 py-6 text-sm font-medium text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
+          대화 목록을 불러오는 중...
+        </div>
+      ) : sessions.length === 0 ? (
+        <div className="px-3 py-6 text-center text-sm font-medium text-slate-500">
+          저장된 대화가 없습니다.
+        </div>
+      ) : (
+        <div className="space-y-1">
+          {sessions.map((session) => {
+            const selected = session.session_id === activeSessionId;
+            const timeLabel = formatSessionTime(session);
+
+            return (
+              <button
+                key={session.session_id}
+                type="button"
+                aria-current={selected ? "true" : undefined}
+                onClick={() => onSelect(session.session_id)}
+                className={cn(
+                  "flex w-full min-w-0 flex-col rounded-lg px-3 py-2.5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200",
+                  selected
+                    ? "bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200"
+                    : "text-slate-700 hover:bg-slate-50",
+                )}
+              >
+                <span className="flex min-w-0 items-center justify-between gap-2">
+                  <span className="truncate text-sm font-semibold">
+                    {getSessionTitle(session)}
+                  </span>
+                  {timeLabel && (
+                    <span className="shrink-0 text-[11px] font-medium text-slate-400">
+                      {timeLabel}
+                    </span>
+                  )}
+                </span>
+                <span
+                  className={cn(
+                    "mt-0.5 line-clamp-1 text-xs leading-5",
+                    selected ? "text-emerald-700" : "text-slate-500",
+                  )}
+                >
+                  {getSessionPreview(session)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface AiChatWidgetProps {
   buttonRightOffset?: string;
 }
@@ -332,6 +418,7 @@ export default function AiChatWidget({
   const [open, setOpen] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
   const [preferNewSession, setPreferNewSession] = useState(false);
+  const [sessionListOpen, setSessionListOpen] = useState(true);
   const [draft, setDraft] = useState("");
   const [pendingContent, setPendingContent] = useState<string | null>(null);
   const [applyingKey, setApplyingKey] = useState<string | null>(null);
@@ -339,7 +426,7 @@ export default function AiChatWidget({
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const sessionsQuery = useAiChatSessions(
-    { status: "active", limit: 1 },
+    { status: "active", limit: SESSION_LIST_LIMIT },
     open,
   );
   const messagesQuery = useAiChatMessages(activeSessionId, open);
@@ -347,6 +434,11 @@ export default function AiChatWidget({
   const sendMessageMutation = useSendAiChatMessage();
   const applyActionMutation = useApplyAiChatMessageAction();
 
+  const sessions = sessionsQuery.data ?? [];
+  const activeSession = useMemo(
+    () => sessions.find((session) => session.session_id === activeSessionId),
+    [activeSessionId, sessions],
+  );
   const messages = messagesQuery.data ?? [];
   const busy =
     createSessionMutation.isPending || sendMessageMutation.isPending;
@@ -366,6 +458,16 @@ export default function AiChatWidget({
   const handleNewSession = () => {
     setActiveSessionId(null);
     setPreferNewSession(true);
+    setSessionListOpen(false);
+    setDraft("");
+    setPendingContent(null);
+    setAppliedKeys(new Set());
+  };
+
+  const handleSelectSession = (sessionId: number) => {
+    setActiveSessionId(sessionId);
+    setPreferNewSession(false);
+    setSessionListOpen(false);
     setDraft("");
     setPendingContent(null);
     setAppliedKeys(new Set());
@@ -388,6 +490,7 @@ export default function AiChatWidget({
         sessionId = session.session_id;
         setActiveSessionId(sessionId);
         setPreferNewSession(false);
+        setSessionListOpen(false);
       }
 
       await sendMessageMutation.mutateAsync({
@@ -470,11 +573,32 @@ export default function AiChatWidget({
                   Flowra AI
                 </h2>
                 <p className="truncate text-xs font-medium text-slate-500">
-                  {activeSessionId ? "대화 연결됨" : "새 대화"}
+                  {activeSessionId
+                    ? activeSession
+                      ? getSessionTitle(activeSession)
+                      : "대화 연결됨"
+                    : "새 대화"}
                 </p>
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={sessionListOpen ? "대화 목록 닫기" : "대화 목록 열기"}
+                    aria-pressed={sessionListOpen}
+                    className={cn(
+                      "inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200",
+                      sessionListOpen && "bg-slate-100 text-slate-900",
+                    )}
+                    onClick={() => setSessionListOpen((value) => !value)}
+                  >
+                    <History className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">대화 목록</TooltipContent>
+              </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -503,6 +627,15 @@ export default function AiChatWidget({
               </Tooltip>
             </div>
           </header>
+
+          {sessionListOpen && (
+            <AiChatSessionList
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+              isLoading={sessionsQuery.isLoading}
+              onSelect={handleSelectSession}
+            />
+          )}
 
           <div className="min-h-0 flex-1 overflow-y-auto bg-[#f7f8f5] px-4 py-4">
             {!hasMessages ? (

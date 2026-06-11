@@ -78,7 +78,6 @@ import {
   type Schedule,
   type ScheduleType,
   type ScheduleVisibility,
-  type Task,
   type TaskPriority,
 } from "@/types";
 import {
@@ -91,7 +90,6 @@ import { getErrorMessage } from "@/lib/error";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
-import { CategoryDot } from "@/components/CategorySelect";
 import AppShell from "@/components/AppShell";
 import ScheduleLinkedTasks from "@/components/ScheduleLinkedTasks";
 import CustomSelect, {
@@ -416,9 +414,6 @@ function CompactDateInput({
   const selectedKey = Number.isNaN(selectedDate.getTime())
     ? ""
     : toDateKey(selectedDate);
-  const selectedMonth = Number.isNaN(selectedDate.getTime())
-    ? null
-    : new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
   const canResetVisibleMonth = !isCurrentMonth(visibleMonth);
   const { weekStart } = useUserSettings();
   const weekdayHeaders = useMemo(
@@ -1557,16 +1552,6 @@ function companyScheduleToSchedule(schedule: CompanySchedule): Schedule {
   };
 }
 
-const repeatWeekdays = [
-  { value: 0, label: "일" },
-  { value: 1, label: "월" },
-  { value: 2, label: "화" },
-  { value: 3, label: "수" },
-  { value: 4, label: "목" },
-  { value: 5, label: "금" },
-  { value: 6, label: "토" },
-];
-
 const repeatUnitLabels: Record<RepeatFrequencyUnit, string> = {
   day: "일",
   week: "주",
@@ -1725,22 +1710,6 @@ function formatDateRange(startLocal: string, endLocal: string) {
   return `${startText} -> ${formatDatePart(end)}`;
 }
 
-function getAllDayDateSpanLabel(startLocal: string, endLocal: string) {
-  const startDateKey = dateFromLocalInput(startLocal);
-  const endDateKey = dateFromLocalInput(endLocal) || startDateKey;
-  if (!startDateKey) return "종일";
-
-  const start = new Date(`${startDateKey}T00:00:00`);
-  const end = new Date(`${endDateKey}T00:00:00`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    return "종일";
-  }
-
-  const days =
-    Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000)) + 1;
-  return days > 1 ? `${days}일` : "종일";
-}
-
 function formatTimeRange(startLocal: string, endLocal: string) {
   const startTime = timeFromLocalInput(startLocal);
   const endTime = timeFromLocalInput(endLocal);
@@ -1840,16 +1809,6 @@ function getDurationText(startLocal: string, endLocal: string) {
   if (hours > 0) parts.push(`${hours}\uC2DC\uAC04`);
   if (minutes > 0 || parts.length === 0) parts.push(`${minutes}\uBD84`);
   return parts.join(" ");
-
-  if (days > 0) parts.push(`${days}\uC77C`);
-  if (hours > 0) parts.push(`${hours}\uC2DC\uAC04`);
-  if (minutes > 0 || parts.length === 0) parts.push(`${minutes}\uBD84`);
-
-  return parts.join(" ");
-}
-
-function formatDurationLabel(startLocal: string, endLocal: string) {
-  return getDurationText(startLocal, endLocal);
 }
 
 function formatTimeInputDisplay(value: string) {
@@ -2312,18 +2271,8 @@ function getLastWeekdayOfMonth(year: number, month: number, weekday: number) {
   return new Date(year, month + 1, -offset);
 }
 
-function formatMonthDay(date: Date) {
-  return `${date.getMonth() + 1}월 ${date.getDate()}일`;
-}
-
 function formatYearlyRepeatDay(date: Date) {
   return `${date.getMonth() + 1}월 ${date.getDate()}일`;
-}
-
-function isLastWeekdayOfMonth(date: Date) {
-  const nextSameWeekday = new Date(date);
-  nextSameWeekday.setDate(date.getDate() + 7);
-  return nextSameWeekday.getMonth() !== date.getMonth();
 }
 
 function buildRepeatTypeOptions(startLocal: string): RepeatTypeOption[] {
@@ -2380,20 +2329,6 @@ function buildRepeatTypeOptions(startLocal: string): RepeatTypeOption[] {
       label: "날짜 직접 선택",
     },
   ];
-}
-
-function formatDateChip(dateKey: string) {
-  const date = new Date(`${dateKey}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return dateKey;
-  const weekday = weekdayLabels[date.getDay()];
-  return `${pad(date.getMonth() + 1)}.${pad(date.getDate())}(${weekday})`;
-}
-
-function formatRepeatEndDateDisplay(dateKey: string) {
-  const date = new Date(`${dateKey}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return "날짜 선택";
-  const weekday = weekdayLabels[date.getDay()];
-  return `${date.getMonth() + 1}월 ${date.getDate()}(${weekday})`;
 }
 
 function formatRepeatEndSummary(
@@ -2704,37 +2639,6 @@ function getRepeatOptionMenuParts(
   };
 }
 
-function formatRepeatOptionMenuDescription(
-  option: RepeatTypeOption,
-  customRepeat: CustomRepeat,
-  customSelectedDates: string[],
-) {
-  switch (option.value) {
-    case "none":
-      return "반복 없이 한 번만";
-    case "daily":
-      return "매일 반복";
-    case "weekdays":
-      return "월~금 반복";
-    case "weekends":
-      return "토·일 반복";
-    case "weekly":
-      return option.summary ? `매주 ${option.summary}` : "매주 반복";
-    case "monthly":
-      return option.summary ? `매월 ${option.summary}` : "매월 반복";
-    case "yearly":
-      return option.summary ? `매년 ${option.summary}` : "매년 반복";
-    case "custom":
-      return formatCustomRepeatSummary(customRepeat);
-    case "selected-dates":
-      return customSelectedDates.length > 0
-        ? formatSelectedDatesSummary(customSelectedDates)
-        : "원하는 날짜를 직접 선택";
-    default:
-      return option.summary ?? "";
-  }
-}
-
 function renderFloatingPortal(content: ReactNode) {
   if (typeof document === "undefined") return null;
   return createPortal(content, document.body);
@@ -2900,118 +2804,6 @@ function validateForm(form: ScheduleFormState): string | null {
   }
 
   return null;
-}
-
-function InlineFilterGroup<TValue extends FilterOptionValue>({
-  label,
-  selectedValues,
-  options,
-  visibleCount = 4,
-  onClear,
-  onToggle,
-}: {
-  label: string;
-  selectedValues: TValue[];
-  options: InlineFilterOption<TValue>[];
-  visibleCount?: number;
-  onClear: () => void;
-  onToggle: (value: TValue) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const selectedSet = useMemo(
-    () => new Set<FilterOptionValue>(selectedValues),
-    [selectedValues],
-  );
-  const visibleOptions = options.slice(0, visibleCount);
-  const moreOptions = options.slice(visibleCount);
-
-  const optionButtonClass = (selected: boolean) =>
-    `h-8 shrink-0 whitespace-nowrap rounded-md px-2 text-xs font-semibold transition ${
-      selected
-        ? "bg-emerald-600 text-white shadow-sm"
-        : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-    }`;
-
-  return (
-    <div>
-      <span className="text-xs font-medium text-slate-600">{label}</span>
-      <div className="relative mt-1">
-        <div className="flex h-10 min-w-0 items-center gap-1 overflow-hidden rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              onClear();
-            }}
-            className={`h-8 shrink-0 whitespace-nowrap rounded-md px-2 text-xs font-semibold transition ${
-              selectedValues.length === 0
-                ? "bg-emerald-600 text-white shadow-sm"
-                : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-            }`}
-          >
-            전체
-          </button>
-          {visibleOptions.map((option) => {
-            const selected = selectedSet.has(option.value);
-            return (
-              <button
-                key={option.key}
-                type="button"
-                onClick={() => onToggle(option.value)}
-                className={optionButtonClass(selected)}
-                title={option.label}
-              >
-                {option.label}
-              </button>
-            );
-          })}
-          {moreOptions.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setOpen((current) => !current)}
-              className={`ml-auto inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-semibold transition ${
-                moreOptions.some((option) => selectedSet.has(option.value))
-                  ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"
-                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-              }`}
-              aria-expanded={open}
-            >
-              더보기
-              <ChevronDown className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-
-        {open && moreOptions.length > 0 && (
-          <div className="absolute right-0 top-11 z-30 w-56 overflow-hidden rounded-lg border border-slate-200 bg-white p-1 shadow-xl shadow-slate-200">
-            <div className="max-h-64 overflow-y-auto">
-              {moreOptions.map((option) => {
-                const selected = selectedSet.has(option.value);
-                return (
-                  <button
-                    key={option.key}
-                    type="button"
-                    onClick={() => onToggle(option.value)}
-                    className={`flex h-9 w-full items-center justify-between gap-2 rounded-md px-3 text-left text-xs font-semibold transition ${
-                      selected
-                        ? "bg-emerald-600 text-white"
-                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
-                    }`}
-                    title={option.label}
-                  >
-                    <span className="truncate">{option.label}</span>
-                    {selected ? (
-                      <Check className="h-3.5 w-3.5 shrink-0" />
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
 }
 
 function FilterDropdown<TValue extends FilterOptionValue>({
@@ -3662,7 +3454,7 @@ export function ScheduleFormPanel({
   );
   const [previewRepeatOption, setPreviewRepeatOption] =
     useState<RepeatType | null>(null);
-  const [activeRepeatOptionIndex, setActiveRepeatOptionIndex] = useState(0);
+  const [, setActiveRepeatOptionIndex] = useState(0);
   const [activeRepeatEndOptionIndex, setActiveRepeatEndOptionIndex] =
     useState(0);
   const [repeatEnabled, setRepeatEnabled] = useState(mode === "repeat");
@@ -3838,7 +3630,6 @@ export function ScheduleFormPanel({
     (mode === "repeat" ||
       ((mode === "create" || mode === "edit") && repeatEnabled));
   const isSelectedDatesMode = repeatType === "selected-dates";
-  const isBasicRepeatMode = isRuleRepeatType(repeatType);
   const repeatHolidayRangeQuery = useMemo(() => {
     if (!isRepeatMode || ruleRepeatDateKeys.length === 0) {
       return null;
@@ -5338,28 +5129,6 @@ export function ScheduleFormPanel({
     const next = Number.isNaN(base.getTime()) ? new Date() : base;
     next.setDate(next.getDate() + offset);
     setActiveSelectedDateKey(toDateKey(next));
-  };
-
-  const cancelSelectedDates = () => {
-    setSelectedDatesOpen(false);
-    setDraftRepeatDates(customSelectedDateKeys);
-    setSelectedDatesError(null);
-    repeatTypeTriggerRef.current?.focus();
-  };
-
-  const completeSelectedDates = () => {
-    const normalizedDates = normalizeDateKeys(draftRepeatDates);
-    if (normalizedDates.length === 0) {
-      setSelectedDatesError("날짜를 하나 이상 선택해 주세요.");
-      return;
-    }
-
-    setCustomSelectedDates(normalizedDates);
-    setSelectedRepeatOption("selected-dates");
-    setRepeatEnabled(true);
-    setSelectedDatesOpen(false);
-    setSelectedDatesError(null);
-    repeatTypeTriggerRef.current?.focus();
   };
 
   const renderCustomRepeatPopover = () => {
@@ -7897,429 +7666,6 @@ function ScheduleReadonlyPanel({
   );
 }
 
-function CompanyScheduleFormPanel({
-  initial,
-  companyName,
-  isPending,
-  onClose,
-  onSubmit,
-  floatingStyle,
-  panelLayout,
-}: {
-  initial: ScheduleFormState;
-  companyName?: string;
-  isPending?: boolean;
-  onClose: () => void;
-  onSubmit: (payload: CreateCompanyScheduleRequest) => Promise<void> | void;
-  floatingStyle: SchedulePanelFloatingStyle;
-  panelLayout: SchedulePanelLayout;
-}) {
-  const [form, setForm] = useState(initial);
-  const [targetType, setTargetType] =
-    useState<CompanyScheduleTargetType>("department");
-  const [departmentId, setDepartmentId] = useState("");
-  const [memberId, setMemberId] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const classificationSettings = useClassificationSettings();
-  const departmentsQuery = useCompanyAdminDepartments(
-    targetType === "department",
-  );
-  const membersQuery = useCompanyAdminMembers(targetType === "member");
-  const scheduleTypeOptions = getClassificationOptions(
-    classificationSettings,
-    "scheduleTypes",
-    { enabledOnly: true, include: form.schedule_type, defaultOnly: true },
-  );
-
-  useEffect(() => {
-    setForm(initial);
-    setTargetType("department");
-    setDepartmentId("");
-    setMemberId("");
-    setError(null);
-  }, [initial]);
-
-  const buildTarget = (): CompanyScheduleCreateTarget | null => {
-    if (targetType === "company") return { target_type: "company" };
-
-    if (targetType === "department") {
-      const numericDepartmentId = Number(departmentId);
-      return Number.isFinite(numericDepartmentId) && numericDepartmentId > 0
-        ? {
-            target_type: "department",
-            department_id: numericDepartmentId,
-          }
-        : null;
-    }
-
-    const numericMemberId = Number(memberId);
-    return Number.isFinite(numericMemberId) && numericMemberId > 0
-      ? {
-          target_type: "member",
-          company_member_id: numericMemberId,
-        }
-      : null;
-  };
-
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    setError(null);
-
-    const validationError = validateForm(form);
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-
-    const target = buildTarget();
-    if (targetType !== "department" && !target) {
-      setError("회사 일정 대상을 선택해 주세요.");
-      return;
-    }
-
-    try {
-      await onSubmit({
-        title: normalizeScheduleTitle(form.title),
-        description: form.description.trim() || undefined,
-        schedule_type: form.schedule_type,
-        start_datetime: fromLocalInputValue(form.start_local),
-        end_datetime: form.end_local
-          ? fromLocalInputValue(form.end_local)
-          : undefined,
-        all_day: shouldUseAllDayLaneForForm(form),
-        location: form.location.trim() || undefined,
-        status: "active",
-        targets: target ? [target] : [],
-      });
-    } catch (err) {
-      setError(getErrorMessage(err, "회사 일정 추가에 실패했습니다."));
-    }
-  };
-
-  const renderDepartmentLabel = (department: CompanyAdminDepartment) =>
-    `${department.name}${department.code ? ` (${department.code})` : ""}`;
-
-  const renderMemberLabel = (member: CompanyAdminMember) =>
-    `${member.name} · ${member.email}`;
-
-  return (
-    <>
-      <div
-        className="fixed inset-0 z-40 bg-zinc-950/20 md:hidden"
-        onClick={onClose}
-        aria-hidden
-      />
-      <aside
-        style={floatingStyle}
-        className={getSchedulePanelClassName(panelLayout)}
-      >
-        <div className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-5">
-          <div className="min-w-0">
-            <p className="truncate text-xs font-semibold text-blue-700">
-              {companyName ?? "회사"}
-            </p>
-            <h2 className="mt-1 text-base font-semibold text-slate-950">
-              회사 일정 추가
-            </h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="회사 일정 패널 닫기"
-            title="회사 일정 패널 닫기"
-            className={scheduleSidebarToggleButtonClass}
-          >
-            <PanelRight className="h-4 w-4" />
-          </button>
-        </div>
-
-        <form
-          onSubmit={handleSubmit}
-          autoComplete="none"
-          className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-slate-50/70 p-4"
-        >
-          {error ? (
-            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
-              {error}
-            </p>
-          ) : null}
-
-          <label className="block">
-            <span className="px-1 text-xs font-semibold text-slate-500">
-              제목
-            </span>
-            <input
-              type="text"
-              name="flowra_company_title"
-              autoComplete="none"
-              value={form.title}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, title: event.target.value }))
-              }
-              className="mt-1 h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-950 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-              placeholder="회사 일정 제목"
-            />
-          </label>
-
-          <label className="block">
-            <span className="px-1 text-xs font-semibold text-slate-500">
-              대상
-            </span>
-            <div className="mt-1 grid grid-cols-[120px_minmax(0,1fr)] gap-2">
-              <select
-                value={targetType}
-                onChange={(event) => {
-                  setTargetType(
-                    event.target.value as CompanyScheduleTargetType,
-                  );
-                  setDepartmentId("");
-                  setMemberId("");
-                }}
-                className="h-10 rounded-md border border-slate-200 bg-white px-2 text-sm font-medium text-slate-900 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-              >
-                {companyScheduleTargetTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-
-              {targetType === "company" ? (
-                <div className="flex h-10 min-w-0 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700">
-                  <span className="truncate">{companyName ?? "회사 전체"}</span>
-                </div>
-              ) : targetType === "department" ? (
-                <select
-                  value={departmentId}
-                  disabled={departmentsQuery.isLoading}
-                  onChange={(event) => setDepartmentId(event.target.value)}
-                  className="h-10 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-sm font-medium text-slate-900 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100 disabled:text-slate-400"
-                >
-                  <option value="">
-                    {departmentsQuery.isLoading
-                      ? "부서 불러오는 중"
-                      : "부서 선택"}
-                  </option>
-                  {(departmentsQuery.data ?? []).map((department) => (
-                    <option
-                      key={department.department_id}
-                      value={department.department_id}
-                    >
-                      {renderDepartmentLabel(department)}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <select
-                  value={memberId}
-                  disabled={membersQuery.isLoading}
-                  onChange={(event) => setMemberId(event.target.value)}
-                  className="h-10 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-sm font-medium text-slate-900 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100 disabled:text-slate-400"
-                >
-                  <option value="">
-                    {membersQuery.isLoading ? "팀원 불러오는 중" : "팀원 선택"}
-                  </option>
-                  {(membersQuery.data ?? []).map((member) => (
-                    <option
-                      key={member.company_member_id}
-                      value={member.company_member_id}
-                    >
-                      {renderMemberLabel(member)}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          </label>
-
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block">
-              <span className="px-1 text-xs font-semibold text-slate-500">
-                유형
-              </span>
-              <select
-                value={form.schedule_type}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    schedule_type: event.target.value as ScheduleType,
-                  }))
-                }
-                className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-sm font-medium text-slate-900 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-              >
-                {scheduleTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {scheduleTypeSelectMeta[option.value]?.label ??
-                      option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="flex items-end">
-              <span className="flex h-10 w-full items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={form.all_day}
-                  onChange={(event) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      all_day: event.target.checked,
-                    }))
-                  }
-                  className="h-4 w-4 accent-emerald-600"
-                />
-                종일
-              </span>
-            </label>
-          </div>
-
-          <div className="grid grid-cols-1 gap-2">
-            <label className="block">
-              <span className="px-1 text-xs font-semibold text-slate-500">
-                시작
-              </span>
-              <input
-                type="datetime-local"
-                required
-                value={form.start_local}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    start_local: event.target.value,
-                  }))
-                }
-                className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-              />
-            </label>
-
-            <label className="block">
-              <span className="px-1 text-xs font-semibold text-slate-500">
-                종료
-              </span>
-              <input
-                type="datetime-local"
-                required
-                value={form.end_local}
-                onChange={(event) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    end_local: event.target.value,
-                  }))
-                }
-                className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-              />
-            </label>
-          </div>
-
-          <label className="block">
-            <span className="px-1 text-xs font-semibold text-slate-500">
-              장소
-            </span>
-            <input
-              type="text"
-              name="flowra_company_location"
-              autoComplete="none"
-              value={form.location}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, location: event.target.value }))
-              }
-              className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-              placeholder="Zoom, 회의실 등"
-            />
-          </label>
-
-          <label className="block">
-            <span className="px-1 text-xs font-semibold text-slate-500">
-              설명
-            </span>
-            <textarea
-              value={form.description}
-              onChange={(event) =>
-                setForm((prev) => ({
-                  ...prev,
-                  description: event.target.value,
-                }))
-              }
-              rows={4}
-              className="mt-1 w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-            />
-          </label>
-
-          <div className="flex items-center justify-end gap-2 border-t border-slate-200 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="inline-flex h-10 items-center justify-center rounded-md px-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
-            >
-              취소
-            </button>
-            <button
-              type="submit"
-              disabled={isPending}
-              className="inline-flex h-10 items-center justify-center rounded-md bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isPending ? "추가 중" : "추가"}
-            </button>
-          </div>
-        </form>
-      </aside>
-    </>
-  );
-}
-
-function SchedulePreviewButton({
-  schedule,
-  onOpen,
-  categoryColors,
-  muted = false,
-}: {
-  schedule: Schedule;
-  onOpen: () => void;
-  categoryColors: Map<number, string>;
-  muted?: boolean;
-}) {
-  const accentColor = scheduleAccentColor(schedule);
-  const cardColor = scheduleCardColor(schedule, categoryColors);
-  const preview = isPreviewSchedule(schedule);
-
-  return (
-    <button
-      type="button"
-      onClick={(event) => {
-        event.stopPropagation();
-        onOpen();
-      }}
-      className={`flex min-h-6 w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-left text-xs transition hover:brightness-95 hover:ring-1 hover:ring-emerald-200 ${
-        schedule.is_completed ? "opacity-70" : ""
-      } ${muted ? "opacity-60" : ""} ${preview ? "border border-dashed" : ""}`}
-      style={{
-        backgroundColor: colorWithAlpha(cardColor, "18"),
-        borderColor: preview ? colorWithAlpha(cardColor, "80") : undefined,
-        color: accentColor,
-        boxShadow: `inset 3px 0 0 ${accentColor}`,
-      }}
-    >
-      <span className="shrink-0 font-medium">
-        {schedule.all_day ? "종일" : formatTime(schedule.start_datetime)}
-      </span>
-      <PriorityDot schedule={schedule} />
-      {isCompanySchedule(schedule) && (
-        <span className="shrink-0 rounded bg-white/60 px-1 text-[10px] font-semibold">
-          회사
-        </span>
-      )}
-      {preview && (
-        <span className="shrink-0 rounded bg-white/70 px-1 text-[10px] font-semibold">
-          미리보기
-        </span>
-      )}
-      {preview && <PreviewPriorityBadge schedule={schedule} />}
-      <span className="truncate">{schedule.title}</span>
-    </button>
-  );
-}
-
 function HolidayMonthPreview({
   holiday,
   muted = false,
@@ -9505,12 +8851,6 @@ function weekdayColumnClass(day: Date, selected = false, holiday = false) {
   if (holiday || day.getDay() === 0) return "bg-rose-50/20";
   if (day.getDay() === 6) return "bg-sky-50/20";
   return "";
-}
-
-function minutesFromStartOfDay(iso: string) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return 0;
-  return date.getHours() * 60 + date.getMinutes();
 }
 
 function scheduleDateRange(schedule: Schedule) {
@@ -11707,7 +11047,6 @@ export default function Schedules() {
     [companySchedulesQuery.data],
   );
   const isLoading = schedulesQuery.isLoading || companySchedulesQuery.isLoading;
-  const isError = schedulesQuery.isError || companySchedulesQuery.isError;
   const error = schedulesQuery.error ?? companySchedulesQuery.error;
   const isFetching =
     schedulesQuery.isFetching || companySchedulesQuery.isFetching;

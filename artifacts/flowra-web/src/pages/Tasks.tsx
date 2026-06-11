@@ -1,5 +1,4 @@
 import {
-  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -44,6 +43,7 @@ import {
   useClassificationSettings,
 } from "@/lib/classificationSettings";
 import { getErrorMessage } from "@/lib/error";
+import { useUserSettings, type WeekStartDay } from "@/lib/userSettings";
 import { toOffsetISOString } from "@/utils/dateUtils";
 
 type BoardFilter = "all" | "today" | "active" | "completed";
@@ -105,6 +105,22 @@ function addMonths(date: Date, amount: number) {
   return new Date(date.getFullYear(), date.getMonth() + amount, 1);
 }
 
+function weekStartIndex(weekStart: WeekStartDay) {
+  return weekStart === "monday" ? 1 : 0;
+}
+
+function daysSinceWeekStart(date: Date, weekStart: WeekStartDay) {
+  return (date.getDay() - weekStartIndex(weekStart) + 7) % 7;
+}
+
+function orderedWeekdayLabels(weekStart: WeekStartDay) {
+  const start = weekStartIndex(weekStart);
+  return Array.from({ length: 7 }, (_, offset) => {
+    const day = (start + offset) % 7;
+    return { day, label: weekdayLabels[day] };
+  });
+}
+
 function toDateKey(date: Date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
@@ -163,9 +179,9 @@ function scheduleOverlapsDate(schedule: Schedule, date: Date) {
   return start <= dayEnd && (Number.isNaN(end) ? start : end) >= dayStart;
 }
 
-function buildMonthCells(month: Date) {
+function buildMonthCells(month: Date, weekStart: WeekStartDay) {
   const first = startOfMonth(month);
-  const cursor = addDays(first, -first.getDay());
+  const cursor = addDays(first, -daysSinceWeekStart(first, weekStart));
 
   return Array.from({ length: 42 }, (_, index) => {
     const date = addDays(cursor, index);
@@ -175,11 +191,6 @@ function buildMonthCells(month: Date) {
       currentMonth: date.getMonth() === month.getMonth(),
     };
   });
-}
-
-function scheduleDateKey(schedule: Schedule) {
-  const start = new Date(schedule.start_datetime);
-  return Number.isNaN(start.getTime()) ? "" : toDateKey(start);
 }
 
 function scheduleProgress(tasks: Task[], schedule: Schedule) {
@@ -245,6 +256,7 @@ function MiniCalendar({
   selectedDateKey,
   dateMode,
   countsByDate,
+  weekStart,
   onMoveMonth,
   onSelectDate,
   onShowAll,
@@ -253,11 +265,19 @@ function MiniCalendar({
   selectedDateKey: string;
   dateMode: boolean;
   countsByDate: Map<string, number>;
+  weekStart: WeekStartDay;
   onMoveMonth: (amount: number) => void;
   onSelectDate: (date: Date) => void;
   onShowAll: () => void;
 }) {
-  const cells = useMemo(() => buildMonthCells(visibleMonth), [visibleMonth]);
+  const weekdayHeaders = useMemo(
+    () => orderedWeekdayLabels(weekStart),
+    [weekStart],
+  );
+  const cells = useMemo(
+    () => buildMonthCells(visibleMonth, weekStart),
+    [visibleMonth, weekStart],
+  );
   const todayKey = toDateKey(new Date());
 
   return (
@@ -287,13 +307,13 @@ function MiniCalendar({
       </div>
 
       <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-slate-400">
-        {weekdayLabels.map((label, index) => (
+        {weekdayHeaders.map(({ day, label }) => (
           <span
-            key={label}
+            key={day}
             className={
-              index === 0
+              day === 0
                 ? "text-rose-500"
-                : index === 6
+                : day === 6
                   ? "text-indigo-500"
                   : undefined
             }
@@ -666,6 +686,7 @@ function FilterButton({
 }
 
 export default function Tasks() {
+  const { weekStart } = useUserSettings();
   const [selectedDateKey, setSelectedDateKey] = useState(() =>
     toDateKey(new Date()),
   );
@@ -740,14 +761,14 @@ export default function Tasks() {
     : [];
   const countsByDate = useMemo(() => {
     const map = new Map<string, number>();
-    buildMonthCells(visibleMonth).forEach(({ date, key }) => {
+    buildMonthCells(visibleMonth, weekStart).forEach(({ date, key }) => {
       const count = schedules.filter((schedule) =>
         scheduleOverlapsDate(schedule, date),
       ).length;
       if (count > 0) map.set(key, count);
     });
     return map;
-  }, [schedules, visibleMonth]);
+  }, [schedules, visibleMonth, weekStart]);
   const filteredSchedules = useMemo(() => {
     const today = new Date();
     const keyword = search.trim().toLowerCase();
@@ -900,6 +921,7 @@ export default function Tasks() {
           selectedDateKey={selectedDateKey}
           dateMode={dateMode || filter === "today"}
           countsByDate={countsByDate}
+          weekStart={weekStart}
           onMoveMonth={(amount) =>
             setVisibleMonth((prev) => addMonths(prev, amount))
           }

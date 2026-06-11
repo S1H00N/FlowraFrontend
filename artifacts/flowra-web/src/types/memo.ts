@@ -99,8 +99,16 @@ export interface AiSuggestedReminder {
   reminder_type?: Reminder["reminder_type"];
 }
 
+export type AiSuggestedActionType =
+  | "create_schedule"
+  | "create_task"
+  | "pending_item";
+
+export type AiSuggestedActionConfidence = "low" | "medium" | "high" | string;
+
 export interface AiSuggestedAction {
-  type: "create_schedule" | "create_task";
+  type: AiSuggestedActionType;
+  related_action_index?: number | null;
   title?: string;
   description?: string | null;
   schedule_type?: Schedule["schedule_type"] | null;
@@ -114,6 +122,15 @@ export interface AiSuggestedAction {
   visibility?: Schedule["visibility"] | null;
   recurrence?: Schedule["recurrence_rule"] | null;
   reminders?: AiSuggestedReminder[];
+  needs_review?: boolean;
+  review_reason?: string | null;
+  date_uncertain?: boolean;
+  time_uncertain?: boolean;
+  auto_filled?: boolean;
+  source_text?: string | null;
+  due_datetime_source?: string | null;
+  related_schedule_title?: string | null;
+  confidence?: AiSuggestedActionConfidence | null;
 }
 
 export interface AiParseResult {
