@@ -66,7 +66,7 @@ export async function verifyEmail(payload: VerifyEmailRequest) {
   );
   return {
     ...res.data,
-    data: normalizeLoginData(res.data.data) satisfies VerifyEmailResponseData,
+    data: normalizeLoginData(res.data.data) as VerifyEmailResponseData,
   };
 }
 
