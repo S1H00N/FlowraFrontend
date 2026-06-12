@@ -5,6 +5,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  Trash2,
   X,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
@@ -14,10 +15,21 @@ import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import TaskCompletionToggleButton from "@/components/TaskCompletionToggleButton";
 import { useCategories } from "@/hooks/useCategories";
-import { useCompanySchedules } from "@/hooks/useCompanySchedules";
+import {
+  useCompanySchedules,
+  useDeleteCompanySchedule,
+} from "@/hooks/useCompanySchedules";
 import { useHolidaysInRange } from "@/hooks/useHolidays";
-import { useSchedules, useCreateSchedules } from "@/hooks/useSchedules";
-import { useSetTaskCompletion, useTasks } from "@/hooks/useTasks";
+import {
+  useCreateSchedules,
+  useDeleteSchedule,
+  useSchedules,
+} from "@/hooks/useSchedules";
+import {
+  useDeleteTask,
+  useSetTaskCompletion,
+  useTasks,
+} from "@/hooks/useTasks";
 import {
   useCompanyAdminMe,
   useCreateCompanyAdminSchedule,
@@ -217,6 +229,29 @@ function sortSchedules(a: Schedule, b: Schedule) {
   );
 }
 
+function taskDueOnDate(task: Task, date: Date) {
+  if (!task.due_datetime) return false;
+  const dueTime = new Date(task.due_datetime).getTime();
+  if (Number.isNaN(dueTime)) return false;
+  return (
+    dueTime >= startOfDay(date).getTime() &&
+    dueTime <= endOfDay(date).getTime()
+  );
+}
+
+function sortIndependentTasks(a: Task, b: Task) {
+  if (a.status === "done" && b.status !== "done") return 1;
+  if (a.status !== "done" && b.status === "done") return -1;
+
+  const aDue = a.due_datetime
+    ? new Date(a.due_datetime).getTime()
+    : Number.POSITIVE_INFINITY;
+  const bDue = b.due_datetime
+    ? new Date(b.due_datetime).getTime()
+    : Number.POSITIVE_INFINITY;
+  return aDue - bDue;
+}
+
 function groupSchedules(
   schedules: Schedule[],
   selectedDate: Date,
@@ -270,7 +305,6 @@ function MiniCalendar({
   onMoveMonth,
   onResetMonth,
   onSelectDate,
-  onShowAll,
 }: {
   visibleMonth: Date;
   selectedDateKey: string;
@@ -281,7 +315,6 @@ function MiniCalendar({
   onMoveMonth: (amount: number) => void;
   onResetMonth: () => void;
   onSelectDate: (date: Date) => void;
-  onShowAll: () => void;
 }) {
   const today = new Date();
   const isCurrentMonth =
@@ -418,13 +451,6 @@ function MiniCalendar({
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={onShowAll}
-        className="mt-3 inline-flex h-8 w-full items-center justify-center rounded-md border border-slate-200 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-slate-950"
-      >
-        전체 일정 보기
-      </button>
     </aside>
   );
 }
@@ -434,18 +460,23 @@ function ScheduleCard({
   category,
   tasks,
   expanded,
+  deleting,
   onToggle,
+  onDelete,
   onOpenAddTaskPanel,
 }: {
   schedule: Schedule;
   category?: Category | null;
   tasks: Task[];
   expanded: boolean;
+  deleting: boolean;
   onToggle: () => void;
+  onDelete: () => Promise<void>;
   onOpenAddTaskPanel: () => void;
 }) {
   const classificationSettings = useClassificationSettings();
   const completionMutation = useSetTaskCompletion();
+  const deleteTaskMutation = useDeleteTask();
   const [error, setError] = useState<string | null>(null);
   const progress = scheduleProgress(tasks, schedule);
   const accentColor =
@@ -482,9 +513,34 @@ function ScheduleCard({
     }
   };
 
+  const handleDeleteTask = async (task: Task) => {
+    if (!confirm(`"${task.title}" 할 일을 삭제하시겠습니까?`)) return;
+
+    setError(null);
+    try {
+      await deleteTaskMutation.mutateAsync(task.task_id);
+    } catch (err) {
+      setError(getErrorMessage(err, "할 일 삭제에 실패했습니다."));
+    }
+  };
+
+  const handleDeleteSchedule = async () => {
+    const message = schedule.is_company_schedule
+      ? `"${schedule.title}" 회사 일정의 삭제 처리를 요청할까요?`
+      : `"${schedule.title}" 일정을 삭제하시겠습니까?`;
+    if (!confirm(message)) return;
+
+    setError(null);
+    try {
+      await onDelete();
+    } catch (err) {
+      setError(getErrorMessage(err, "일정 삭제에 실패했습니다."));
+    }
+  };
+
   return (
     <li className="flowra-list-card overflow-hidden transition">
-      <div className="relative">
+      <div className="group relative flex items-center">
         <span
           className="absolute inset-y-4 left-4 w-1 rounded-full"
           style={{ backgroundColor: accentColor }}
@@ -494,7 +550,7 @@ function ScheduleCard({
           type="button"
           onClick={onToggle}
           aria-expanded={expanded}
-          className="grid min-h-[4.25rem] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-6 py-4 pl-8 text-left transition hover:bg-slate-50"
+          className="grid min-h-[4.25rem] min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-6 py-4 pl-8 pr-2 text-left transition hover:bg-slate-50"
         >
           <div className="min-w-0">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -543,6 +599,16 @@ function ScheduleCard({
             />
           </div>
         </button>
+        <button
+          type="button"
+          onClick={() => void handleDeleteSchedule()}
+          disabled={deleting}
+          aria-label={`${schedule.title} 삭제`}
+          title="일정 삭제"
+          className="mr-4 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-300 opacity-100 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
       </div>
 
       <div
@@ -556,11 +622,17 @@ function ScheduleCard({
               <ul className="space-y-3">
                 {sortedTasks.map((task) => {
                   const done = task.status === "done";
+                  const deletingTask =
+                    deleteTaskMutation.isPending &&
+                    deleteTaskMutation.variables === task.task_id;
                   return (
-                    <li key={task.task_id} className="flex items-start gap-3">
+                    <li
+                      key={task.task_id}
+                      className="group flex items-start gap-3"
+                    >
                       <TaskCompletionToggleButton
                         completed={done}
-                        disabled={completionMutation.isPending}
+                        disabled={completionMutation.isPending || deletingTask}
                         compact
                         onCompletedChange={(completed) =>
                           handleCompletionChange(task, completed)
@@ -586,6 +658,16 @@ function ScheduleCard({
                           {formatTaskDue(task.due_datetime)}
                         </p>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteTask(task)}
+                        disabled={deleteTaskMutation.isPending}
+                        aria-label={`${task.title} 삭제`}
+                        title="할 일 삭제"
+                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-300 opacity-100 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </li>
                   );
                 })}
@@ -615,6 +697,126 @@ function ScheduleCard({
         </div>
       </div>
     </li>
+  );
+}
+
+function IndependentTasksSection({ tasks }: { tasks: Task[] }) {
+  const completionMutation = useSetTaskCompletion();
+  const deleteMutation = useDeleteTask();
+  const [expanded, setExpanded] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleCompletionChange = async (task: Task, completed: boolean) => {
+    if (completed === (task.status === "done")) return;
+
+    setError(null);
+    try {
+      await completionMutation.mutateAsync({
+        taskId: task.task_id,
+        completed,
+      });
+    } catch (err) {
+      setError(getErrorMessage(err, "완료 상태 변경에 실패했습니다."));
+    }
+  };
+
+  const handleDelete = async (task: Task) => {
+    if (!confirm(`"${task.title}" 할 일을 삭제하시겠습니까?`)) return;
+
+    setError(null);
+    try {
+      await deleteMutation.mutateAsync(task.task_id);
+    } catch (err) {
+      setError(getErrorMessage(err, "할 일 삭제에 실패했습니다."));
+    }
+  };
+
+  return (
+    <section>
+      <button
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-2 border-b border-slate-200/70 pb-2 text-left text-sm font-bold text-slate-500"
+      >
+        <span>독립 할 일</span>
+        <span className="text-slate-400">- {tasks.length}개</span>
+        <ChevronDown
+          className={`ml-auto h-4 w-4 transition-transform ${
+            expanded ? "rotate-180" : ""
+          }`}
+        />
+      </button>
+      <div
+        className={`grid transition-[grid-template-rows] duration-200 ease-out ${
+          expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        }`}
+      >
+        <div className="overflow-hidden">
+          <ul className="flowra-list-card mt-3 divide-y divide-slate-100 overflow-hidden">
+            {tasks.map((task) => {
+              const done = task.status === "done";
+              const deleting =
+                deleteMutation.isPending &&
+                deleteMutation.variables === task.task_id;
+              return (
+                <li
+                  key={task.task_id}
+                  className="group flex items-start gap-3 px-5 py-4"
+                >
+                  <TaskCompletionToggleButton
+                    completed={done}
+                    disabled={completionMutation.isPending || deleting}
+                    compact
+                    onCompletedChange={(completed) =>
+                      void handleCompletionChange(task, completed)
+                    }
+                  />
+                  <span
+                    className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${
+                      taskPriorityDot[task.priority]
+                    }`}
+                    aria-hidden
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className={`truncate text-sm font-semibold ${
+                        done ? "text-slate-400 line-through" : "text-slate-800"
+                      }`}
+                    >
+                      {task.title}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {formatTaskDue(task.due_datetime)}
+                    </p>
+                    {task.description && (
+                      <p className="mt-1 line-clamp-2 text-xs text-slate-500">
+                        {task.description}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleDelete(task)}
+                    disabled={deleteMutation.isPending}
+                    aria-label={`${task.title} 삭제`}
+                    title="삭제"
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-300 opacity-100 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </div>
+      {error && (
+        <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -776,12 +978,14 @@ export default function Tasks() {
   }, [visibleMonth]);
   const schedulesQuery = useSchedules(queryRange);
   const createSchedulesMutation = useCreateSchedules();
+  const deleteScheduleMutation = useDeleteSchedule();
   const companyAdminMeQuery = useCompanyAdminMe();
   const hasCompanyMembership = companyAdminMeQuery.isSuccess;
   const companySchedulesQuery = useCompanySchedules(queryRange, {
     enabled: hasCompanyMembership,
   });
   const createCompanyScheduleMutation = useCreateCompanyAdminSchedule();
+  const deleteCompanyScheduleMutation = useDeleteCompanySchedule();
   const tasksQuery = useTasks();
   const categoriesQuery = useCategories("schedule");
   const classificationSettings = useClassificationSettings();
@@ -926,6 +1130,31 @@ export default function Tasks() {
     selectedDate,
     tasksByScheduleId,
   ]);
+  const filteredIndependentTasks = useMemo(() => {
+    const today = new Date();
+    const keyword = search.trim().toLowerCase();
+    const useExactDate = dateMode || filter === "today";
+    const targetDate = filter === "today" ? today : selectedDate;
+
+    return tasks
+      .filter((task) => task.schedule_id == null)
+      .filter((task) => {
+        if (useExactDate && !taskDueOnDate(task, targetDate)) return false;
+        if (filter === "active" && task.status === "done") return false;
+        if (filter === "completed" && task.status !== "done") return false;
+
+        if (keyword) {
+          const haystack = [task.title, task.description, task.location]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          if (!haystack.includes(keyword)) return false;
+        }
+
+        return true;
+      })
+      .sort(sortIndependentTasks);
+  }, [dateMode, filter, search, selectedDate, tasks]);
   const groups = useMemo(
     () =>
       groupSchedules(
@@ -936,11 +1165,13 @@ export default function Tasks() {
     [dateMode, filter, filteredSchedules, selectedDate],
   );
   const visibleTasks = useMemo(
-    () =>
-      filteredSchedules.flatMap(
+    () => [
+      ...filteredIndependentTasks,
+      ...filteredSchedules.flatMap(
         (schedule) => tasksByScheduleId.get(schedule.schedule_id) ?? [],
       ),
-    [filteredSchedules, tasksByScheduleId],
+    ],
+    [filteredIndependentTasks, filteredSchedules, tasksByScheduleId],
   );
   const visibleDoneCount = visibleTasks.filter(
     (task) => task.status === "done",
@@ -1003,6 +1234,28 @@ export default function Tasks() {
     setScheduleAddPanelOpen(true);
   };
 
+  const deleteScheduleFromBoard = async (schedule: Schedule) => {
+    if (schedule.is_company_schedule) {
+      if (schedule.company_schedule_id == null) {
+        throw new Error("회사 일정 ID를 확인할 수 없습니다.");
+      }
+      await deleteCompanyScheduleMutation.mutateAsync(
+        schedule.company_schedule_id,
+      );
+    } else {
+      await deleteScheduleMutation.mutateAsync(schedule.schedule_id);
+    }
+
+    setExpandedScheduleIds((current) => {
+      const next = new Set(current);
+      next.delete(schedule.schedule_id);
+      return next;
+    });
+    setTaskPanelScheduleId((current) =>
+      current === schedule.schedule_id ? null : current,
+    );
+  };
+
   return (
     <AppShell
       fullBleed
@@ -1048,87 +1301,88 @@ export default function Tasks() {
           }
           onResetMonth={() => setVisibleMonth(startOfMonth(new Date()))}
           onSelectDate={selectDate}
-          onShowAll={showAll}
         />
       }
     >
       <div className="flowra-workspace flex h-full min-h-0 flex-col">
         <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
-          <div className="flex flex-col gap-3 min-[900px]:flex-row min-[900px]:items-center min-[900px]:justify-between">
-            <div className="flex min-w-0 flex-wrap items-center gap-4">
-              <div className="flex items-center gap-3">
-                <h1 className="text-base font-black text-slate-950">할 일</h1>
-                <div className="flex items-center gap-2">
-                  <div className="h-1.5 w-28 overflow-hidden rounded-full bg-slate-100">
-                    <span
-                      className="block h-full rounded-full bg-violet-500"
-                      style={{ width: `${progressPercent}%` }}
-                    />
+          <div className="mx-auto max-w-[82rem]">
+            <div className="flex flex-col gap-3 min-[900px]:flex-row min-[900px]:items-center min-[900px]:justify-between">
+              <div className="flex min-w-0 flex-wrap items-center gap-4">
+                <div className="flex items-center gap-3">
+                  <h1 className="text-base font-black text-slate-950">할 일</h1>
+                  <div className="flex items-center gap-2">
+                    <div className="h-1.5 w-28 overflow-hidden rounded-full bg-slate-100">
+                      <span
+                        className="block h-full rounded-full bg-violet-500"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+                    <span className="text-sm font-semibold text-slate-400">
+                      완료 {visibleDoneCount} / 전체 {visibleTaskCount}
+                    </span>
                   </div>
-                  <span className="text-sm font-semibold text-slate-400">
-                    완료 {visibleDoneCount} / 전체 {visibleTaskCount}
-                  </span>
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <FilterButton
+                    active={filter === "all" && !dateMode}
+                    onClick={showAll}
+                  >
+                    전체
+                  </FilterButton>
+                  <FilterButton
+                    active={filter === "today"}
+                    onClick={() => {
+                      setFilter("today");
+                      setDateMode(false);
+                      setSelectedDateKey(toDateKey(new Date()));
+                      setVisibleMonth(startOfMonth(new Date()));
+                    }}
+                  >
+                    오늘
+                  </FilterButton>
+                  <FilterButton
+                    active={filter === "active"}
+                    onClick={() => setFilter("active")}
+                  >
+                    미완료
+                  </FilterButton>
+                  <FilterButton
+                    active={filter === "completed"}
+                    onClick={() => setFilter("completed")}
+                  >
+                    완료됨
+                  </FilterButton>
                 </div>
               </div>
 
-              <div className="flex items-center gap-1">
-                <FilterButton
-                  active={filter === "all" && !dateMode}
+              <label className="relative block min-[760px]:hidden">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="일정 또는 할 일 검색..."
+                  className="flowra-input h-10 w-full pl-9 pr-3 text-sm"
+                />
+              </label>
+            </div>
+
+            {dateMode && filter !== "today" && (
+              <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-violet-100 bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700">
+                {formatFullDate(selectedDate)}
+                <button
+                  type="button"
                   onClick={showAll}
+                  aria-label="날짜 선택 해제"
+                  className="rounded-full p-0.5 hover:bg-violet-100"
                 >
-                  전체
-                </FilterButton>
-                <FilterButton
-                  active={filter === "today"}
-                  onClick={() => {
-                    setFilter("today");
-                    setDateMode(false);
-                    setSelectedDateKey(toDateKey(new Date()));
-                    setVisibleMonth(startOfMonth(new Date()));
-                  }}
-                >
-                  오늘
-                </FilterButton>
-                <FilterButton
-                  active={filter === "active"}
-                  onClick={() => setFilter("active")}
-                >
-                  미완료
-                </FilterButton>
-                <FilterButton
-                  active={filter === "completed"}
-                  onClick={() => setFilter("completed")}
-                >
-                  완료됨
-                </FilterButton>
+                  <X className="h-3.5 w-3.5" />
+                </button>
               </div>
-            </div>
-
-            <label className="relative block min-[760px]:hidden">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                type="search"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="일정 또는 할 일 검색..."
-                className="flowra-input h-10 w-full pl-9 pr-3 text-sm"
-              />
-            </label>
+            )}
           </div>
-
-          {dateMode && filter !== "today" && (
-            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-violet-100 bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700">
-              {formatFullDate(selectedDate)}
-              <button
-                type="button"
-                onClick={showAll}
-                aria-label="날짜 선택 해제"
-                className="rounded-full p-0.5 hover:bg-violet-100"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
         </div>
 
         <div className="min-h-0 flex-1 overflow-hidden">
@@ -1147,53 +1401,70 @@ export default function Tasks() {
                   }}
                   retrying={isFetching}
                 />
-              ) : filteredSchedules.length === 0 ? (
+              ) : filteredSchedules.length === 0 &&
+                filteredIndependentTasks.length === 0 ? (
                 <EmptyState
-                  title="표시할 일정이 없습니다"
-                  description="왼쪽 달력에서 날짜를 바꾸거나 새 일정을 추가해 보세요."
+                  title="표시할 일정이나 할 일이 없습니다"
+                  description="필터나 날짜를 바꾸거나 새 일정을 추가해 보세요."
                 />
               ) : (
                 <div className="mx-auto max-w-[82rem] space-y-6">
-                  {groups.map((group) => (
-                    <section key={group.key} className="space-y-3">
-                      <div className="flex items-center gap-2 border-b border-slate-200/70 pb-2 text-sm font-bold text-slate-500">
-                        <span>{group.title}</span>
-                        <span className="text-slate-400">
-                          - {group.schedules.length}개 일정
-                        </span>
-                      </div>
-                      <ul className="space-y-3">
-                        {group.schedules.map((schedule) => {
-                          const category = schedule.category_id
-                            ? categoryById.get(schedule.category_id)
-                            : null;
-                          const tasksForSchedule =
-                            tasksByScheduleId.get(schedule.schedule_id) ?? [];
-                          return (
-                            <div
-                              key={schedule.schedule_id}
-                              className="relative"
-                            >
-                              <ScheduleCard
-                                schedule={schedule}
-                                category={category}
-                                tasks={tasksForSchedule}
-                                expanded={expandedScheduleIds.has(
-                                  schedule.schedule_id,
-                                )}
-                                onToggle={() =>
-                                  toggleSchedule(schedule.schedule_id)
-                                }
-                                onOpenAddTaskPanel={() =>
-                                  openTaskPanel(schedule.schedule_id)
-                                }
-                              />
-                            </div>
-                          );
-                        })}
-                      </ul>
-                    </section>
-                  ))}
+                  {filteredIndependentTasks.length > 0 && (
+                    <IndependentTasksSection tasks={filteredIndependentTasks} />
+                  )}
+                  {filteredSchedules.length > 0 &&
+                    groups.map((group) => (
+                      <section key={group.key} className="space-y-3">
+                        <div className="flex items-center gap-2 border-b border-slate-200/70 pb-2 text-sm font-bold text-slate-500">
+                          <span>{group.title}</span>
+                          <span className="text-slate-400">
+                            - {group.schedules.length}개 일정
+                          </span>
+                        </div>
+                        <ul className="space-y-3">
+                          {group.schedules.map((schedule) => {
+                            const category = schedule.category_id
+                              ? categoryById.get(schedule.category_id)
+                              : null;
+                            const tasksForSchedule =
+                              tasksByScheduleId.get(schedule.schedule_id) ?? [];
+                            return (
+                              <div
+                                key={schedule.schedule_id}
+                                className="relative"
+                              >
+                                <ScheduleCard
+                                  schedule={schedule}
+                                  category={category}
+                                  tasks={tasksForSchedule}
+                                  expanded={expandedScheduleIds.has(
+                                    schedule.schedule_id,
+                                  )}
+                                  deleting={
+                                    schedule.is_company_schedule
+                                      ? deleteCompanyScheduleMutation.isPending &&
+                                        deleteCompanyScheduleMutation.variables ===
+                                          schedule.company_schedule_id
+                                      : deleteScheduleMutation.isPending &&
+                                        deleteScheduleMutation.variables ===
+                                          schedule.schedule_id
+                                  }
+                                  onToggle={() =>
+                                    toggleSchedule(schedule.schedule_id)
+                                  }
+                                  onDelete={() =>
+                                    deleteScheduleFromBoard(schedule)
+                                  }
+                                  onOpenAddTaskPanel={() =>
+                                    openTaskPanel(schedule.schedule_id)
+                                  }
+                                />
+                              </div>
+                            );
+                          })}
+                        </ul>
+                      </section>
+                    ))}
                 </div>
               )}
             </div>

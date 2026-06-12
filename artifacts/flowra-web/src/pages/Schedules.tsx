@@ -1360,11 +1360,11 @@ function getSchedulePanelClassName(layout: SchedulePanelLayout) {
   const base =
     "fixed inset-y-0 right-0 z-50 flex min-h-0 w-full max-w-md flex-col overflow-hidden border-l border-slate-200 bg-white shadow-xl";
   const inline =
-    "md:fixed md:inset-y-0 md:right-0 md:z-50 md:h-auto md:max-h-none md:w-[300px] md:max-w-none md:rounded-none md:border-y-0 md:border-l md:border-r-0 md:shadow-xl lg:w-[340px]";
+    "md:fixed md:inset-y-0 md:right-0 md:z-50 md:h-auto md:max-h-none md:w-[300px] md:max-w-none md:rounded-none md:border-y-0 md:border-l md:border-r-0 md:shadow-none lg:w-[340px]";
   const floating =
     "xl:fixed xl:z-50 xl:inset-auto xl:left-[var(--schedule-panel-left)] xl:top-[var(--schedule-panel-top)] xl:right-auto xl:bottom-auto xl:h-auto xl:max-h-[var(--schedule-panel-max-height)] xl:w-[390px] xl:max-w-[calc(100vw-24px)] xl:rounded-2xl xl:border xl:border-slate-200 xl:shadow-2xl xl:shadow-slate-900/10";
   const docked =
-    "md:fixed md:inset-y-0 md:right-0 md:z-50 md:h-auto md:max-h-none md:w-[300px] md:max-w-none md:rounded-none md:border-y-0 md:border-l md:border-r-0 md:shadow-xl lg:w-[340px]";
+    "md:fixed md:inset-y-0 md:right-0 md:z-50 md:h-auto md:max-h-none md:w-[300px] md:max-w-none md:rounded-none md:border-y-0 md:border-l md:border-r-0 md:shadow-none lg:w-[340px]";
 
   return `${base} ${inline} ${layout === "floating" ? floating : docked}`;
 }
@@ -11737,6 +11737,11 @@ export default function Schedules() {
   const sidePanelOpen = schedulePanelOpen;
   const dockedPanelOpen = sidePanelOpen && schedulePanelLayout === "docked";
   const floatingPanelOpen = sidePanelOpen && schedulePanelLayout === "floating";
+  const headerPanelOffsetClass = dockedPanelOpen
+    ? "md:mr-[300px] lg:mr-[340px]"
+    : floatingPanelOpen
+      ? "md:mr-[300px] lg:mr-[340px] xl:mr-0"
+      : "";
   const floatingPanelStyle = useSchedulePanelFloatingStyle(
     panelAnchorElement,
     floatingPanelOpen,
@@ -11816,9 +11821,7 @@ export default function Schedules() {
       headerActions={
         <div
           data-flowra-schedule-controls
-          className={`flex items-center gap-1 transition-[margin] ${
-            dockedPanelOpen ? "min-[600px]:mr-[300px] lg:mr-[340px]" : ""
-          }`}
+          className={`flex items-center gap-1 transition-[margin] ${headerPanelOffsetClass}`}
         >
           <div className="flex items-center gap-1 rounded-lg bg-slate-50 px-1.5 py-1">
             <Popover
@@ -12070,7 +12073,7 @@ export default function Schedules() {
               : "md:grid-cols-1 xl:grid-cols-1"
           }`}
         >
-          <section className="flex min-h-0 min-w-0 flex-col overflow-hidden border-x border-slate-200 bg-white">
+          <section className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-white">
             <div className="flex flex-wrap items-center justify-end gap-2 border-b border-slate-100 bg-white px-4 py-2 min-[600px]:hidden">
               <Popover
                 open={mobileFiltersOpen}

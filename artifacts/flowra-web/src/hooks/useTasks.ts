@@ -159,6 +159,20 @@ function syncUpdatedTaskToListCaches(queryClient: QueryClient, task: Task) {
     });
 }
 
+function removeTaskFromListCaches(queryClient: QueryClient, taskId: number) {
+  queryClient
+    .getQueryCache()
+    .findAll({ queryKey: TASKS_QUERY_KEY })
+    .forEach((query) => {
+      const listQuery = taskListQueryFromKey(query.queryKey);
+      if (!listQuery) return;
+
+      queryClient.setQueryData<Task[]>(query.queryKey, (current) =>
+        current?.filter((task) => task.task_id !== taskId),
+      );
+    });
+}
+
 function updateTaskCompletionInListCaches(
   queryClient: QueryClient,
   taskId: number,
@@ -271,13 +285,18 @@ export function useUpdateTask() {
 
 export function useDeleteTask() {
   const invalidate = useInvalidateTasks();
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (taskId: number) => {
       const res = await deleteTask(taskId);
       if (!res.success) throw new Error(res.message || "삭제에 실패했습니다.");
       return res.data;
     },
-    onSuccess: () => invalidate(),
+    onSuccess: (_data, taskId) => {
+      removeTaskFromListCaches(queryClient, taskId);
+      queryClient.removeQueries({ queryKey: taskDetailKey(taskId) });
+      invalidate();
+    },
     meta: {
       successMessage: "할 일을 삭제했습니다.",
       errorMessage: "할 일 삭제에 실패했습니다.",

@@ -24,8 +24,7 @@ import {
   FileText,
   Link2,
   MapPin,
-  PanelRightClose,
-  PanelRightOpen,
+  PanelRight,
   Paperclip,
   Pencil,
   Plus,
@@ -49,8 +48,14 @@ import {
   useParseMemo,
   useUpdateMemo,
 } from "@/hooks/useMemos";
-import { useDeleteSchedule, useSchedules } from "@/hooks/useSchedules";
-import { useDeleteTask, useTasks } from "@/hooks/useTasks";
+import {
+  SCHEDULES_QUERY_KEY,
+  useDeleteSchedule,
+  useSchedules,
+} from "@/hooks/useSchedules";
+import { TASKS_QUERY_KEY, useDeleteTask, useTasks } from "@/hooks/useTasks";
+import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
+import { applyMemo as applyMemoRequest } from "@/api/memos";
 import {
   MEMO_TYPES,
   MEMO_TYPE_LABELS,
@@ -274,10 +279,7 @@ function hasAiSource(
   );
 }
 
-function actionMatchesSchedule(
-  action: AiSuggestedAction,
-  schedule: Schedule,
-) {
+function actionMatchesSchedule(action: AiSuggestedAction, schedule: Schedule) {
   if (action.type !== "create_schedule") return false;
   if (
     normalizeComparableText(getActionTitle(action)) !==
@@ -492,7 +494,7 @@ function MemoListPanel({
 
       {leftOpen && (
         <>
-          <div className="flex h-10 items-center gap-2 border-b border-slate-100 px-3">
+          <div className="flex h-12 items-center gap-2 border-b border-slate-100 px-3">
             <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">
               메모
             </span>
@@ -1059,8 +1061,7 @@ function EmptyMemoPanel({ onCreate }: { onCreate: () => void }) {
           onClick={onCreate}
           className="flex h-8 items-center gap-1 rounded-lg bg-slate-900 px-3 text-xs font-medium text-white transition-colors hover:bg-slate-700"
         >
-          <Plus className="h-3.5 w-3.5" />
-          새 메모
+          <Plus className="h-3.5 w-3.5" />새 메모
         </button>
       </div>
     </section>
@@ -1079,9 +1080,7 @@ function ProcessingPanel() {
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-16">
       <RefreshCw className="h-5 w-5 animate-spin text-violet-500" />
-      <span className="text-xs font-medium text-violet-600">
-        AI 분석 중...
-      </span>
+      <span className="text-xs font-medium text-violet-600">AI 분석 중...</span>
     </div>
   );
 }
@@ -1148,6 +1147,12 @@ function AiResultContent({
   );
   const [appliedLink, setAppliedLink] = useState<string | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [bulkApplyingIndexes, setBulkApplyingIndexes] = useState<Set<number>>(
+    new Set(),
+  );
+  const [bulkRemovingIndexes, setBulkRemovingIndexes] = useState<Set<number>>(
+    new Set(),
+  );
 
   const rawActions = useMemo(() => getSuggestedActions(result), [result]);
   const visibleEntries = useMemo(
@@ -1188,7 +1193,8 @@ function AiResultContent({
   const totalTasks =
     linkedTaskIndexes.size + independentTasks.length + pendingItems.length;
   const detected = result.detected_type as DetectedType;
-  const effectiveActionStates = applyState?.action_states ?? result.action_states;
+  const effectiveActionStates =
+    applyState?.action_states ?? result.action_states;
   const actionStateByIndex = useMemo(
     () =>
       new Map(
@@ -1297,7 +1303,11 @@ function AiResultContent({
     });
 
     return map;
-  }, [localAppliedResources, resultAppliedResourceMap, sourceMatchedResourceMap]);
+  }, [
+    localAppliedResources,
+    resultAppliedResourceMap,
+    sourceMatchedResourceMap,
+  ]);
 
   useEffect(() => {
     setExpanded(new Set(scheduleEntries.map(({ index }) => String(index))));
@@ -1307,6 +1317,8 @@ function AiResultContent({
     setRemovingActionIndex(null);
     setAppliedLink(null);
     setApplyError(null);
+    setBulkApplyingIndexes(new Set());
+    setBulkRemovingIndexes(new Set());
   }, [result.ai_result_id]);
 
   const toggleExpanded = (index: number) => {
@@ -1323,13 +1335,80 @@ function AiResultContent({
     response: ApplyMemoResponse,
     fallbackActionIndex?: number,
   ) => {
-    setApplyState({
-      result_status: response.result_status,
-      executable_action_indexes: response.executable_action_indexes,
-      applied_action_indexes: response.applied_action_indexes,
-      remaining_action_indexes: response.remaining_action_indexes,
-      skipped_action_indexes: response.skipped_action_indexes,
-      action_states: response.action_states,
+    setApplyState((current) => {
+      const baseActionStates =
+        current?.action_states ?? result.action_states ?? [];
+      const responseAppliedIndexes =
+        response.applied_action_indexes ??
+        response.action_states
+          ?.filter((state) => state.applied)
+          .map((state) => state.action_index) ??
+        (fallbackActionIndex === undefined ? [] : [fallbackActionIndex]);
+      const appliedIndexes = new Set([
+        ...(current?.applied_action_indexes ??
+          result.applied_action_indexes ??
+          []),
+        ...responseAppliedIndexes,
+      ]);
+      const stateMap = new Map(
+        baseActionStates.map((state) => [state.action_index, state]),
+      );
+
+      response.action_states?.forEach((state) => {
+        const previous = stateMap.get(state.action_index);
+        stateMap.set(state.action_index, {
+          ...previous,
+          ...state,
+          applied: previous?.applied === true || state.applied === true,
+        });
+      });
+      appliedIndexes.forEach((index) => {
+        const previous = stateMap.get(index);
+        stateMap.set(index, {
+          action_index: index,
+          action_type: rawActions[index]?.type,
+          applicable: previous?.applicable ?? true,
+          ...previous,
+          applied: true,
+        });
+      });
+
+      const executableIndexes =
+        response.executable_action_indexes ??
+        current?.executable_action_indexes ??
+        result.executable_action_indexes ??
+        rawActions
+          .map((action, index) =>
+            action.type === "create_schedule" || action.type === "create_task"
+              ? index
+              : null,
+          )
+          .filter((index): index is number => index !== null);
+      const remainingIndexes = executableIndexes.filter(
+        (index) =>
+          !appliedIndexes.has(index) &&
+          stateMap.get(index)?.applicable !== false,
+      );
+      const resultStatus =
+        appliedIndexes.size === 0
+          ? "suggested"
+          : remainingIndexes.length > 0
+            ? "partially_applied"
+            : "approved";
+
+      return {
+        result_status: response.result_status ?? resultStatus,
+        executable_action_indexes: executableIndexes,
+        applied_action_indexes: [...appliedIndexes],
+        remaining_action_indexes: remainingIndexes,
+        skipped_action_indexes: [
+          ...new Set([
+            ...(current?.skipped_action_indexes ?? []),
+            ...(response.skipped_action_indexes ?? []),
+          ]),
+        ],
+        action_states: [...stateMap.values()],
+      };
     });
 
     const resourceRefs = collectAppliedResourceRefs(
@@ -1359,9 +1438,7 @@ function AiResultContent({
 
   const isSupportedAction = (index: number) => {
     const action = rawActions[index];
-    return (
-      action?.type === "create_schedule" || action?.type === "create_task"
-    );
+    return action?.type === "create_schedule" || action?.type === "create_task";
   };
 
   const isActionApplied = (index: number) =>
@@ -1379,9 +1456,7 @@ function AiResultContent({
     const action = rawActions[taskActionIndex];
     if (action?.type !== "create_task") return null;
 
-    const relatedActionIndex = toNonNegativeNumber(
-      action.related_action_index,
-    );
+    const relatedActionIndex = toNonNegativeNumber(action.related_action_index);
     if (
       relatedActionIndex !== null &&
       rawActions[relatedActionIndex]?.type === "create_schedule"
@@ -1424,7 +1499,10 @@ function AiResultContent({
       getRelatedScheduleIndexForTaskAction(taskActionIndex);
     if (relatedScheduleIndex === null) return null;
 
-    return getAppliedScheduleIdForAction(relatedScheduleIndex, extraResourceMap);
+    return getAppliedScheduleIdForAction(
+      relatedScheduleIndex,
+      extraResourceMap,
+    );
   };
 
   const getApplyPayloadForAction = (
@@ -1466,24 +1544,79 @@ function AiResultContent({
   };
 
   const handleApplyBundle = async (indexes: number[]) => {
+    const applicableIndexes = [...new Set(indexes.filter(canApplyAction))];
+    if (applicableIndexes.length === 0) return;
+
     setApplyError(null);
+    setBulkApplyingIndexes(new Set(applicableIndexes));
     const transientResourceMap = new Map<number, AppliedResourceRef[]>();
     try {
-      for (const index of indexes) {
-        if (!canApplyAction(index)) continue;
-        const response = await applyMutation.mutateAsync({
-          memoId,
-          payload: getApplyPayloadForAction(index, transientResourceMap),
-        });
-        const resourceRefs = syncApplyState(response, index);
-        addTransientResourceRefs(transientResourceMap, resourceRefs, index);
+      const remainingApplicableIndexes = rawActions
+        .map((_action, index) => index)
+        .filter(canApplyAction);
+      const selectedIndexSet = new Set(applicableIndexes);
+      const appliesEveryRemainingAction =
+        applicableIndexes.length === remainingApplicableIndexes.length &&
+        remainingApplicableIndexes.every((index) =>
+          selectedIndexSet.has(index),
+        );
+
+      if (appliesEveryRemainingAction) {
+        const res = await applyMemoRequest(memoId, { apply_type: "all" });
+        if (!res.success) {
+          throw new Error(res.message || "AI 결과 적용에 실패했습니다.");
+        }
+        syncApplyState(res.data);
+      } else {
+        const scheduleIndexes = applicableIndexes.filter(
+          (index) => rawActions[index]?.type === "create_schedule",
+        );
+        const taskIndexes = applicableIndexes.filter(
+          (index) => rawActions[index]?.type === "create_task",
+        );
+
+        for (const index of scheduleIndexes) {
+          const res = await applyMemoRequest(
+            memoId,
+            getApplyPayloadForAction(index, transientResourceMap),
+          );
+          if (!res.success) {
+            throw new Error(res.message || "일정 추가에 실패했습니다.");
+          }
+          const response = res.data;
+          const resourceRefs = syncApplyState(response, index);
+          addTransientResourceRefs(transientResourceMap, resourceRefs, index);
+        }
+
+        await Promise.all(
+          taskIndexes.map(async (index) => {
+            const res = await applyMemoRequest(
+              memoId,
+              getApplyPayloadForAction(index, transientResourceMap),
+            );
+            if (!res.success) {
+              throw new Error(res.message || "할 일 추가에 실패했습니다.");
+            }
+            const response = res.data;
+            const resourceRefs = syncApplyState(response, index);
+            addTransientResourceRefs(transientResourceMap, resourceRefs, index);
+          }),
+        );
       }
+
+      void queryClient.invalidateQueries({ queryKey: MEMOS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: SCHEDULES_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
     } catch (err) {
       setApplyError(getErrorMessage(err, "AI 결과 적용에 실패했습니다."));
+    } finally {
+      setBulkApplyingIndexes(new Set());
     }
   };
 
-  const markActionUnapplied = (index: number) => {
+  const markActionsUnapplied = (indexes: number[]) => {
+    const removedIndexes = new Set(indexes);
     setApplyState((current) => {
       const base = {
         result_status: result.result_status,
@@ -1503,12 +1636,12 @@ function AiResultContent({
         .filter((actionIndex): actionIndex is number => actionIndex !== null);
       const previousApplied = base.applied_action_indexes ?? [...applied];
       const nextApplied = previousApplied.filter(
-        (actionIndex) => actionIndex !== index,
+        (actionIndex) => !removedIndexes.has(actionIndex),
       );
       const nextRemaining = base.remaining_action_indexes
-        ? [...new Set([...base.remaining_action_indexes, index])].filter(
-            (actionIndex) => supportedIndexes.includes(actionIndex),
-          )
+        ? [
+            ...new Set([...base.remaining_action_indexes, ...removedIndexes]),
+          ].filter((actionIndex) => supportedIndexes.includes(actionIndex))
         : base.remaining_action_indexes;
       const previousStates =
         base.action_states ??
@@ -1520,7 +1653,7 @@ function AiResultContent({
           applied: previousApplied.includes(actionIndex),
         }));
       const nextStates = previousStates.map((state) =>
-        state.action_index === index
+        removedIndexes.has(state.action_index)
           ? { ...state, applicable: state.applicable ?? true, applied: false }
           : state,
       );
@@ -1541,20 +1674,50 @@ function AiResultContent({
     });
   };
 
-  const handleRemoveAppliedAction = async (index: number) => {
-    const resourceRefs = appliedResourceMap.get(index) ?? [];
-    const uniqueRefs = uniqueAppliedResourceRefs(resourceRefs);
+  const getAppliedResourceRefsForAction = (index: number) => {
+    const action = rawActions[index];
+    const expectedType =
+      action?.type === "create_schedule"
+        ? "schedule"
+        : action?.type === "create_task"
+          ? "task"
+          : null;
 
-    if (uniqueRefs.length === 0) {
+    if (!expectedType) return [];
+    return uniqueAppliedResourceRefs(
+      (appliedResourceMap.get(index) ?? []).filter(
+        (ref) => ref.type === expectedType,
+      ),
+    );
+  };
+
+  const handleRemoveAppliedActions = async (indexes: number[]) => {
+    const targetIndexes = [...new Set(indexes)].filter(isActionApplied);
+    if (targetIndexes.length === 0) return;
+
+    const resourcesByIndex = new Map(
+      targetIndexes.map((index) => [
+        index,
+        getAppliedResourceRefsForAction(index),
+      ]),
+    );
+    const missingResourceIndexes = targetIndexes.filter(
+      (index) => (resourcesByIndex.get(index) ?? []).length === 0,
+    );
+
+    if (missingResourceIndexes.length > 0) {
       setApplyError(
         "생성된 항목을 찾지 못했습니다. 일정/할 일 화면에서 삭제해 주세요.",
       );
       return;
     }
 
+    const uniqueRefs = uniqueAppliedResourceRefs(
+      targetIndexes.flatMap((index) => resourcesByIndex.get(index) ?? []),
+    );
     const confirmed = window.confirm(
-      uniqueRefs.length > 1
-        ? `추가된 항목 ${uniqueRefs.length}개를 삭제할까요?`
+      targetIndexes.length > 1 || uniqueRefs.length > 1
+        ? `추가된 항목 ${uniqueRefs.length}개를 전체 삭제할까요?`
         : uniqueRefs[0].type === "schedule"
           ? "추가된 일정을 삭제할까요?"
           : "추가된 할 일을 삭제할까요?",
@@ -1562,31 +1725,52 @@ function AiResultContent({
     if (!confirmed) return;
 
     setApplyError(null);
-    setRemovingActionIndex(index);
+    if (targetIndexes.length > 1) {
+      setBulkRemovingIndexes(new Set(targetIndexes));
+    } else {
+      setRemovingActionIndex(targetIndexes[0]);
+    }
     try {
-      for (const ref of uniqueRefs) {
-        if (ref.type === "schedule") {
-          await deleteScheduleMutation.mutateAsync(ref.id);
-        } else {
-          await deleteTaskMutation.mutateAsync(ref.id);
+      const orderedIndexes = [...targetIndexes].sort((left, right) => {
+        const leftIsTask = rawActions[left]?.type === "create_task";
+        const rightIsTask = rawActions[right]?.type === "create_task";
+        return Number(rightIsTask) - Number(leftIsTask);
+      });
+      const deletedResourceKeys = new Set<string>();
+
+      for (const index of orderedIndexes) {
+        for (const ref of resourcesByIndex.get(index) ?? []) {
+          const resourceKey = `${ref.type}:${ref.id}`;
+          if (deletedResourceKeys.has(resourceKey)) continue;
+
+          if (ref.type === "schedule") {
+            await deleteScheduleMutation.mutateAsync(ref.id);
+          } else {
+            await deleteTaskMutation.mutateAsync(ref.id);
+          }
+          deletedResourceKeys.add(resourceKey);
         }
       }
 
       setLocalAppliedResources((current) => {
         const next = { ...current };
-        delete next[index];
+        targetIndexes.forEach((index) => delete next[index]);
         return next;
       });
-      markActionUnapplied(index);
+      markActionsUnapplied(targetIndexes);
       setAppliedLink(null);
       void queryClient.invalidateQueries({ queryKey: MEMOS_QUERY_KEY });
       void queryClient.invalidateQueries({
         queryKey: memoParseResultKey(memoId),
       });
+      void queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: SCHEDULES_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
     } catch (err) {
       setApplyError(getErrorMessage(err, "추가된 항목 삭제에 실패했습니다."));
     } finally {
       setRemovingActionIndex(null);
+      setBulkRemovingIndexes(new Set());
     }
   };
 
@@ -1632,10 +1816,13 @@ function AiResultContent({
     const canApply = canApplyAction(index);
     const resourceRefs = appliedResourceMap.get(index) ?? [];
     const addedLink = resourceRefs.find((ref) => ref.link)?.link ?? null;
-    const applying = applyMutation.isPending;
-    const removing = removingActionIndex === index;
-    const anyRemoving =
+    const removing =
+      removingActionIndex === index || bulkRemovingIndexes.has(index);
+    const anyActionPending =
+      applyMutation.isPending ||
+      bulkApplyingIndexes.size > 0 ||
       removingActionIndex !== null ||
+      bulkRemovingIndexes.size > 0 ||
       deleteScheduleMutation.isPending ||
       deleteTaskMutation.isPending;
 
@@ -1655,8 +1842,8 @@ function AiResultContent({
         <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
-            onClick={() => void handleRemoveAppliedAction(index)}
-            disabled={anyRemoving}
+            onClick={() => void handleRemoveAppliedActions([index])}
+            disabled={anyActionPending}
             aria-label="추가됨, 다시 누르면 삭제 확인"
             title={
               resourceRefs.length > 0
@@ -1698,15 +1885,13 @@ function AiResultContent({
       <button
         type="button"
         onClick={() => void handleApplyAction(index)}
-        disabled={applying || !canApply}
+        disabled={anyActionPending || !canApply}
         aria-label="추가"
         title="추가"
         className={cn(
           "flex shrink-0 items-center justify-center rounded-md transition-colors",
-          addedLabel
-            ? "h-6 gap-1 px-2 text-[11px] font-medium"
-            : "h-6 w-6",
-          "text-slate-300 hover:bg-indigo-50 hover:text-indigo-500",
+          addedLabel ? "h-6 gap-1 px-2 text-[11px] font-medium" : "h-6 w-6",
+          "border border-slate-200 bg-white text-slate-500 shadow-sm hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600",
           !canApply && "cursor-not-allowed opacity-40",
         )}
       >
@@ -1716,14 +1901,31 @@ function AiResultContent({
     );
   };
 
+  const independentTaskIndexes = independentTasks.map(({ index }) => index);
+  const independentTasksAllApplied =
+    independentTaskIndexes.length > 0 &&
+    independentTaskIndexes.every(isActionApplied);
+  const independentTasksCanApply = independentTaskIndexes.some(canApplyAction);
+  const independentTasksApplying = independentTaskIndexes.some((index) =>
+    bulkApplyingIndexes.has(index),
+  );
+  const independentTasksRemoving = independentTaskIndexes.some((index) =>
+    bulkRemovingIndexes.has(index),
+  );
+  const anyBulkActionPending =
+    applyMutation.isPending ||
+    bulkApplyingIndexes.size > 0 ||
+    removingActionIndex !== null ||
+    bulkRemovingIndexes.size > 0 ||
+    deleteScheduleMutation.isPending ||
+    deleteTaskMutation.isPending;
+
   return (
     <div className="space-y-2">
       {visibleEntries.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-10 text-slate-400">
           <Sparkles className="h-6 w-6 text-slate-300" />
-          <p className="text-center text-xs">
-            추출된 일정과 할 일이 없습니다.
-          </p>
+          <p className="text-center text-xs">추출된 일정과 할 일이 없습니다.</p>
         </div>
       ) : (
         <>
@@ -1754,6 +1956,12 @@ function AiResultContent({
               ...linkedTasks.map(({ index: taskIndex }) => taskIndex),
             ];
             const bundleCanApply = bundleIndexes.some(canApplyAction);
+            const bundleApplying = bundleIndexes.some((bundleIndex) =>
+              bulkApplyingIndexes.has(bundleIndex),
+            );
+            const bundleRemoving = bundleIndexes.some((bundleIndex) =>
+              bulkRemovingIndexes.has(bundleIndex),
+            );
 
             return (
               <div
@@ -1793,7 +2001,7 @@ function AiResultContent({
                         onClick={() =>
                           setRemoved((prev) => new Set(prev).add(index))
                         }
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-200 opacity-0 transition-all hover:bg-red-50 hover:text-red-400 group-hover/card:opacity-100"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-transparent bg-white text-slate-400 transition-colors hover:border-red-100 hover:bg-red-50 hover:text-red-500"
                         aria-label="일정 후보 삭제"
                         title="일정 후보 삭제"
                       >
@@ -1803,14 +2011,35 @@ function AiResultContent({
                   </div>
 
                   <div className="mt-2 flex items-center gap-1.5">
-                    {!allDone && linkedTasks.length > 0 && bundleCanApply && (
+                    {linkedTasks.length > 0 && (bundleCanApply || allDone) && (
                       <button
                         type="button"
-                        onClick={() => void handleApplyBundle(bundleIndexes)}
-                        disabled={applyMutation.isPending}
-                        className="rounded px-1.5 py-0.5 text-[11px] text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600 disabled:opacity-50"
+                        onClick={() =>
+                          void (allDone
+                            ? handleRemoveAppliedActions(bundleIndexes)
+                            : handleApplyBundle(bundleIndexes))
+                        }
+                        disabled={anyBulkActionPending}
+                        className={cn(
+                          "flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors disabled:opacity-50",
+                          allDone
+                            ? "text-red-500 hover:bg-red-50 hover:text-red-600"
+                            : "text-slate-400 hover:bg-indigo-50 hover:text-indigo-600",
+                        )}
                       >
-                        전체 추가
+                        {bundleApplying || bundleRemoving ? (
+                          <>
+                            <RefreshCw className="h-3 w-3 animate-spin" />
+                            {bundleRemoving ? "삭제 중" : "추가 중"}
+                          </>
+                        ) : allDone ? (
+                          <>
+                            <Trash2 className="h-3 w-3" />
+                            전체 삭제
+                          </>
+                        ) : (
+                          "전체 추가"
+                        )}
                       </button>
                     )}
                     {renderPlusButton(index, true)}
@@ -1819,8 +2048,12 @@ function AiResultContent({
                         type="button"
                         onClick={() => toggleExpanded(index)}
                         className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
-                        aria-label={isExpanded ? "연결 할 일 접기" : "연결 할 일 펼치기"}
-                        title={isExpanded ? "연결 할 일 접기" : "연결 할 일 펼치기"}
+                        aria-label={
+                          isExpanded ? "연결 할 일 접기" : "연결 할 일 펼치기"
+                        }
+                        title={
+                          isExpanded ? "연결 할 일 접기" : "연결 할 일 펼치기"
+                        }
                       >
                         {isExpanded ? (
                           <ChevronUp className="h-3.5 w-3.5" />
@@ -1878,7 +2111,8 @@ function AiResultContent({
                                 </p>
                                 <p className="mt-0.5 flex items-center gap-0.5 text-[10px] text-slate-400">
                                   <Clock className="h-2.5 w-2.5" />
-                                  {getActionDateLabel(taskAction) || "시간 미정"}
+                                  {getActionDateLabel(taskAction) ||
+                                    "시간 미정"}
                                   {isAdded && (
                                     <span className="ml-1 rounded bg-indigo-50 px-1 text-indigo-600">
                                       추가됨
@@ -1886,6 +2120,7 @@ function AiResultContent({
                                   )}
                                 </p>
                               </div>
+                              {renderPlusButton(taskIndex)}
                               {!isAdded && (
                                 <button
                                   type="button"
@@ -1894,14 +2129,13 @@ function AiResultContent({
                                       new Set(prev).add(taskIndex),
                                     )
                                   }
-                                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-200 opacity-0 transition-all hover:bg-red-50 hover:text-red-400 group-hover/todo:opacity-100"
+                                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-transparent bg-white text-slate-400 transition-colors hover:border-red-100 hover:bg-red-50 hover:text-red-500"
                                   aria-label="할 일 후보 삭제"
                                   title="할 일 후보 삭제"
                                 >
                                   <X className="h-3 w-3" />
                                 </button>
                               )}
-                              {renderPlusButton(taskIndex)}
                             </div>
                           );
                         },
@@ -1936,9 +2170,43 @@ function AiResultContent({
                 <span className="text-xs font-semibold text-slate-700">
                   독립 할 일
                 </span>
-                <span className="ml-auto rounded-full bg-slate-100 px-1.5 py-0 text-[10px] text-slate-500">
+                <span className="rounded-full bg-slate-100 px-1.5 py-0 text-[10px] text-slate-500">
                   {independentTasks.length}
                 </span>
+                {(independentTasksCanApply || independentTasksAllApplied) && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void (independentTasksAllApplied
+                        ? handleRemoveAppliedActions(independentTaskIndexes)
+                        : handleApplyBundle(independentTaskIndexes))
+                    }
+                    disabled={anyBulkActionPending}
+                    className={cn(
+                      "ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-50",
+                      independentTasksAllApplied
+                        ? "text-red-500 hover:bg-red-50 hover:text-red-600"
+                        : "text-indigo-600 hover:bg-indigo-50",
+                    )}
+                  >
+                    {independentTasksApplying || independentTasksRemoving ? (
+                      <>
+                        <RefreshCw className="h-3 w-3 animate-spin" />
+                        {independentTasksRemoving ? "삭제 중" : "추가 중"}
+                      </>
+                    ) : independentTasksAllApplied ? (
+                      <>
+                        <Trash2 className="h-3 w-3" />
+                        전체 삭제
+                      </>
+                    ) : (
+                      <>
+                        <CheckSquare className="h-3 w-3" />
+                        전체 추가
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
               {independentTasks.map(({ action, index }) => {
                 const isAdded = isActionApplied(index);
@@ -1977,20 +2245,20 @@ function AiResultContent({
                         )}
                       </p>
                     </div>
+                    {renderPlusButton(index)}
                     {!isAdded && (
                       <button
                         type="button"
                         onClick={() =>
                           setRemoved((prev) => new Set(prev).add(index))
                         }
-                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-200 opacity-0 transition-all hover:bg-red-50 hover:text-red-400 group-hover/stodo:opacity-100"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-transparent bg-white text-slate-400 transition-colors hover:border-red-100 hover:bg-red-50 hover:text-red-500"
                         aria-label="할 일 후보 삭제"
                         title="할 일 후보 삭제"
                       >
                         <X className="h-3 w-3" />
                       </button>
                     )}
-                    {renderPlusButton(index)}
                   </div>
                 );
               })}
@@ -2060,8 +2328,9 @@ function MemoAiPanel({
   const scheduleCount = actions.filter(
     (action) => action.type === "create_schedule",
   ).length;
-  const taskCount = actions.filter((action) => action.type === "create_task")
-    .length;
+  const taskCount = actions.filter(
+    (action) => action.type === "create_task",
+  ).length;
 
   const retry = async () => {
     if (!memo) return;
@@ -2076,23 +2345,23 @@ function MemoAiPanel({
       <button
         type="button"
         onClick={onToggleOpen}
-        className="fixed right-0 top-20 z-40 flex h-11 w-6 items-center justify-center rounded-l-lg border border-r-0 border-slate-200 bg-white text-slate-500 shadow-lg shadow-slate-900/10 transition-colors hover:text-violet-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 min-[600px]:top-1/2 min-[600px]:-translate-y-1/2"
+        className="fixed right-4 top-1.5 z-50 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-transparent text-slate-500 shadow-none transition hover:bg-slate-100 hover:text-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 min-[600px]:top-3.5"
         aria-label="AI 추출 결과 열기"
         title="AI 추출 결과 열기"
       >
-        <PanelRightOpen className="h-4 w-4" />
+        <PanelRight className="h-4 w-4" />
       </button>
     );
   }
 
   return (
-    <aside className="fixed inset-y-0 right-0 z-40 flex w-[min(380px,100vw)] shrink-0 flex-col border-l border-slate-100 bg-slate-50/95 shadow-2xl shadow-slate-900/10 backdrop-blur transition-transform duration-200">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-100 px-3 min-[600px]:h-16">
+    <aside className="fixed inset-y-0 right-0 z-40 flex w-[min(380px,100vw)] shrink-0 flex-col border-l border-slate-200/80 bg-slate-50/95 shadow-2xl shadow-slate-900/10 backdrop-blur transition-transform duration-200">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200/80 px-3 min-[600px]:h-16">
         <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-500" />
         <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-700">
           AI 추출 결과
         </span>
-        <span className="whitespace-nowrap text-[10px] text-slate-400">
+        <span className="whitespace-nowrap text-[10px] text-slate-500">
           일정 {scheduleCount} · 할 일 {taskCount}
         </span>
         <button
@@ -2100,9 +2369,9 @@ function MemoAiPanel({
           onClick={onToggleOpen}
           aria-label="AI 추출 결과 접기"
           title="AI 추출 결과 접기"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-transparent text-slate-500 shadow-none transition hover:bg-slate-100 hover:text-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
         >
-          <PanelRightClose className="h-4 w-4" />
+          <PanelRight className="h-4 w-4" />
         </button>
       </div>
 
@@ -2189,7 +2458,9 @@ export default function Memos() {
   const selectedStatus =
     parseResultQuery.data?.memo.parse_status ?? selectedMemo?.parse_status;
   const selectedResult =
-    parseResultQuery.data?.latest_result ?? selectedMemo?.last_ai_result ?? null;
+    parseResultQuery.data?.latest_result ??
+    selectedMemo?.last_ai_result ??
+    null;
 
   useEffect(() => {
     if (
@@ -2248,13 +2519,18 @@ export default function Memos() {
           )}`
         : `${items.length}개 메모`;
   const aiPanelOpen = mode !== "create" && rightOpen;
+  const headerRightOffset = aiPanelOpen
+    ? MEMO_AI_PANEL_WIDTH
+    : mode !== "create"
+      ? "44px"
+      : "0px";
 
   return (
     <AppShell
       fullBleed
       titleMeta={titleMeta}
       aiChatButtonOffset={aiPanelOpen ? MEMO_AI_PANEL_WIDTH : "0px"}
-      headerRightOffset={aiPanelOpen ? MEMO_AI_PANEL_WIDTH : "0px"}
+      headerRightOffset={headerRightOffset}
     >
       <div
         className={cn(

@@ -117,14 +117,34 @@ export function useUpdateMemo() {
 }
 
 export function useDeleteMemo() {
-  const invalidate = useInvalidateMemos();
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (memoId: number) => {
       const res = await deleteMemo(memoId);
       if (!res.success) throw new Error(res.message || "삭제에 실패했습니다.");
       return res.data;
     },
-    onSuccess: () => invalidate(),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: MEMOS_QUERY_KEY });
+    },
+    onSuccess: (_data, memoId) => {
+      queryClient.setQueriesData<Memo[]>(
+        { queryKey: [...MEMOS_QUERY_KEY, "list"] },
+        (current) =>
+          current?.filter((memo) => memo.memo_id !== memoId) ?? current,
+      );
+      queryClient.removeQueries({
+        queryKey: memoDetailKey(memoId),
+        exact: true,
+      });
+      queryClient.removeQueries({
+        queryKey: memoParseResultKey(memoId),
+        exact: true,
+      });
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: MEMOS_QUERY_KEY });
+    },
     meta: {
       successMessage: "메모를 삭제했습니다.",
       errorMessage: "메모 삭제에 실패했습니다.",

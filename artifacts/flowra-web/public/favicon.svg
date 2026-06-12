@@ -1,3 +1,10 @@
 <svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
-<rect width="180" height="180" rx="36" fill="#FF3C00"/>
+  <defs>
+    <linearGradient id="flowra-gradient" x1="24" y1="18" x2="156" y2="162" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8B5CF6" />
+      <stop offset="1" stop-color="#4F46E5" />
+    </linearGradient>
+  </defs>
+  <rect width="180" height="180" rx="42" fill="url(#flowra-gradient)" />
+  <path d="M58 44H126V68H84V86H120V110H84V138H58V44Z" fill="white" />
 </svg>

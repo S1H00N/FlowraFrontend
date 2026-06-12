@@ -449,22 +449,14 @@ export default function AppShell({
         } ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
       >
         <div
-          className={`flex h-16 items-center border-b border-slate-200 transition-all ${
+          className={`flex shrink-0 items-center border-b border-slate-200 transition-all ${
+            fullBleed ? "h-12 min-[600px]:h-16" : "h-14 min-[600px]:h-16"
+          } ${
             showSidebarIconRail
-              ? "px-4 min-[600px]:justify-center min-[600px]:px-0"
-              : "justify-between gap-3 px-4 sm:px-6 lg:px-8"
+              ? "justify-start px-5"
+              : "justify-start gap-3 px-5"
           }`}
         >
-          {!showSidebarIconRail && (
-            <Link to="/" className="flex min-w-0 items-center gap-2">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 text-xs font-bold text-white">
-                T
-              </span>
-              <span className="truncate text-sm font-bold text-slate-700">
-                TodoAI
-              </span>
-            </Link>
-          )}
           <button
             type="button"
             aria-label={headerSidebarLabel}
@@ -481,6 +473,16 @@ export default function AppShell({
           >
             <PanelLeft className="h-4 w-4" />
           </button>
+          {!showSidebarIconRail && (
+            <Link to="/" className="flex min-w-0 items-center gap-2">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 text-xs font-bold text-white">
+                F
+              </span>
+              <span className="truncate text-sm font-bold text-slate-700">
+                Flowra
+              </span>
+            </Link>
+          )}
         </div>
 
         <nav

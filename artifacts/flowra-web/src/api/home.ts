@@ -85,6 +85,13 @@ function numberOr(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+function firstNonBlankString(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
 function recordOr(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -205,8 +212,8 @@ function briefingToHome(raw: RawTodayResponse | undefined): TodayHome {
   const rawSchedules = (data.today_schedules ?? data.schedules) as
     | RawSchedule[]
     | undefined;
-  const rawTasks = (data.priority_tasks ??
-    data.due_today_tasks ??
+  const rawTasks = (data.due_today_tasks ??
+    data.priority_tasks ??
     data.tasks ??
     data.overdue_tasks) as RawTask[] | undefined;
 
@@ -253,7 +260,7 @@ function briefingToHome(raw: RawTodayResponse | undefined): TodayHome {
   return {
     date,
     timezone: data.timezone ?? "Asia/Seoul",
-    briefing_text: data.briefing_text ?? data.ai_summary ?? "",
+    briefing_text: firstNonBlankString(data.briefing_text, data.ai_summary),
     summary: {
       today_schedule_count: todayScheduleCount,
       today_personal_schedule_count: numberOr(

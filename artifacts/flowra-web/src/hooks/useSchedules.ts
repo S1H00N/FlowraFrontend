@@ -198,6 +198,23 @@ function syncCreatedSchedulesToListCaches(
     });
 }
 
+function removeScheduleFromListCaches(
+  queryClient: QueryClient,
+  scheduleId: number,
+) {
+  queryClient
+    .getQueryCache()
+    .findAll({ queryKey: SCHEDULES_QUERY_KEY })
+    .forEach((query) => {
+      const listQuery = scheduleListQueryFromKey(query.queryKey);
+      if (!listQuery) return;
+
+      queryClient.setQueryData<Schedule[]>(query.queryKey, (current) =>
+        current?.filter((schedule) => schedule.schedule_id !== scheduleId),
+      );
+    });
+}
+
 export function useSchedules(query: ScheduleListQuery = {}) {
   return useQuery<Schedule[]>({
     queryKey: schedulesListKey(query),
@@ -383,13 +400,18 @@ export function useUpdateSchedule() {
 
 export function useDeleteSchedule() {
   const invalidate = useInvalidateSchedules();
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (scheduleId: number) => {
       const res = await deleteSchedule(scheduleId);
       if (!res.success) throw new Error(res.message || "삭제에 실패했습니다.");
       return res.data;
     },
-    onSuccess: () => invalidate(),
+    onSuccess: (_data, scheduleId) => {
+      removeScheduleFromListCaches(queryClient, scheduleId);
+      queryClient.removeQueries({ queryKey: scheduleDetailKey(scheduleId) });
+      invalidate();
+    },
     meta: {
       successMessage: "일정이 삭제되었습니다.",
       errorMessage: "일정 삭제에 실패했습니다.",

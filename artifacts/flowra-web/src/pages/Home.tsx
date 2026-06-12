@@ -1,16 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
-  Bot,
-  Check,
-  ClipboardList,
-  Download,
   Flame,
   PanelRight,
   Rocket,
-  RotateCcw,
   Search,
-  Settings,
   Siren,
   Sparkles,
   Timer,
@@ -36,12 +30,10 @@ import type {
   TaskPriority,
 } from "@/types";
 
-type DashboardFilter = "all" | "urgent" | "high" | "done";
+type DashboardFilter = "all" | "urgent" | "high";
 
 type DashboardTask = HomeTask & {
-  done: boolean;
   dueLabel: string;
-  estimate: string;
   overdue: boolean;
   tag: string;
 };
@@ -129,6 +121,15 @@ function streakDayHeight(day: HomeCompletionStreakDay) {
   return 12;
 }
 
+function sortedStreakWeek(days: HomeCompletionStreakDay[]) {
+  return [...days]
+    .sort((left, right) => {
+      if (!left.date || !right.date) return 0;
+      return left.date.localeCompare(right.date);
+    })
+    .slice(0, 7);
+}
+
 const priorityOrder: Record<TaskPriority, number> = {
   urgent: 0,
   high: 1,
@@ -138,31 +139,27 @@ const priorityOrder: Record<TaskPriority, number> = {
 
 const priorityConfig: Record<
   TaskPriority,
-  { label: string; dot: string; text: string; estimate: string }
+  { label: string; dot: string; text: string }
 > = {
   urgent: {
     label: "긴급",
     dot: "bg-rose-500",
     text: "text-rose-500",
-    estimate: "45m",
   },
   high: {
     label: "높음",
     dot: "bg-orange-400",
     text: "text-orange-500",
-    estimate: "2h",
   },
   medium: {
     label: "보통",
     dot: "bg-amber-400",
     text: "text-amber-500",
-    estimate: "1h",
   },
   low: {
     label: "낮음",
     dot: "bg-slate-300",
     text: "text-slate-400",
-    estimate: "3h",
   },
 };
 
@@ -206,8 +203,7 @@ function daysLate(iso?: string | null) {
   );
 }
 
-function formatDueLabel(iso: string | null | undefined, done: boolean) {
-  if (done) return "완료";
+function formatDueLabel(iso: string | null | undefined) {
   if (!iso) return "마감 없음";
 
   const date = new Date(iso);
@@ -265,15 +261,11 @@ function getTag(task: HomeTask, categories: Category[]) {
 function toDashboardTask(
   task: HomeTask,
   categories: Category[],
-  checkedOverrides: Record<number, boolean>,
 ): DashboardTask {
-  const done = checkedOverrides[task.id] ?? task.status === "done";
-  const overdue = !done && isBeforeToday(task.due_datetime);
+  const overdue = isBeforeToday(task.due_datetime);
   return {
     ...task,
-    done,
-    dueLabel: formatDueLabel(task.due_datetime, done),
-    estimate: priorityConfig[task.priority]?.estimate ?? "1h",
+    dueLabel: formatDueLabel(task.due_datetime),
     overdue,
     tag: getTag(task, categories),
   };
@@ -281,7 +273,6 @@ function toDashboardTask(
 
 function sortTasks(tasks: DashboardTask[]) {
   return [...tasks].sort((a, b) => {
-    if (a.done !== b.done) return a.done ? 1 : -1;
     if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
     const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
     if (priorityDiff !== 0) return priorityDiff;
@@ -292,13 +283,9 @@ function sortTasks(tasks: DashboardTask[]) {
 }
 
 function taskMatchesFilter(task: DashboardTask, filter: DashboardFilter) {
-  if (filter === "done") return task.done;
-  if (filter === "urgent")
-    return !task.done && (task.overdue || task.priority === "urgent");
+  if (filter === "urgent") return task.overdue || task.priority === "urgent";
   if (filter === "high") {
-    return (
-      !task.done && (task.priority === "urgent" || task.priority === "high")
-    );
+    return task.priority === "urgent" || task.priority === "high";
   }
   return true;
 }
@@ -341,29 +328,35 @@ function UrgentAlert({
 function AiBriefingCard({
   briefingText,
   focusTime,
-  progress,
-  doneCount,
-  totalCount,
+  dueTodayCount,
+  totalIncompleteCount,
   urgentCount,
   recommendedTask,
 }: {
   briefingText: string;
   focusTime: string;
-  progress: number;
-  doneCount: number;
-  totalCount: number;
+  dueTodayCount: number;
+  totalIncompleteCount: number;
   urgentCount: number;
   recommendedTask?: DashboardTask;
 }) {
-  const focusAdvice =
-    focusTime === "추천 데이터 준비 중"
-      ? "집중하기 좋은 시간대를 확인하면서"
-      : `${focusTime} 집중 시간대에`;
+  const hasFocusTime = focusTime !== "추천 데이터 준비 중";
   const summaryText =
-    briefingText ||
+    briefingText.trim() ||
     (recommendedTask
-      ? `${priorityConfig[recommendedTask.priority].label} 작업 "${recommendedTask.title}"을 먼저 처리해보세요. ${focusAdvice} 가장 부담이 큰 항목부터 정리하는 흐름을 추천합니다.`
-      : "오늘의 할 일을 정리하면 AI가 우선순위와 집중 시간을 함께 제안합니다.");
+      ? `오늘 마감 할 일은 ${dueTodayCount}개입니다. ${priorityConfig[recommendedTask.priority].label} 우선순위인 "${recommendedTask.title}"부터 확인해보세요.`
+      : totalIncompleteCount > 0
+        ? `오늘 마감된 미완료 할 일은 없습니다. 전체 미완료 할 일 ${totalIncompleteCount}개를 확인해보세요.`
+        : "오늘 마감된 미완료 할 일이 없습니다.");
+  const tips = [
+    recommendedTask ? `${recommendedTask.title} 먼저` : null,
+    hasFocusTime ? `${focusTime} 집중 활용` : null,
+    urgentCount > 0
+      ? `긴급 ${urgentCount}개 우선 처리`
+      : dueTodayCount > 0
+        ? "오늘 마감 순서대로 정리"
+        : null,
+  ].filter((tip): tip is string => Boolean(tip));
 
   return (
     <section className="mb-5 overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 via-violet-600 to-indigo-600 shadow-lg shadow-violet-200/50">
@@ -377,17 +370,9 @@ function AiBriefingCard({
                 AI 데일리 브리핑
               </span>
             </div>
-            <span className="text-xs text-white/50">방금 생성됨</span>
-            <button
-              type="button"
-              className="ml-auto inline-flex items-center gap-1 text-xs text-white/50 transition hover:text-white/80"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              다시 생성
-            </button>
           </div>
 
-          <p className="mb-3 text-sm leading-relaxed text-white/95">
+          <p className="mb-3 whitespace-pre-line text-sm leading-relaxed text-white/95">
             {urgentCount > 0 && (
               <span className="mr-1 rounded bg-white/15 px-1.5 py-0.5 font-semibold">
                 긴급 {urgentCount}개
@@ -396,37 +381,27 @@ function AiBriefingCard({
             {summaryText}
           </p>
 
-          <div className="flex flex-wrap gap-2">
-            {[
-              recommendedTask
-                ? `${recommendedTask.title} 먼저`
-                : "우선순위 먼저 정리",
-              focusTime === "추천 데이터 준비 중"
-                ? "집중 시간대 확인"
-                : `${focusTime} 집중 활용`,
-              "이후 개발 작업 진행",
-            ].map((tip) => (
-              <span
-                key={tip}
-                className="rounded-full bg-white/15 px-2.5 py-1 text-xs text-white/85"
-              >
-                {tip}
-              </span>
-            ))}
-          </div>
+          {tips.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {tips.map((tip) => (
+                <span
+                  key={tip}
+                  className="rounded-full bg-white/15 px-2.5 py-1 text-xs text-white/85"
+                >
+                  {tip}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
-      <div className="flex items-center gap-3 bg-black/10 px-5 py-3">
-        <span className="text-xs text-white/60">오늘 진행률</span>
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/15">
-          <div
-            className="h-full rounded-full bg-white/80 transition-all"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-        <span className="text-xs font-semibold text-white">{progress}%</span>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 bg-black/10 px-5 py-3">
+        <span className="text-xs text-white/60">오늘 마감 미완료</span>
+        <span className="text-xs font-semibold text-white">
+          {dueTodayCount}개
+        </span>
         <span className="text-xs text-white/50">
-          ({doneCount}/{totalCount})
+          전체 미완료 {totalIncompleteCount}개
         </span>
       </div>
     </section>
@@ -478,18 +453,17 @@ function StatCard({
 
 function TaskTabs({
   active,
-  urgentCount,
+  attentionCount,
   onChange,
 }: {
   active: DashboardFilter;
-  urgentCount: number;
+  attentionCount: number;
   onChange: (filter: DashboardFilter) => void;
 }) {
   const tabs: Array<{ key: DashboardFilter; label: string }> = [
     { key: "all", label: "전체" },
-    { key: "urgent", label: `긴급 ${urgentCount}` },
+    { key: "urgent", label: `긴급 ${attentionCount}` },
     { key: "high", label: "높은 우선순위" },
-    { key: "done", label: "완료" },
   ];
 
   return (
@@ -528,7 +502,7 @@ function PriorityGroup({
   labelColor: string;
   pulse?: boolean;
   tasks: DashboardTask[];
-  onToggle: (task: DashboardTask, completed: boolean) => void;
+  onToggle: (task: DashboardTask) => void;
 }) {
   if (tasks.length === 0) return null;
 
@@ -560,7 +534,7 @@ function TaskRow({
   onToggle,
 }: {
   task: DashboardTask;
-  onToggle: (task: DashboardTask, completed: boolean) => void;
+  onToggle: (task: DashboardTask) => void;
 }) {
   const priority = priorityConfig[task.priority] ?? priorityConfig.medium;
   const tagClass =
@@ -570,44 +544,28 @@ function TaskRow({
     <div
       className={cn(
         "flex items-center gap-3 border-b border-slate-50 px-4 py-3 transition last:border-0 hover:bg-slate-50",
-        task.done && "opacity-45",
-        task.overdue && !task.done && "bg-rose-50/30",
+        task.overdue && "bg-rose-50/30",
       )}
     >
       <button
         type="button"
-        onClick={() => onToggle(task, !task.done)}
-        aria-label={task.done ? "미완료로 변경" : "완료로 변경"}
-        className={cn(
-          "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300",
-          task.done
-            ? "border-violet-500 bg-violet-500"
-            : "border-slate-300 hover:border-violet-400",
-        )}
-      >
-        {task.done && <Check className="h-3 w-3 text-white" />}
-      </button>
+        onClick={() => onToggle(task)}
+        aria-label="완료로 변경"
+        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-slate-300 transition hover:border-violet-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
+      />
 
       <span className={cn("h-2 w-2 shrink-0 rounded-full", priority.dot)} />
 
       <div className="min-w-0 flex-1">
         <Link
           to={taskLink(task)}
-          className={cn(
-            "block truncate text-sm transition hover:text-violet-600",
-            task.done ? "text-slate-400 line-through" : "text-slate-700",
-          )}
+          className="block truncate text-sm text-slate-700 transition hover:text-violet-600"
         >
           {task.title}
         </Link>
         <div className="mt-0.5 flex items-center gap-2">
           <span className={cn("text-xs font-medium", priority.text)}>
             {priority.label}
-          </span>
-          <span className="text-xs text-slate-200">·</span>
-          <span className="inline-flex items-center gap-1 text-xs text-slate-400">
-            <Timer className="h-3 w-3" />
-            {task.estimate}
           </span>
         </div>
       </div>
@@ -636,7 +594,7 @@ function TaskListPanel({
   filter,
   search,
   tasks,
-  urgentCount,
+  attentionCount,
   onFilterChange,
   onSearchChange,
   onToggle,
@@ -644,10 +602,10 @@ function TaskListPanel({
   filter: DashboardFilter;
   search: string;
   tasks: DashboardTask[];
-  urgentCount: number;
+  attentionCount: number;
   onFilterChange: (filter: DashboardFilter) => void;
   onSearchChange: (value: string) => void;
-  onToggle: (task: DashboardTask, completed: boolean) => void;
+  onToggle: (task: DashboardTask) => void;
 }) {
   const normalizedSearch = search.trim().toLowerCase();
   const searchedTasks = normalizedSearch
@@ -664,10 +622,16 @@ function TaskListPanel({
 
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center gap-3 border-b border-slate-100 px-4 pb-3 pt-4">
+      <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-4 pb-3 pt-4">
+        <div className="mr-1 flex items-baseline gap-2">
+          <h2 className="text-sm font-semibold text-slate-700">
+            오늘 마감 할 일
+          </h2>
+          <span className="text-xs text-slate-400">{tasks.length}개</span>
+        </div>
         <TaskTabs
           active={filter}
-          urgentCount={urgentCount}
+          attentionCount={attentionCount}
           onChange={onFilterChange}
         />
         <label className="relative ml-auto hidden sm:block">
@@ -702,8 +666,7 @@ function TaskListPanel({
             labelColor="text-rose-600"
             pulse
             tasks={searchedTasks.filter(
-              (task) =>
-                !task.done && (task.overdue || task.priority === "urgent"),
+              (task) => task.overdue || task.priority === "urgent",
             )}
             onToggle={onToggle}
           />
@@ -713,7 +676,7 @@ function TaskListPanel({
             headerBg="border-orange-100 bg-orange-50"
             labelColor="text-orange-600"
             tasks={searchedTasks.filter(
-              (task) => !task.done && !task.overdue && task.priority === "high",
+              (task) => !task.overdue && task.priority === "high",
             )}
             onToggle={onToggle}
           />
@@ -724,23 +687,16 @@ function TaskListPanel({
             labelColor="text-slate-400"
             tasks={searchedTasks.filter(
               (task) =>
-                !task.done &&
                 !task.overdue &&
                 (task.priority === "medium" || task.priority === "low"),
             )}
             onToggle={onToggle}
           />
-          <PriorityGroup
-            label="완료"
-            dotColor="bg-emerald-400"
-            headerBg="border-slate-100 bg-slate-50"
-            labelColor="text-slate-400"
-            tasks={searchedTasks.filter((task) => task.done)}
-            onToggle={onToggle}
-          />
           {searchedTasks.length === 0 && (
             <div className="py-10 text-center text-sm text-slate-300">
-              해당하는 항목이 없어요
+              {normalizedSearch
+                ? "검색 결과가 없어요"
+                : "오늘 마감된 미완료 할 일이 없어요"}
             </div>
           )}
         </div>
@@ -828,7 +784,7 @@ function RightAiPanel({
     optimalFocusTime === "추천 데이터 준비 중"
       ? "우선순위가 높은 작업부터 차분히 시작해보세요."
       : `${optimalFocusTime} 집중 시간대를 활용해 우선순위가 높은 작업부터 처리해보세요.`;
-  const week = completionStreak.week.slice(0, 7);
+  const week = sortedStreakWeek(completionStreak.week);
 
   return (
     <aside className="fixed inset-y-0 right-0 z-40 hidden w-[268px] flex-col border-l border-slate-200 bg-white shadow-2xl shadow-slate-900/10 backdrop-blur xl:flex">
@@ -888,14 +844,15 @@ function RightAiPanel({
                 {recommendedTask.title}
               </p>
               <div className="mt-1.5 flex items-center gap-2">
-                <span className="text-xs text-rose-500">
-                  {recommendedTask.overdue
-                    ? recommendedTask.dueLabel
-                    : "우선 처리"}
-                </span>
-                <span className="text-xs text-slate-300">·</span>
-                <span className="text-xs text-slate-400">
-                  {recommendedTask.estimate}
+                <span
+                  className={cn(
+                    "text-xs",
+                    recommendedTask.overdue
+                      ? "text-rose-500"
+                      : "text-slate-400",
+                  )}
+                >
+                  {recommendedTask.dueLabel}
                 </span>
               </div>
             </div>
@@ -918,29 +875,31 @@ function RightAiPanel({
             이번 주 진행 현황
           </p>
           {week.length > 0 ? (
-            <div className="flex h-14 items-end gap-1.5">
+            <div className="grid h-16 grid-cols-7 gap-1.5">
               {week.map((day, index) => (
                 <div
                   key={day.date ?? `${day.status}-${index}`}
-                  className="flex flex-1 flex-col items-center gap-1"
+                  className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-1"
                   title={day.status}
                 >
-                  <div
-                    className={cn(
-                      "w-full rounded-sm",
-                      day.status === "completed" &&
-                        "bg-gradient-to-t from-emerald-500 to-teal-300",
-                      day.status === "missed" && "bg-rose-300",
-                      day.status === "pending" &&
-                        "bg-gradient-to-t from-violet-600 to-indigo-300",
-                      (day.status === "empty" || day.status === "future") &&
-                        "bg-slate-200",
-                    )}
-                    style={{ height: `${streakDayHeight(day)}%` }}
-                  />
+                  <div className="flex min-h-0 items-end">
+                    <div
+                      className={cn(
+                        "w-full rounded-sm",
+                        day.status === "completed" &&
+                          "bg-gradient-to-t from-emerald-500 to-teal-300",
+                        day.status === "missed" && "bg-rose-300",
+                        day.status === "pending" &&
+                          "bg-gradient-to-t from-violet-600 to-indigo-300",
+                        (day.status === "empty" || day.status === "future") &&
+                          "bg-slate-200",
+                      )}
+                      style={{ height: `${streakDayHeight(day)}%` }}
+                    />
+                  </div>
                   <span
                     className={cn(
-                      "text-[9px]",
+                      "text-center text-[9px]",
                       day.status === "pending"
                         ? "font-semibold text-violet-500"
                         : "text-slate-300",
@@ -956,30 +915,6 @@ function RightAiPanel({
               주간 완료 기록을 집계 중입니다.
             </p>
           )}
-        </section>
-
-        <section>
-          <p className="mb-2 text-xs font-semibold text-slate-400">빠른 실행</p>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { icon: Bot, label: "AI 요약", to: "/memos" },
-              { icon: ClipboardList, label: "템플릿", to: "/memos" },
-              { icon: Download, label: "내보내기", to: "/tasks" },
-              { icon: Settings, label: "설정", to: "/settings" },
-            ].map((action) => {
-              const Icon = action.icon;
-              return (
-                <Link
-                  key={action.label}
-                  to={action.to}
-                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  <span className="truncate">{action.label}</span>
-                </Link>
-              );
-            })}
-          </div>
         </section>
       </div>
     </aside>
@@ -1048,32 +983,31 @@ export default function Home() {
   const tasks = useMemo(
     () =>
       sortTasks(
-        rawTasks.map((task) =>
-          toDashboardTask(task, categories, checkedOverrides),
-        ),
+        rawTasks
+          .filter(
+            (task) =>
+              task.status !== "done" && checkedOverrides[task.id] !== true,
+          )
+          .map((task) => toDashboardTask(task, categories)),
       ),
     [categories, checkedOverrides, rawTasks],
   );
 
   const totalCount = tasks.length;
-  const doneCount = tasks.filter((task) => task.done).length;
-  const overdueCount = tasks.filter(
-    (task) => task.overdue && !task.done,
-  ).length;
+  const overdueCount = tasks.filter((task) => task.overdue).length;
   const urgentCount = tasks.filter(
-    (task) => !task.done && task.priority === "urgent",
+    (task) => task.priority === "urgent",
+  ).length;
+  const attentionCount = tasks.filter(
+    (task) => task.overdue || task.priority === "urgent",
   ).length;
   const highCount = tasks.filter(
-    (task) => !task.done && task.priority === "high",
+    (task) => task.priority === "high",
   ).length;
-  const progress =
-    totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
   const recommendedTask =
-    tasks.find(
-      (task) => !task.done && (task.overdue || task.priority === "urgent"),
-    ) ??
-    tasks.find((task) => !task.done && task.priority === "high") ??
-    tasks.find((task) => !task.done);
+    tasks.find((task) => task.overdue || task.priority === "urgent") ??
+    tasks.find((task) => task.priority === "high") ??
+    tasks[0];
   const dateLabel = formatKoreanDate(homeQuery.data?.date);
   const aiInsights = homeQuery.data?.ai_insights ?? {
     optimal_focus_time: {},
@@ -1108,16 +1042,17 @@ export default function Home() {
         : "완료 기록을 시작해보세요";
   const optimalFocusTime = focusTimeLabel(aiInsights.optimal_focus_time);
 
-  const handleToggleTask = (task: DashboardTask, completed: boolean) => {
-    setCheckedOverrides((current) => ({ ...current, [task.id]: completed }));
+  const handleCompleteTask = (task: DashboardTask) => {
+    setCheckedOverrides((current) => ({ ...current, [task.id]: true }));
     setTaskCompletion.mutate(
-      { taskId: task.task_id ?? task.id, completed },
+      { taskId: task.task_id ?? task.id, completed: true },
       {
         onError: () => {
-          setCheckedOverrides((current) => ({
-            ...current,
-            [task.id]: task.done,
-          }));
+          setCheckedOverrides((current) => {
+            const next = { ...current };
+            delete next[task.id];
+            return next;
+          });
         },
       },
     );
@@ -1170,9 +1105,10 @@ export default function Home() {
             <AiBriefingCard
               briefingText={homeQuery.data?.briefing_text ?? ""}
               focusTime={optimalFocusTime}
-              progress={progress}
-              doneCount={doneCount}
-              totalCount={totalCount}
+              dueTodayCount={totalCount}
+              totalIncompleteCount={
+                homeQuery.data?.summary.incomplete_task_count ?? totalCount
+              }
               urgentCount={urgentCount}
               recommendedTask={recommendedTask}
             />
@@ -1195,12 +1131,12 @@ export default function Home() {
                 onClick={() => setFilter("high")}
               />
               <StatCard
-                label="완료"
-                value={doneCount}
-                sub={`전체 ${totalCount}개 중`}
-                accent="text-emerald-600"
+                label="오늘 마감"
+                value={totalCount}
+                sub="미완료 할 일"
+                accent="text-violet-600"
                 tone="border-slate-100 bg-white"
-                onClick={() => setFilter("done")}
+                onClick={() => setFilter("all")}
               />
               <StatCard
                 label="연속 완료"
@@ -1227,10 +1163,10 @@ export default function Home() {
               filter={filter}
               search={search}
               tasks={tasks}
-              urgentCount={urgentCount}
+              attentionCount={attentionCount}
               onFilterChange={setFilter}
               onSearchChange={setSearch}
-              onToggle={handleToggleTask}
+              onToggle={handleCompleteTask}
             />
           </>
         )}
