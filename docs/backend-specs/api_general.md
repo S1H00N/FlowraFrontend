@@ -184,6 +184,7 @@
 | `schedule_type` | `personal` \| `meeting` \| `fieldwork` \| `deadline` \| `other` | 일정 유형 |
 | `priority` | `low` \| `medium` \| `high` \| `urgent` | 우선순위 |
 | `is_completed` | boolean | 완료 여부 |
+| `completed_at` | string \| null | 완료 시각. `is_completed=true` 전환 시 서버가 자동 설정 |
 | `start_datetime` | string | 시작 시각 |
 | `end_datetime` | string \| null | 종료 시각 |
 | `all_day` | boolean | 종일 여부 |
@@ -2722,10 +2723,16 @@ Response data:
 | `summary.today_company_schedule_count` | number | 조직 일정 수 |
 | `summary.today_deadline_schedule_count` | number | 마감 유형 일정 수 |
 | `summary.incomplete_task_count` | number | 전체 미완료 할 일 수 |
+| `summary.current_completion_streak_days` | number | 개인 일정 연속 완료 일수 |
+| `summary.best_completion_streak_days` | number | 최근 집계 기간 내 최고 연속 완료 일수 |
 | `slot_counts.meeting` | number | 회의 일정 수 |
 | `slot_counts.fieldwork` | number | 현장 일정 수 |
 | `slot_counts.deadline` | number | 마감 일정 수 |
 | `slot_counts.other` | number | 기타 일정 수 |
+| `ai_insights.optimal_focus_time` | object | 최근 완료 패턴 기반 추천 집중 시간대 |
+| `ai_insights.weekly_completion_rate` | object | 이번 주 일정+마감 할 일 완료율 |
+| `ai_insights.schedule_density` | object | 오늘 근무 시간대 일정 점유율 |
+| `completion_streak` | object | 개인 일정 연속 완료 상세 |
 | `today_schedules` | object[] | 오늘 개인 일정 |
 | `organization_schedules` | object[] | 오늘 조직 일정 |
 | `due_today_tasks` | object[] | 오늘 마감 미완료 할 일 |
@@ -2744,6 +2751,28 @@ Response data:
 - `category_id`
 - `priority`
 - `is_completed`
+- `completed_at`
+
+`ai_insights.schedule_density` 항목:
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `percent` | number | 09:00-19:00 기준 일정 점유율 |
+| `level` | `low` \| `medium` \| `high` \| `overloaded` | 밀도 단계 |
+| `busy_minutes` | number | 겹침을 병합한 예약 분 |
+| `available_minutes` | number | 기준 가용 분 |
+| `scheduled_hours` | number | 예약 시간 |
+| `peak_time_label` | string \| null | 가장 일정이 몰린 시간대 |
+
+`completion_streak` 항목:
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `days` | number | 현재 연속 완료 일수 |
+| `current_days` | number | 현재 연속 완료 일수 |
+| `best_days` | number | 최근 180일 내 최고 연속 완료 일수 |
+| `source` | string | `schedule_completed_at` |
+| `week` | object[] | 이번 주 날짜별 `completed`/`missed`/`pending`/`empty`/`future` 상태 |
 
 `organization_schedules[]` 항목:
 
@@ -2782,6 +2811,7 @@ Response data:
 
 - 개인 일정은 완료되지 않은 일정만 `summary.today_personal_schedule_count`와 포커스 계산에 포함됩니다.
 - `today_schedules` 배열 자체에는 오늘 개인 일정 전체가 내려옵니다.
+- 연속 완료는 개인 일정 기준이며, 일정 시작일의 하루가 끝나기 전 `completed_at`이 기록된 경우 완료일로 계산합니다.
 - `briefing_text`는 AI 생성 문구가 우선 사용됩니다.
 - AI 호출 실패 또는 검증 실패 시 서버 기본 문구로 fallback 됩니다.
 - 같은 사용자/날짜/타임존에서 홈 데이터가 동일하면 기존 생성 문구를 캐시 재사용합니다.

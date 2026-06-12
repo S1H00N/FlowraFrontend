@@ -1,15 +1,5 @@
 /* eslint-disable no-undef */
 
-const firebaseConfig = {
-  apiKey: "AIzaSyBm6KU8wNC3kijFEs0GAlrEmZgHbrA0bEM",
-  authDomain: "flowra-e9469.firebaseapp.com",
-  projectId: "flowra-e9469",
-  storageBucket: "flowra-e9469.firebasestorage.app",
-  messagingSenderId: "142533994136",
-  appId: "1:142533994136:web:eae7838391909d438492ed",
-  measurementId: "G-E5GZMJXNB5",
-};
-
 function getAppBaseUrl() {
   return self.registration.scope || `${self.location.origin}/`;
 }
@@ -84,7 +74,14 @@ self.addEventListener("notificationclick", (event) => {
 importScripts("https://www.gstatic.com/firebasejs/12.14.0/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/12.14.0/firebase-messaging-compat.js");
 
-try {
+async function initializeFirebaseMessaging() {
+  const configUrl = new URL("firebase-config.json", getAppBaseUrl());
+  const response = await fetch(configUrl, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Failed to load Firebase config: ${response.status}`);
+  }
+
+  const firebaseConfig = await response.json();
   firebase.initializeApp(firebaseConfig);
   const messaging = firebase.messaging();
 
@@ -115,6 +112,8 @@ try {
       data: { url },
     });
   });
-} catch (error) {
-  console.error("[firebase-messaging-sw.js] Firebase Messaging setup failed:", error);
 }
+
+initializeFirebaseMessaging().catch((error) => {
+  console.error("[firebase-messaging-sw.js] Firebase Messaging setup failed:", error);
+});

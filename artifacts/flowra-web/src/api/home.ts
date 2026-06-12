@@ -3,8 +3,14 @@ import type {
   ApiResponse,
   BriefingSchedule,
   BriefingTask,
+  HomeAiInsights,
+  HomeCompletionStreak,
+  HomeCompletionStreakDay,
+  HomeCompletionStreakStatus,
   HomeOrganizationSchedule,
   HomeSchedule,
+  HomeScheduleDensity,
+  HomeScheduleDensityLevel,
   HomeSummary,
   HomeTask,
   HomeTodayQuery,
@@ -22,7 +28,20 @@ type RawHomeSummary = Partial<HomeSummary> & {
   task_count?: number;
 };
 
-type RawTodayResponse = Partial<TodayHome> & {
+type RawAiInsights = {
+  optimal_focus_time?: unknown;
+  weekly_completion_rate?: unknown;
+  schedule_density?: Partial<HomeScheduleDensity>;
+};
+
+type RawCompletionStreak = Partial<HomeCompletionStreak> & {
+  week?: unknown[];
+};
+
+type RawTodayResponse = Omit<
+  Partial<TodayHome>,
+  "summary" | "ai_insights" | "completion_streak"
+> & {
   schedules?: RawSchedule[];
   company_schedules?: HomeOrganizationSchedule[];
   tasks?: RawTask[];
@@ -31,6 +50,8 @@ type RawTodayResponse = Partial<TodayHome> & {
   unfinished_tasks?: number;
   ai_summary?: string;
   summary?: RawHomeSummary;
+  ai_insights?: RawAiInsights;
+  completion_streak?: RawCompletionStreak;
 };
 
 const scheduleTypes: ScheduleType[] = [
@@ -42,6 +63,19 @@ const scheduleTypes: ScheduleType[] = [
 ];
 const priorities: TaskPriority[] = ["low", "medium", "high", "urgent"];
 const statuses: TaskStatus[] = ["todo", "in_progress", "done", "postponed"];
+const densityLevels: HomeScheduleDensityLevel[] = [
+  "low",
+  "medium",
+  "high",
+  "overloaded",
+];
+const streakStatuses: HomeCompletionStreakStatus[] = [
+  "completed",
+  "missed",
+  "pending",
+  "empty",
+  "future",
+];
 
 function list<T>(value: T[] | undefined | null): T[] {
   return Array.isArray(value) ? value : [];
@@ -49,6 +83,58 @@ function list<T>(value: T[] | undefined | null): T[] {
 
 function numberOr(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function recordOr(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function densityLevelOr(value: unknown): HomeScheduleDensityLevel {
+  return densityLevels.includes(value as HomeScheduleDensityLevel)
+    ? (value as HomeScheduleDensityLevel)
+    : "low";
+}
+
+function streakStatusOr(value: unknown): HomeCompletionStreakStatus {
+  return streakStatuses.includes(value as HomeCompletionStreakStatus)
+    ? (value as HomeCompletionStreakStatus)
+    : "empty";
+}
+
+function normalizeScheduleDensity(
+  value: Partial<HomeScheduleDensity> | undefined,
+): HomeScheduleDensity {
+  return {
+    percent: numberOr(value?.percent, 0),
+    level: densityLevelOr(value?.level),
+    busy_minutes: numberOr(value?.busy_minutes, 0),
+    available_minutes: numberOr(value?.available_minutes, 0),
+    scheduled_hours: numberOr(value?.scheduled_hours, 0),
+    peak_time_label:
+      typeof value?.peak_time_label === "string" ? value.peak_time_label : null,
+  };
+}
+
+function normalizeStreakDay(value: unknown): HomeCompletionStreakDay {
+  const day = recordOr(value);
+  return {
+    ...day,
+    date:
+      typeof day.date === "string"
+        ? day.date
+        : typeof day.day_date === "string"
+          ? day.day_date
+          : undefined,
+    label:
+      typeof day.label === "string"
+        ? day.label
+        : typeof day.day_label === "string"
+          ? day.day_label
+          : undefined,
+    status: streakStatusOr(day.status ?? day.state),
+  };
 }
 
 function scheduleTypeOr(value: unknown): ScheduleType {
@@ -64,7 +150,9 @@ function priorityOr(value: unknown): TaskPriority {
 }
 
 function statusOr(value: unknown): TaskStatus {
-  return statuses.includes(value as TaskStatus) ? (value as TaskStatus) : "todo";
+  return statuses.includes(value as TaskStatus)
+    ? (value as TaskStatus)
+    : "todo";
 }
 
 function fallbackDate(date?: string) {
@@ -90,6 +178,7 @@ function toHomeSchedule(
     category_id: schedule.category_id,
     priority: schedule.priority,
     is_completed: schedule.is_completed,
+    completed_at: schedule.completed_at,
   };
 }
 
@@ -121,8 +210,8 @@ function briefingToHome(raw: RawTodayResponse | undefined): TodayHome {
     data.tasks ??
     data.overdue_tasks) as RawTask[] | undefined;
 
-  const schedules = list(rawSchedules).map(
-    (schedule, index) => toHomeSchedule(schedule, index, date),
+  const schedules = list(rawSchedules).map((schedule, index) =>
+    toHomeSchedule(schedule, index, date),
   );
   const organizationSchedules = list(
     data.organization_schedules ?? data.company_schedules,
@@ -135,6 +224,31 @@ function briefingToHome(raw: RawTodayResponse | undefined): TodayHome {
       summary.schedule_count,
     schedules.length + organizationSchedules.length,
   );
+  const rawCompletionStreak = data.completion_streak ?? {};
+  const currentStreakDays = numberOr(
+    summary.current_completion_streak_days,
+    numberOr(rawCompletionStreak.current_days ?? rawCompletionStreak.days, 0),
+  );
+  const bestStreakDays = numberOr(
+    summary.best_completion_streak_days,
+    numberOr(rawCompletionStreak.best_days, currentStreakDays),
+  );
+  const completionStreak: HomeCompletionStreak = {
+    days: numberOr(rawCompletionStreak.days, currentStreakDays),
+    current_days: numberOr(rawCompletionStreak.current_days, currentStreakDays),
+    best_days: numberOr(rawCompletionStreak.best_days, bestStreakDays),
+    source:
+      typeof rawCompletionStreak.source === "string"
+        ? rawCompletionStreak.source
+        : "schedule_completed_at",
+    week: list(rawCompletionStreak.week).map(normalizeStreakDay),
+  };
+  const rawAiInsights = data.ai_insights ?? {};
+  const aiInsights: HomeAiInsights = {
+    optimal_focus_time: recordOr(rawAiInsights.optimal_focus_time),
+    weekly_completion_rate: recordOr(rawAiInsights.weekly_completion_rate),
+    schedule_density: normalizeScheduleDensity(rawAiInsights.schedule_density),
+  };
 
   return {
     date,
@@ -155,9 +269,13 @@ function briefingToHome(raw: RawTodayResponse | undefined): TodayHome {
         0,
       ),
       incomplete_task_count: numberOr(
-        summary.incomplete_task_count ?? data.unfinished_tasks ?? summary.task_count,
+        summary.incomplete_task_count ??
+          data.unfinished_tasks ??
+          summary.task_count,
         tasks.length,
       ),
+      current_completion_streak_days: currentStreakDays,
+      best_completion_streak_days: bestStreakDays,
     },
     slot_counts: data.slot_counts ?? {
       meeting: 0,
@@ -165,6 +283,8 @@ function briefingToHome(raw: RawTodayResponse | undefined): TodayHome {
       deadline: 0,
       other: 0,
     },
+    ai_insights: aiInsights,
+    completion_streak: completionStreak,
     today_schedules: schedules,
     organization_schedules: organizationSchedules,
     due_today_tasks: tasks,

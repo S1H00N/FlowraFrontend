@@ -51,6 +51,7 @@ export interface Schedule {
   schedule_type: ScheduleType;
   priority?: "low" | "medium" | "high" | "urgent";
   is_completed?: boolean;
+  completed_at?: string | null;
   start_datetime: string;
   end_datetime?: string | null;
   all_day: boolean;

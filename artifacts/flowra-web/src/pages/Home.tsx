@@ -6,8 +6,7 @@ import {
   ClipboardList,
   Download,
   Flame,
-  PanelRightClose,
-  PanelRightOpen,
+  PanelRight,
   Rocket,
   RotateCcw,
   Search,
@@ -27,7 +26,15 @@ import { useTodayHome } from "@/hooks/useTodayHome";
 import ErrorState from "@/components/ui/ErrorState";
 import Spinner from "@/components/ui/Spinner";
 import { cn } from "@/lib/utils";
-import type { Category, HomeTask, TaskPriority } from "@/types";
+import type {
+  Category,
+  HomeAiInsights,
+  HomeCompletionStreak,
+  HomeCompletionStreakDay,
+  HomeInsightData,
+  HomeTask,
+  TaskPriority,
+} from "@/types";
 
 type DashboardFilter = "all" | "urgent" | "high" | "done";
 
@@ -38,6 +45,89 @@ type DashboardTask = HomeTask & {
   overdue: boolean;
   tag: string;
 };
+
+const weekDayLabels = ["월", "화", "수", "목", "금", "토", "일"];
+
+function insightString(insight: HomeInsightData, keys: string[]) {
+  for (const key of keys) {
+    const value = insight[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function insightNumber(insight: HomeInsightData, keys: string[]) {
+  for (const key of keys) {
+    const value = insight[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+function clampPercent(value: number) {
+  return Math.min(100, Math.max(0, Math.round(value)));
+}
+
+function insightPercent(
+  insight: HomeInsightData,
+  percentKeys: string[],
+  ratioKeys: string[],
+) {
+  const percent = insightNumber(insight, percentKeys);
+  if (percent !== null) return clampPercent(percent);
+  const ratio = insightNumber(insight, ratioKeys);
+  return ratio === null ? 0 : clampPercent(ratio * 100);
+}
+
+function formatHour(value: number) {
+  const hour = Math.min(23, Math.max(0, Math.round(value)));
+  return `${String(hour).padStart(2, "0")}:00`;
+}
+
+function focusTimeLabel(insight: HomeInsightData) {
+  const label = insightString(insight, [
+    "label",
+    "time_label",
+    "time_range",
+    "recommended_time",
+    "value",
+  ]);
+  if (label) return label;
+
+  const start = insightString(insight, ["start_time", "start"]);
+  const end = insightString(insight, ["end_time", "end"]);
+  if (start && end) return `${start}-${end}`;
+
+  const startHour = insightNumber(insight, ["start_hour"]);
+  const endHour = insightNumber(insight, ["end_hour"]);
+  if (startHour !== null && endHour !== null) {
+    return `${formatHour(startHour)}-${formatHour(endHour)}`;
+  }
+
+  return "추천 데이터 준비 중";
+}
+
+function streakDayLabel(day: HomeCompletionStreakDay, index: number) {
+  if (day.label) return day.label;
+  if (day.date) {
+    const date = new Date(
+      day.date.includes("T") ? day.date : `${day.date}T00:00:00`,
+    );
+    if (!Number.isNaN(date.getTime())) {
+      return date
+        .toLocaleDateString("ko-KR", { weekday: "short" })
+        .replace("요일", "");
+    }
+  }
+  return weekDayLabels[index] ?? String(index + 1);
+}
+
+function streakDayHeight(day: HomeCompletionStreakDay) {
+  if (day.status === "completed") return 100;
+  if (day.status === "pending") return 55;
+  if (day.status === "missed") return 28;
+  return 12;
+}
 
 const priorityOrder: Record<TaskPriority, number> = {
   urgent: 0,
@@ -161,7 +251,8 @@ function formatKoreanDate(input?: string) {
 
 function categoryName(categories: Category[], categoryId?: number | null) {
   if (!categoryId) return null;
-  return categories.find((category) => category.category_id === categoryId)?.name;
+  return categories.find((category) => category.category_id === categoryId)
+    ?.name;
 }
 
 function getTag(task: HomeTask, categories: Category[]) {
@@ -202,9 +293,12 @@ function sortTasks(tasks: DashboardTask[]) {
 
 function taskMatchesFilter(task: DashboardTask, filter: DashboardFilter) {
   if (filter === "done") return task.done;
-  if (filter === "urgent") return !task.done && (task.overdue || task.priority === "urgent");
+  if (filter === "urgent")
+    return !task.done && (task.overdue || task.priority === "urgent");
   if (filter === "high") {
-    return !task.done && (task.priority === "urgent" || task.priority === "high");
+    return (
+      !task.done && (task.priority === "urgent" || task.priority === "high")
+    );
   }
   return true;
 }
@@ -246,6 +340,7 @@ function UrgentAlert({
 
 function AiBriefingCard({
   briefingText,
+  focusTime,
   progress,
   doneCount,
   totalCount,
@@ -253,16 +348,21 @@ function AiBriefingCard({
   recommendedTask,
 }: {
   briefingText: string;
+  focusTime: string;
   progress: number;
   doneCount: number;
   totalCount: number;
   urgentCount: number;
   recommendedTask?: DashboardTask;
 }) {
+  const focusAdvice =
+    focusTime === "추천 데이터 준비 중"
+      ? "집중하기 좋은 시간대를 확인하면서"
+      : `${focusTime} 집중 시간대에`;
   const summaryText =
     briefingText ||
     (recommendedTask
-      ? `${priorityConfig[recommendedTask.priority].label} 작업 "${recommendedTask.title}"을 먼저 처리해보세요. 오전 집중 시간대에는 가장 부담이 큰 항목부터 정리하는 흐름을 추천합니다.`
+      ? `${priorityConfig[recommendedTask.priority].label} 작업 "${recommendedTask.title}"을 먼저 처리해보세요. ${focusAdvice} 가장 부담이 큰 항목부터 정리하는 흐름을 추천합니다.`
       : "오늘의 할 일을 정리하면 AI가 우선순위와 집중 시간을 함께 제안합니다.");
 
   return (
@@ -301,7 +401,9 @@ function AiBriefingCard({
               recommendedTask
                 ? `${recommendedTask.title} 먼저`
                 : "우선순위 먼저 정리",
-              "오전 집중 시간 활용",
+              focusTime === "추천 데이터 준비 중"
+                ? "집중 시간대 확인"
+                : `${focusTime} 집중 활용`,
               "이후 개발 작업 진행",
             ].map((tip) => (
               <span
@@ -432,8 +534,16 @@ function PriorityGroup({
 
   return (
     <div>
-      <div className={cn("flex items-center gap-2 border-b px-4 py-2", headerBg)}>
-        <span className={cn("h-2 w-2 rounded-full", dotColor, pulse && "animate-pulse")} />
+      <div
+        className={cn("flex items-center gap-2 border-b px-4 py-2", headerBg)}
+      >
+        <span
+          className={cn(
+            "h-2 w-2 rounded-full",
+            dotColor,
+            pulse && "animate-pulse",
+          )}
+        />
         <span className={cn("text-xs font-semibold uppercase", labelColor)}>
           {label}
         </span>
@@ -485,9 +595,7 @@ function TaskRow({
           to={taskLink(task)}
           className={cn(
             "block truncate text-sm transition hover:text-violet-600",
-            task.done
-              ? "text-slate-400 line-through"
-              : "text-slate-700",
+            task.done ? "text-slate-400 line-through" : "text-slate-700",
           )}
         >
           {task.title}
@@ -594,7 +702,8 @@ function TaskListPanel({
             labelColor="text-rose-600"
             pulse
             tasks={searchedTasks.filter(
-              (task) => !task.done && (task.overdue || task.priority === "urgent"),
+              (task) =>
+                !task.done && (task.overdue || task.priority === "urgent"),
             )}
             onToggle={onToggle}
           />
@@ -687,42 +796,44 @@ function InsightCard({
 
 function RightAiPanel({
   open,
-  progress,
+  aiInsights,
+  completionStreak,
   recommendedTask,
-  onToggle,
 }: {
   open: boolean;
-  progress: number;
+  aiInsights: HomeAiInsights;
+  completionStreak: HomeCompletionStreak;
   recommendedTask?: DashboardTask;
-  onToggle: () => void;
 }) {
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-label="AI 패널 열기"
-        title="AI 패널 열기"
-        className="fixed right-0 top-20 z-40 hidden h-11 w-6 items-center justify-center rounded-l-lg border border-r-0 border-slate-200 bg-white text-slate-500 shadow-lg shadow-slate-900/10 transition-colors hover:text-violet-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 xl:flex xl:top-1/2 xl:-translate-y-1/2"
-      >
-        <PanelRightOpen className="h-4 w-4" />
-      </button>
-    );
-  }
+  if (!open) return null;
+
+  const optimalFocusTime = focusTimeLabel(aiInsights.optimal_focus_time);
+  const focusConfidence = insightPercent(
+    aiInsights.optimal_focus_time,
+    ["confidence_percent", "score_percent", "percent"],
+    ["confidence", "score"],
+  );
+  const weeklyCompletionPercent = insightPercent(
+    aiInsights.weekly_completion_rate,
+    ["percent", "percentage", "completion_percent"],
+    ["rate", "completion_rate"],
+  );
+  const hasWeeklyCompletion =
+    Object.keys(aiInsights.weekly_completion_rate).length > 0;
+  const density = aiInsights.schedule_density;
+  const densityValue = density.peak_time_label
+    ? `${density.percent}% · ${density.peak_time_label}`
+    : `${density.percent}%`;
+  const focusPrompt =
+    optimalFocusTime === "추천 데이터 준비 중"
+      ? "우선순위가 높은 작업부터 차분히 시작해보세요."
+      : `${optimalFocusTime} 집중 시간대를 활용해 우선순위가 높은 작업부터 처리해보세요.`;
+  const week = completionStreak.week.slice(0, 7);
 
   return (
     <aside className="fixed inset-y-0 right-0 z-40 hidden w-[268px] flex-col border-l border-slate-200 bg-white shadow-2xl shadow-slate-900/10 backdrop-blur xl:flex">
-      <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-4">
+      <div className="flex h-16 shrink-0 items-center border-b border-slate-200 px-4">
         <span className="text-xs font-semibold text-slate-500">AI 패널</span>
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-label="AI 패널 접기"
-          title="AI 패널 접기"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
-        >
-          <PanelRightClose className="h-4 w-4" />
-        </button>
       </div>
 
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
@@ -737,22 +848,24 @@ function RightAiPanel({
             <InsightCard
               icon={<Zap className="h-4 w-4" />}
               label="최적 집중 시간"
-              value="오전 9-11시"
-              bar={85}
+              value={optimalFocusTime}
+              bar={focusConfidence}
               gradient="from-violet-400 to-indigo-400"
             />
             <InsightCard
               icon={<TrendingUp className="h-4 w-4" />}
               label="이번 주 완료율"
-              value={`${Math.max(progress, 1)}%`}
-              bar={Math.max(progress, 8)}
+              value={
+                hasWeeklyCompletion ? `${weeklyCompletionPercent}%` : "집계 중"
+              }
+              bar={weeklyCompletionPercent}
               gradient="from-emerald-400 to-teal-400"
             />
             <InsightCard
               icon={<Timer className="h-4 w-4" />}
-              label="평균 작업 시간"
-              value="1.8시간"
-              bar={60}
+              label="오늘 일정 밀도"
+              value={densityValue}
+              bar={clampPercent(density.percent)}
               gradient="from-amber-400 to-orange-400"
             />
           </div>
@@ -764,7 +877,7 @@ function RightAiPanel({
             지금 시작하기 좋아요
           </p>
           <p className="mb-3 text-xs leading-relaxed text-slate-500">
-            오전 집중 시간대예요. 긴급 작업을 먼저 처리하세요.
+            {focusPrompt}
           </p>
           {recommendedTask ? (
             <div className="mb-3 rounded-xl border border-violet-100 bg-white p-3 shadow-sm">
@@ -776,7 +889,9 @@ function RightAiPanel({
               </p>
               <div className="mt-1.5 flex items-center gap-2">
                 <span className="text-xs text-rose-500">
-                  {recommendedTask.overdue ? recommendedTask.dueLabel : "우선 처리"}
+                  {recommendedTask.overdue
+                    ? recommendedTask.dueLabel
+                    : "우선 처리"}
                 </span>
                 <span className="text-xs text-slate-300">·</span>
                 <span className="text-xs text-slate-400">
@@ -802,40 +917,45 @@ function RightAiPanel({
           <p className="mb-3 text-xs font-semibold text-slate-400">
             이번 주 진행 현황
           </p>
-          <div className="flex h-14 items-end gap-1.5">
-            {[
-              { h: 40, label: "월" },
-              { h: 65, label: "화" },
-              { h: 30, label: "수" },
-              { h: 80, label: "목" },
-              { h: 55, label: "금" },
-              { h: 74, label: "토" },
-              { h: Math.max(progress, 12), label: "오늘" },
-            ].map((bar, index) => (
-              <div key={bar.label} className="flex flex-1 flex-col items-center gap-1">
+          {week.length > 0 ? (
+            <div className="flex h-14 items-end gap-1.5">
+              {week.map((day, index) => (
                 <div
-                  className="w-full rounded-sm"
-                  style={{
-                    height: `${bar.h}%`,
-                    background:
-                      index === 6
-                        ? "linear-gradient(to top,#7c3aed,#818cf8)"
-                        : "var(--flowra-border-strong)",
-                  }}
-                />
-                <span
-                  className={cn(
-                    "text-[9px]",
-                    index === 6
-                      ? "font-semibold text-violet-500"
-                      : "text-slate-300",
-                  )}
+                  key={day.date ?? `${day.status}-${index}`}
+                  className="flex flex-1 flex-col items-center gap-1"
+                  title={day.status}
                 >
-                  {bar.label}
-                </span>
-              </div>
-            ))}
-          </div>
+                  <div
+                    className={cn(
+                      "w-full rounded-sm",
+                      day.status === "completed" &&
+                        "bg-gradient-to-t from-emerald-500 to-teal-300",
+                      day.status === "missed" && "bg-rose-300",
+                      day.status === "pending" &&
+                        "bg-gradient-to-t from-violet-600 to-indigo-300",
+                      (day.status === "empty" || day.status === "future") &&
+                        "bg-slate-200",
+                    )}
+                    style={{ height: `${streakDayHeight(day)}%` }}
+                  />
+                  <span
+                    className={cn(
+                      "text-[9px]",
+                      day.status === "pending"
+                        ? "font-semibold text-violet-500"
+                        : "text-slate-300",
+                    )}
+                  >
+                    {streakDayLabel(day, index)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="py-3 text-center text-xs text-slate-300">
+              주간 완료 기록을 집계 중입니다.
+            </p>
+          )}
         </section>
 
         <section>
@@ -895,9 +1015,9 @@ export default function Home() {
   });
   const [filter, setFilter] = useState<DashboardFilter>("all");
   const [search, setSearch] = useState("");
-  const [checkedOverrides, setCheckedOverrides] = useState<Record<number, boolean>>(
-    {},
-  );
+  const [checkedOverrides, setCheckedOverrides] = useState<
+    Record<number, boolean>
+  >({});
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(min-width: 1280px)");
@@ -937,7 +1057,9 @@ export default function Home() {
 
   const totalCount = tasks.length;
   const doneCount = tasks.filter((task) => task.done).length;
-  const overdueCount = tasks.filter((task) => task.overdue && !task.done).length;
+  const overdueCount = tasks.filter(
+    (task) => task.overdue && !task.done,
+  ).length;
   const urgentCount = tasks.filter(
     (task) => !task.done && task.priority === "urgent",
   ).length;
@@ -947,10 +1069,44 @@ export default function Home() {
   const progress =
     totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
   const recommendedTask =
-    tasks.find((task) => !task.done && (task.overdue || task.priority === "urgent")) ??
+    tasks.find(
+      (task) => !task.done && (task.overdue || task.priority === "urgent"),
+    ) ??
     tasks.find((task) => !task.done && task.priority === "high") ??
     tasks.find((task) => !task.done);
   const dateLabel = formatKoreanDate(homeQuery.data?.date);
+  const aiInsights = homeQuery.data?.ai_insights ?? {
+    optimal_focus_time: {},
+    weekly_completion_rate: {},
+    schedule_density: {
+      percent: 0,
+      level: "low" as const,
+      busy_minutes: 0,
+      available_minutes: 0,
+      scheduled_hours: 0,
+      peak_time_label: null,
+    },
+  };
+  const completionStreak = homeQuery.data?.completion_streak ?? {
+    days: 0,
+    current_days: 0,
+    best_days: 0,
+    source: "schedule_completed_at",
+    week: [],
+  };
+  const currentStreakDays =
+    homeQuery.data?.summary.current_completion_streak_days ??
+    completionStreak.current_days;
+  const bestStreakDays =
+    homeQuery.data?.summary.best_completion_streak_days ??
+    completionStreak.best_days;
+  const streakSubLabel =
+    currentStreakDays > 0 && currentStreakDays >= bestStreakDays
+      ? "최고 기록 유지 중"
+      : bestStreakDays > 0
+        ? `최고 ${bestStreakDays}일`
+        : "완료 기록을 시작해보세요";
+  const optimalFocusTime = focusTimeLabel(aiInsights.optimal_focus_time);
 
   const handleToggleTask = (task: DashboardTask, completed: boolean) => {
     setCheckedOverrides((current) => ({ ...current, [task.id]: completed }));
@@ -967,7 +1123,13 @@ export default function Home() {
     );
   };
 
-  const rightPanelOffset = isXlUp && rightOpen ? "268px" : "0px";
+  const rightPanelVisible = isXlUp && rightOpen;
+  const rightPanelOffset = rightPanelVisible ? "268px" : "0px";
+  const headerRightOffset = rightPanelVisible
+    ? "268px"
+    : isXlUp
+      ? "44px"
+      : "0px";
   return (
     <AppShell
       wide
@@ -980,7 +1142,7 @@ export default function Home() {
         </div>
       }
       aiChatButtonOffset={rightPanelOffset}
-      headerRightOffset={rightPanelOffset}
+      headerRightOffset={headerRightOffset}
     >
       <div
         className={cn(
@@ -989,95 +1151,106 @@ export default function Home() {
         )}
       >
         {homeQuery.isLoading ? (
-            <LoadingDashboard />
-          ) : homeQuery.isError ? (
-            <ErrorState
-              title="홈 대시보드를 불러오지 못했습니다"
-              message={(homeQuery.error as Error).message}
-              onRetry={() => homeQuery.refetch()}
-              retrying={homeQuery.isFetching}
+          <LoadingDashboard />
+        ) : homeQuery.isError ? (
+          <ErrorState
+            title="홈 대시보드를 불러오지 못했습니다"
+            message={(homeQuery.error as Error).message}
+            onRetry={() => homeQuery.refetch()}
+            retrying={homeQuery.isFetching}
+          />
+        ) : (
+          <>
+            <UrgentAlert
+              overdueCount={overdueCount}
+              urgentCount={urgentCount}
+              onView={() => setFilter("urgent")}
             />
-          ) : (
-            <>
-              <UrgentAlert
-                overdueCount={overdueCount}
-                urgentCount={urgentCount}
-                onView={() => setFilter("urgent")}
+
+            <AiBriefingCard
+              briefingText={homeQuery.data?.briefing_text ?? ""}
+              focusTime={optimalFocusTime}
+              progress={progress}
+              doneCount={doneCount}
+              totalCount={totalCount}
+              urgentCount={urgentCount}
+              recommendedTask={recommendedTask}
+            />
+
+            <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <StatCard
+                label="긴급"
+                value={urgentCount}
+                sub="즉시 처리"
+                accent="text-rose-600"
+                tone="border-rose-100 bg-rose-50"
+                onClick={() => setFilter("urgent")}
               />
-
-              <AiBriefingCard
-                briefingText={homeQuery.data?.briefing_text ?? ""}
-                progress={progress}
-                doneCount={doneCount}
-                totalCount={totalCount}
-                urgentCount={urgentCount}
-                recommendedTask={recommendedTask}
+              <StatCard
+                label="높은 우선순위"
+                value={highCount}
+                sub="오늘 내 완료"
+                accent="text-orange-600"
+                tone="border-orange-100 bg-orange-50"
+                onClick={() => setFilter("high")}
               />
-
-              <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <StatCard
-                  label="긴급"
-                  value={urgentCount}
-                  sub="즉시 처리"
-                  accent="text-rose-600"
-                  tone="border-rose-100 bg-rose-50"
-                  onClick={() => setFilter("urgent")}
-                />
-                <StatCard
-                  label="높은 우선순위"
-                  value={highCount}
-                  sub="오늘 내 완료"
-                  accent="text-orange-600"
-                  tone="border-orange-100 bg-orange-50"
-                  onClick={() => setFilter("high")}
-                />
-                <StatCard
-                  label="완료"
-                  value={doneCount}
-                  sub={`전체 ${totalCount}개 중`}
-                  accent="text-emerald-600"
-                  tone="border-slate-100 bg-white"
-                  onClick={() => setFilter("done")}
-                />
-                <StatCard
-                  label="연속 완료"
-                  value={
-                    <span className="inline-flex items-center gap-1">
-                      6일 <Flame className="h-5 w-5 text-orange-500" />
-                    </span>
-                  }
-                  sub="최고 기록 중"
-                  accent="text-amber-600"
-                  tone="border-slate-100 bg-white"
-                />
-              </section>
-
-              {setTaskCompletion.isPending && (
-                <div className="mb-3 flex items-center gap-2 text-xs font-medium text-slate-400">
-                  <Spinner size="xs" />
-                  완료 상태를 저장하는 중...
-                </div>
-              )}
-
-              <TaskListPanel
-                filter={filter}
-                search={search}
-                tasks={tasks}
-                urgentCount={urgentCount}
-                onFilterChange={setFilter}
-                onSearchChange={setSearch}
-                onToggle={handleToggleTask}
+              <StatCard
+                label="완료"
+                value={doneCount}
+                sub={`전체 ${totalCount}개 중`}
+                accent="text-emerald-600"
+                tone="border-slate-100 bg-white"
+                onClick={() => setFilter("done")}
               />
-            </>
-          )}
+              <StatCard
+                label="연속 완료"
+                value={
+                  <span className="inline-flex items-center gap-1">
+                    {currentStreakDays}일{" "}
+                    <Flame className="h-5 w-5 text-orange-500" />
+                  </span>
+                }
+                sub={streakSubLabel}
+                accent="text-amber-600"
+                tone="border-slate-100 bg-white"
+              />
+            </section>
+
+            {setTaskCompletion.isPending && (
+              <div className="mb-3 flex items-center gap-2 text-xs font-medium text-slate-400">
+                <Spinner size="xs" />
+                완료 상태를 저장하는 중...
+              </div>
+            )}
+
+            <TaskListPanel
+              filter={filter}
+              search={search}
+              tasks={tasks}
+              urgentCount={urgentCount}
+              onFilterChange={setFilter}
+              onSearchChange={setSearch}
+              onToggle={handleToggleTask}
+            />
+          </>
+        )}
       </div>
 
       <RightAiPanel
-        open={rightOpen}
-        progress={progress}
+        open={rightPanelVisible}
+        aiInsights={aiInsights}
+        completionStreak={completionStreak}
         recommendedTask={recommendedTask}
-        onToggle={() => setRightOpen((open) => !open)}
       />
+      <button
+        type="button"
+        onClick={() => setRightOpen((open) => !open)}
+        aria-label={rightPanelVisible ? "AI 패널 접기" : "AI 패널 열기"}
+        title={rightPanelVisible ? "AI 패널 접기" : "AI 패널 열기"}
+        className="fixed right-4 top-3.5 z-50 hidden h-9 w-9 shrink-0 items-center justify-center rounded-md bg-transparent text-slate-500 shadow-none transition hover:bg-slate-100 hover:text-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 xl:inline-flex"
+      >
+        <PanelRight className="h-4 w-4" />
+      </button>
     </AppShell>
   );
 }

@@ -7,6 +7,8 @@ export interface HomeSummary {
   today_company_schedule_count: number;
   today_deadline_schedule_count: number;
   incomplete_task_count: number;
+  current_completion_streak_days: number;
+  best_completion_streak_days: number;
 }
 
 export interface HomeSlotCounts {
@@ -14,6 +16,46 @@ export interface HomeSlotCounts {
   fieldwork: number;
   deadline: number;
   other: number;
+}
+
+export type HomeScheduleDensityLevel = "low" | "medium" | "high" | "overloaded";
+
+export interface HomeScheduleDensity {
+  percent: number;
+  level: HomeScheduleDensityLevel;
+  busy_minutes: number;
+  available_minutes: number;
+  scheduled_hours: number;
+  peak_time_label: string | null;
+}
+
+export type HomeInsightData = Record<string, unknown>;
+
+export interface HomeAiInsights {
+  optimal_focus_time: HomeInsightData;
+  weekly_completion_rate: HomeInsightData;
+  schedule_density: HomeScheduleDensity;
+}
+
+export type HomeCompletionStreakStatus =
+  | "completed"
+  | "missed"
+  | "pending"
+  | "empty"
+  | "future";
+
+export interface HomeCompletionStreakDay extends Record<string, unknown> {
+  date?: string;
+  label?: string;
+  status: HomeCompletionStreakStatus;
+}
+
+export interface HomeCompletionStreak {
+  days: number;
+  current_days: number;
+  best_days: number;
+  source: string;
+  week: HomeCompletionStreakDay[];
 }
 
 export interface HomeSchedule {
@@ -29,6 +71,7 @@ export interface HomeSchedule {
   category_id?: number | null;
   priority?: TaskPriority;
   is_completed?: boolean;
+  completed_at?: string | null;
 }
 
 export interface HomeOrganizationSchedule {
@@ -69,6 +112,8 @@ export interface TodayHome {
   briefing_text: string;
   summary: HomeSummary;
   slot_counts: HomeSlotCounts;
+  ai_insights: HomeAiInsights;
+  completion_streak: HomeCompletionStreak;
   today_schedules: HomeSchedule[];
   organization_schedules: HomeOrganizationSchedule[];
   due_today_tasks: HomeTask[];
