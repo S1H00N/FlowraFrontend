@@ -1,4 +1,9 @@
-import type { AiSuggestedAction, ApplyMemoRequest, ApplyMemoResponse } from "./memo";
+import type {
+  AiActionApplyState,
+  AiSuggestedAction,
+  ApplyMemoRequest,
+  ApplyMemoResponse,
+} from "./memo";
 
 export type AiChatSessionStatus = "active" | "archived";
 export type AiChatMessageRole = "user" | "assistant";
@@ -41,6 +46,11 @@ export interface AiChatMessage {
   response_type?: AiChatResponseType | string | null;
   suggested_actions?: AiSuggestedAction[] | null;
   action_status?: AiChatActionStatus | string | null;
+  executable_action_indexes?: number[];
+  applied_action_indexes?: number[];
+  remaining_action_indexes?: number[];
+  skipped_action_indexes?: number[];
+  action_states?: AiActionApplyState["action_states"];
   applied_actions?: AiChatAppliedAction[];
   created_at?: string;
   updated_at?: string | null;
@@ -70,4 +80,6 @@ export interface ApplyAiChatMessageRequest
     "apply_type" | "action_index" | "category_id" | "schedule_id"
   > {}
 
-export interface ApplyAiChatMessageResponse extends ApplyMemoResponse {}
+export interface ApplyAiChatMessageResponse extends ApplyMemoResponse {
+  action_status?: AiChatActionStatus | string;
+}
