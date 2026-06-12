@@ -6687,30 +6687,41 @@ export function ScheduleFormPanel({
           </div>
         </form>
 
-        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-200 bg-white p-4">
-          {mode === "edit" && schedule && onDelete ? (
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={deletePending}
-              className="rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-60"
-            >
-              {deletePending ? "삭제 중..." : "삭제"}
-            </button>
-          ) : (
-            <span />
-          )}
-          <div className="flex items-center justify-end gap-2">
+        <div className="flex shrink-0 flex-col gap-3 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.04)] backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {mode === "edit" && schedule && onDelete ? (
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deletePending}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-200 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deletePending ? "삭제 중..." : "삭제"}
+              </button>
+            ) : null}
             {mode === "edit" ? (
               <span
-                className={`mr-auto text-xs font-medium ${
+                aria-live="polite"
+                className={`inline-flex h-8 max-w-full items-center gap-1.5 rounded-full border px-2.5 text-xs font-semibold ${
                   autoSaveState === "error"
-                    ? "text-red-600"
+                    ? "border-red-200 bg-red-50 text-red-700"
                     : autoSaveState === "saving"
-                      ? "text-amber-600"
-                      : "text-slate-500"
+                      ? "border-amber-200 bg-amber-50 text-amber-700"
+                      : autoSaveState === "saved"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-slate-200 bg-slate-50 text-slate-600"
                 }`}
               >
+                {autoSaveState === "saving" ? (
+                  <RotateCcw className="h-3.5 w-3.5 animate-spin" />
+                ) : autoSaveState === "error" ? (
+                  <X className="h-3.5 w-3.5" />
+                ) : autoSaveState === "saved" ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : (
+                  <Clock3 className="h-3.5 w-3.5" />
+                )}
                 {autoSaveState === "saving"
                   ? "미리보기 중"
                   : autoSaveState === "error"
@@ -6720,15 +6731,18 @@ export function ScheduleFormPanel({
                       : "저장 전 미리보기"}
               </span>
             ) : null}
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-end">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              className="inline-flex h-10 w-full min-w-[76px] items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-200 sm:w-auto"
             >
+              <X className="h-4 w-4" />
               닫기
             </button>
             <button
-              type="submit"
+              type="button"
               disabled={isPending}
               onClick={(event) => {
                 const formEl = event.currentTarget
@@ -6736,8 +6750,15 @@ export function ScheduleFormPanel({
                   ?.querySelector("form");
                 formEl?.requestSubmit();
               }}
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60"
+              className="inline-flex h-10 w-full min-w-[86px] items-center justify-center gap-2 rounded-md bg-emerald-600 px-4 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(5,150,105,0.22)] transition hover:bg-emerald-700 hover:shadow-[0_10px_22px_rgba(5,150,105,0.28)] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 active:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none sm:w-auto"
             >
+              {isPending ? (
+                <RotateCcw className="h-4 w-4 animate-spin" />
+              ) : mode === "edit" ? (
+                <Check className="h-4 w-4" />
+              ) : (
+                <Plus className="h-4 w-4" />
+              )}
               {isPending ? "저장 중..." : mode === "edit" ? "저장" : "추가"}
             </button>
           </div>

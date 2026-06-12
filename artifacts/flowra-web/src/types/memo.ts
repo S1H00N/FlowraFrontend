@@ -105,6 +105,15 @@ export type AiSuggestedActionType =
   | "pending_item";
 
 export type AiSuggestedActionConfidence = "low" | "medium" | "high" | string;
+export type AiParseResultStatus =
+  | "suggested"
+  | "partially_applied"
+  | "approved"
+  | "rejected";
+export type AiAppliedResultStatus =
+  | "suggested"
+  | "partially_applied"
+  | "approved";
 
 export interface AiSuggestedAction {
   type: AiSuggestedActionType;
@@ -133,6 +142,35 @@ export interface AiSuggestedAction {
   confidence?: AiSuggestedActionConfidence | null;
 }
 
+export interface AiActionState {
+  action_index: number;
+  action_type?: AiSuggestedActionType | string;
+  applicable?: boolean;
+  applied?: boolean;
+}
+
+export interface AiActionApplyState {
+  executable_action_indexes?: number[];
+  applied_action_indexes?: number[];
+  remaining_action_indexes?: number[];
+  skipped_action_indexes?: number[];
+  action_states?: AiActionState[];
+}
+
+export interface AiAppliedActionResource {
+  action_index?: number;
+  action_type?: AiSuggestedActionType | string;
+  resource_type?: "schedule" | "task" | string;
+  resource_id?: number | string;
+  schedule_id?: number | string;
+  task_id?: number | string;
+  schedule?: Schedule;
+  task?: Task;
+  resource?: Schedule | Task | null;
+  resources?: Array<Schedule | Task>;
+  created_at?: string;
+}
+
 export interface AiParseResult {
   ai_result_id: number;
   memo_id: number;
@@ -149,7 +187,13 @@ export interface AiParseResult {
   suggested_actions?: AiSuggestedAction[] | null;
   confidence_score?: number | null;
   model_used?: string | null;
-  status?: string;
+  status?: AiParseResultStatus | string;
+  result_status?: AiParseResultStatus | string;
+  executable_action_indexes?: number[];
+  applied_action_indexes?: number[];
+  remaining_action_indexes?: number[];
+  action_states?: AiActionState[];
+  applied_actions?: AiAppliedActionResource[];
   created_at?: string;
   updated_at?: string;
 }
@@ -170,8 +214,14 @@ export interface ApplyMemoRequest {
 
 export interface ApplyMemoResponse {
   apply_type: ApplyMemoRequest["apply_type"];
+  result_status?: AiAppliedResultStatus | string;
+  executable_action_indexes?: number[];
+  applied_action_indexes?: number[];
+  remaining_action_indexes?: number[];
+  skipped_action_indexes?: number[];
+  action_states?: AiActionState[];
   resource: Schedule | Task | null;
   resources?: Array<Schedule | Task>;
   reminders?: Reminder[];
-  applied_actions?: object[];
+  applied_actions?: AiAppliedActionResource[];
 }

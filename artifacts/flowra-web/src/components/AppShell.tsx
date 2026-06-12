@@ -14,6 +14,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -151,7 +152,7 @@ function ProfileMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        side={isCard ? "top" : "bottom"}
+        side={isCard ? "top" : "right"}
         align={isCard ? "start" : "end"}
         sideOffset={8}
         className="w-44 rounded-lg border-slate-200 bg-white p-2 text-slate-900 shadow-xl shadow-slate-900/10"
@@ -319,6 +320,7 @@ export default function AppShell({
   titleMeta,
   headerActions,
   aiChatButtonOffset,
+  headerRightOffset,
   onSidebarCollapsedChange,
   onSidebarPreviewChange,
 }: {
@@ -328,6 +330,7 @@ export default function AppShell({
   titleMeta?: ReactNode;
   headerActions?: ReactNode;
   aiChatButtonOffset?: string;
+  headerRightOffset?: string;
   onSidebarCollapsedChange?: (collapsed: boolean) => void;
   onSidebarPreviewChange?: (open: boolean) => void;
 }) {
@@ -380,6 +383,11 @@ export default function AppShell({
       ? "사이드바 닫기"
       : "사이드바 열기";
   const showSidebarPreview = sidebarCollapsed && sidebarPreviewOpen;
+  const showSidebarIconRail =
+    isDesktop && sidebarCollapsed && !showSidebarPreview;
+  const headerRightOffsetStyle = {
+    "--flowra-header-right-offset": headerRightOffset ?? "0px",
+  } as CSSProperties;
   const splitSummaryHeader = fullBleed && titleMeta;
   const summaryParts =
     typeof titleMeta === "string" ? titleMeta.split(" · ") : null;
@@ -485,25 +493,12 @@ export default function AppShell({
         />
       )}
 
-      {sidebarCollapsed && (
-        <div
-          className="fixed bottom-4 left-0 top-16 z-40 hidden w-2 min-[600px]:block"
-          onMouseEnter={openSidebarPreview}
-          onMouseLeave={scheduleSidebarPreviewClose}
-          aria-hidden="true"
-        />
-      )}
-
       <aside
-        className={`fixed left-0 z-50 flex w-64 flex-col border-r border-slate-200/80 bg-white/95 shadow-xl backdrop-blur transition-[transform,width,border-color] duration-200 ease-out ${
-          showSidebarPreview
-            ? "bottom-0 top-16"
-            : "inset-y-0"
-        } ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-slate-200/80 bg-white/95 shadow-xl backdrop-blur transition-[transform,width,border-color] duration-200 ease-out ${
           showSidebarPreview
             ? "min-[600px]:w-64 min-[600px]:translate-x-0 min-[600px]:shadow-2xl"
             : sidebarCollapsed
-              ? "min-[600px]:w-0 min-[600px]:-translate-x-full min-[600px]:overflow-hidden min-[600px]:border-transparent min-[600px]:shadow-none"
+              ? "min-[600px]:w-16 min-[600px]:translate-x-0 min-[600px]:shadow-none"
               : "min-[600px]:w-64 min-[600px]:translate-x-0 min-[600px]:shadow-none"
         } ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
@@ -513,9 +508,11 @@ export default function AppShell({
       >
         <div
           className={`flex h-16 items-center gap-3 border-b border-slate-200 transition-all ${
-            fullBleed ? "px-4 sm:px-5 lg:px-6" : "px-4 sm:px-6 lg:px-8"
-          } ${
-            sidebarCollapsed ? "min-[600px]:hidden" : ""
+            showSidebarIconRail
+              ? "px-4 min-[600px]:justify-center min-[600px]:px-0"
+              : fullBleed
+                ? "px-4 sm:px-5 lg:px-6"
+                : "px-4 sm:px-6 lg:px-8"
           }`}
         >
           <button
@@ -539,11 +536,15 @@ export default function AppShell({
 
         <nav
           className={`flex-1 space-y-1 px-3 py-4 transition-all ${
-            sidebarCollapsed && !showSidebarPreview ? "min-[600px]:hidden" : ""
+            showSidebarIconRail ? "min-[600px]:px-2" : ""
           }`}
         >
           {sidebarExtra && (
-            <div className="mb-4 border-b border-slate-100 pb-4">
+            <div
+              className={`mb-4 border-b border-slate-100 pb-4 ${
+                showSidebarIconRail ? "min-[600px]:hidden" : ""
+              }`}
+            >
               {sidebarExtra}
             </div>
           )}
@@ -556,8 +557,14 @@ export default function AppShell({
                 to={item.to}
                 end={item.to === "/"}
                 onClick={closeSidebarOnMobile}
+                aria-label={item.label}
+                title={item.label}
                 className={({ isActive }) =>
                   `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
+                    showSidebarIconRail
+                      ? "min-[600px]:h-10 min-[600px]:justify-center min-[600px]:gap-0 min-[600px]:px-0"
+                      : ""
+                  } ${
                     isActive
                       ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100"
                       : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
@@ -565,7 +572,13 @@ export default function AppShell({
                 }
               >
                 <Icon className="h-4 w-4" />
-                <span>{item.label}</span>
+                <span
+                  className={
+                    showSidebarIconRail ? "min-[600px]:hidden" : undefined
+                  }
+                >
+                  {item.label}
+                </span>
               </NavLink>
             );
           })}
@@ -573,11 +586,11 @@ export default function AppShell({
 
         <div
           className={`border-t border-slate-100 p-3 transition-all ${
-            sidebarCollapsed && !showSidebarPreview ? "min-[600px]:hidden" : ""
+            showSidebarIconRail ? "min-[600px]:flex min-[600px]:justify-center" : ""
           }`}
         >
           <ProfileMenu
-            variant="card"
+            variant={showSidebarIconRail ? "icon" : "card"}
             displayName={displayName}
             displayEmail={displayEmail}
             affiliationLabel={affiliationLabel}
@@ -594,10 +607,10 @@ export default function AppShell({
         className={
           fullBleed
             ? `h-dvh overflow-hidden ${
-                sidebarCollapsed ? "min-[600px]:pl-0" : "min-[600px]:pl-64"
+                sidebarCollapsed ? "min-[600px]:pl-16" : "min-[600px]:pl-64"
               }`
             : `min-h-screen ${
-                sidebarCollapsed ? "min-[600px]:pl-0" : "min-[600px]:pl-64"
+                sidebarCollapsed ? "min-[600px]:pl-16" : "min-[600px]:pl-64"
               }`
         }
       >
@@ -616,7 +629,8 @@ export default function AppShell({
             <div
               className="relative z-10 flex min-w-0 flex-1 items-center gap-3 overflow-hidden"
             >
-              {(!splitSummaryHeader || !isDesktop || sidebarCollapsed) && (
+              {(!splitSummaryHeader || !isDesktop || sidebarCollapsed) &&
+                !(isDesktop && sidebarCollapsed) && (
                 <button
                   type="button"
                   aria-label={headerSidebarLabel}
@@ -673,7 +687,10 @@ export default function AppShell({
               )}
             </div>
 
-            <div className="relative z-20 ml-auto flex min-w-0 shrink-0 items-center justify-end gap-2">
+            <div
+              className="relative z-20 ml-auto flex min-w-0 shrink-0 items-center justify-end gap-2 transition-[margin] duration-200 min-[600px]:mr-[var(--flowra-header-right-offset)]"
+              style={headerRightOffsetStyle}
+            >
               <Dialog
                 open={settingsDialogOpen}
                 onOpenChange={setSettingsDialogOpen}

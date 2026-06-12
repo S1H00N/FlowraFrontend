@@ -906,13 +906,15 @@ export default function Tasks() {
               className="h-9 w-64 rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
             />
           </label>
-          <button
-            type="button"
-            onClick={openScheduleAddPanel}
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-indigo-500 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-600"
-          >
-            <Plus className="h-4 w-4" />새 일정
-          </button>
+          {!sidePanelOpen && (
+            <button
+              type="button"
+              onClick={openScheduleAddPanel}
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-indigo-500 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-600"
+            >
+              <Plus className="h-4 w-4" />새 일정
+            </button>
+          )}
         </div>
       }
       sidebarExtra={

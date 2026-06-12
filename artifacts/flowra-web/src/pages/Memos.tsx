@@ -7,33 +7,40 @@ import {
   type FormEvent,
 } from "react";
 import { Link } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   AlertTriangle,
+  ArrowUpRight,
   Calendar,
   Check,
   CheckSquare,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   Clock,
   FileText,
   Link2,
   MapPin,
-  PanelLeftClose,
-  PanelLeftOpen,
-  PanelRight,
+  PanelRightClose,
+  PanelRightOpen,
+  Paperclip,
   Pencil,
   Plus,
   RefreshCw,
   Search,
   Send,
   Sparkles,
+  Table2,
   Trash2,
   Wand2,
   X,
 } from "lucide-react";
 import {
+  MEMOS_QUERY_KEY,
+  memoParseResultKey,
   useApplyMemo,
   useCreateMemo,
   useDeleteMemo,
@@ -42,8 +49,8 @@ import {
   useParseMemo,
   useUpdateMemo,
 } from "@/hooks/useMemos";
-import { useDeleteSchedule } from "@/hooks/useSchedules";
-import { useDeleteTask } from "@/hooks/useTasks";
+import { useDeleteSchedule, useSchedules } from "@/hooks/useSchedules";
+import { useDeleteTask, useTasks } from "@/hooks/useTasks";
 import {
   MEMO_TYPES,
   MEMO_TYPE_LABELS,
@@ -54,6 +61,8 @@ import {
   type Memo,
   type MemoType,
   type ParseStatus,
+  type Schedule,
+  type Task,
 } from "@/types";
 import { getErrorMessage } from "@/lib/error";
 import {
@@ -75,21 +84,8 @@ import { cn } from "@/lib/utils";
 
 type DetectedType = "schedule" | "task" | "note" | "mixed";
 type MemoWorkspaceMode = "read" | "create";
-type AppliedActionResource = {
-  kind: "schedule" | "task";
-  id: number;
-  link: string | null;
-};
 
-type AppliedActionStore = Record<string, AppliedActionResource>;
-
-const memoPanelButtonClass =
-  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200";
-
-const appSidebarToggleButtonClass =
-  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-transparent text-slate-500 shadow-none transition hover:bg-slate-100 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300";
-
-const APPLIED_ACTIONS_STORAGE_KEY = "flowra:memo-applied-actions:v1";
+const MEMO_AI_PANEL_WIDTH = "380px";
 
 const parseStatusBadge: Record<ParseStatus, string> = {
   pending: "bg-gray-100 text-gray-500",
@@ -111,57 +107,233 @@ const priorityDot: Record<string, string> = {
   low: "bg-gray-300",
 };
 
-function readAppliedActionStore(): AppliedActionStore {
-  if (typeof window === "undefined") return {};
+type AppliedResourceRef = {
+  type: "schedule" | "task";
+  id: number;
+  actionIndex?: number;
+  link: string | null;
+};
 
-  try {
-    const raw = window.localStorage.getItem(APPLIED_ACTIONS_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as AppliedActionStore;
-    if (!parsed || typeof parsed !== "object") return {};
-
-    return Object.fromEntries(
-      Object.entries(parsed).filter(
-        ([, value]) =>
-          value &&
-          (value.kind === "schedule" || value.kind === "task") &&
-          Number.isFinite(value.id),
-      ),
-    );
-  } catch {
-    return {};
-  }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
-function writeAppliedActionStore(store: AppliedActionStore) {
-  if (typeof window === "undefined") return;
+function toPositiveNumber(value: unknown) {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
 
-  window.localStorage.setItem(
-    APPLIED_ACTIONS_STORAGE_KEY,
-    JSON.stringify(store),
+function toNonNegativeNumber(value: unknown) {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : NaN;
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function getAppliedResourceRef(
+  value: unknown,
+  actionIndex?: number,
+): AppliedResourceRef | null {
+  if (!isRecord(value)) return null;
+
+  const taskId = toPositiveNumber(value.task_id);
+  if (taskId) {
+    return {
+      type: "task",
+      id: taskId,
+      actionIndex,
+      link: getAppliedLink(value),
+    };
+  }
+
+  const scheduleId = toPositiveNumber(value.schedule_id);
+  if (scheduleId) {
+    return {
+      type: "schedule",
+      id: scheduleId,
+      actionIndex,
+      link: getAppliedLink(value),
+    };
+  }
+
+  const resourceType =
+    typeof value.resource_type === "string"
+      ? value.resource_type.toLowerCase()
+      : typeof value.type === "string"
+        ? value.type.toLowerCase()
+        : "";
+  const resourceId = toPositiveNumber(value.resource_id ?? value.id);
+
+  if (resourceId && resourceType.includes("schedule")) {
+    return {
+      type: "schedule",
+      id: resourceId,
+      actionIndex,
+      link: `/schedules?${new URLSearchParams({
+        schedule_id: String(resourceId),
+      })}`,
+    };
+  }
+
+  if (resourceId && resourceType.includes("task")) {
+    return {
+      type: "task",
+      id: resourceId,
+      actionIndex,
+      link: `/tasks?${new URLSearchParams({ task_id: String(resourceId) })}`,
+    };
+  }
+
+  return null;
+}
+
+function uniqueAppliedResourceRefs(refs: AppliedResourceRef[]) {
+  const seen = new Set<string>();
+  return refs.filter((ref) => {
+    const key = `${ref.type}:${ref.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function pushAppliedResourceRefs(
+  refs: AppliedResourceRef[],
+  value: unknown,
+  fallbackActionIndex?: number,
+) {
+  if (!value) return;
+
+  if (Array.isArray(value)) {
+    value.forEach((item) =>
+      pushAppliedResourceRefs(refs, item, fallbackActionIndex),
+    );
+    return;
+  }
+
+  if (!isRecord(value)) return;
+
+  const actionIndex =
+    toNonNegativeNumber(value.action_index) ?? fallbackActionIndex;
+  const directRef = getAppliedResourceRef(value, actionIndex);
+  if (directRef) refs.push(directRef);
+
+  pushAppliedResourceRefs(refs, value.resource, actionIndex);
+  pushAppliedResourceRefs(refs, value.schedule, actionIndex);
+  pushAppliedResourceRefs(refs, value.task, actionIndex);
+  pushAppliedResourceRefs(refs, value.resources, actionIndex);
+}
+
+function collectAppliedResourceRefs(
+  response: ApplyMemoResponse,
+  fallbackActionIndex?: number,
+) {
+  const refs: AppliedResourceRef[] = [];
+  pushAppliedResourceRefs(refs, response.applied_actions, fallbackActionIndex);
+  pushAppliedResourceRefs(refs, response.resource, fallbackActionIndex);
+  pushAppliedResourceRefs(refs, response.resources, fallbackActionIndex);
+  return uniqueAppliedResourceRefs(refs);
+}
+
+function normalizeComparableText(value?: string | null) {
+  return (value ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function dateTimeStamp(value?: string | null) {
+  if (!value) return null;
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? null : time;
+}
+
+function sameDateTime(left?: string | null, right?: string | null) {
+  if (!left || !right) return true;
+  const leftTime = dateTimeStamp(left);
+  const rightTime = dateTimeStamp(right);
+  if (leftTime !== null && rightTime !== null) {
+    return Math.abs(leftTime - rightTime) < 60_000;
+  }
+  return normalizeComparableText(left) === normalizeComparableText(right);
+}
+
+function hasAiSource(
+  resource: Pick<Schedule | Task, "source_memo_id" | "source_ai_result_id">,
+  memoId: number,
+  aiResultId: number,
+) {
+  return (
+    Number(resource.source_memo_id) === memoId &&
+    Number(resource.source_ai_result_id) === aiResultId
   );
 }
 
-function resourceFromApplyResponse(
-  applied: ApplyMemoResponse,
-): AppliedActionResource | null {
+function actionMatchesSchedule(
+  action: AiSuggestedAction,
+  schedule: Schedule,
+) {
+  if (action.type !== "create_schedule") return false;
+  if (
+    normalizeComparableText(getActionTitle(action)) !==
+    normalizeComparableText(schedule.title)
+  ) {
+    return false;
+  }
+
+  if (action.recurrence) return true;
+  return sameDateTime(action.start_datetime, schedule.start_datetime);
+}
+
+function actionMatchesTask(action: AiSuggestedAction, task: Task) {
+  if (action.type !== "create_task") return false;
+  if (
+    normalizeComparableText(getActionTitle(action)) !==
+    normalizeComparableText(task.title)
+  ) {
+    return false;
+  }
+
+  return sameDateTime(action.due_datetime, task.due_datetime);
+}
+
+function addResourceRef(
+  map: Map<number, AppliedResourceRef[]>,
+  actionIndex: number,
+  ref: AppliedResourceRef,
+) {
+  map.set(
+    actionIndex,
+    uniqueAppliedResourceRefs([...(map.get(actionIndex) ?? []), ref]),
+  );
+}
+
+function localAppliedResourceMapFromRecord(
+  resources: Record<number, AppliedResourceRef[]>,
+) {
+  const map = new Map<number, AppliedResourceRef[]>();
+  Object.entries(resources).forEach(([key, refs]) => {
+    const actionIndex = Number(key);
+    if (Number.isFinite(actionIndex)) map.set(actionIndex, refs);
+  });
+  return map;
+}
+
+function getApplyResponseLink(applied: ApplyMemoResponse) {
   const resource = applied.resource ?? applied.resources?.[0] ?? null;
   if (!resource || typeof resource !== "object") return null;
 
-  if ("schedule_id" in resource && typeof resource.schedule_id === "number") {
-    return {
-      kind: "schedule",
-      id: resource.schedule_id,
-      link: getAppliedLink(resource),
-    };
+  if ("task_id" in resource && typeof resource.task_id === "number") {
+    return getAppliedLink(resource);
   }
 
-  if ("task_id" in resource && typeof resource.task_id === "number") {
-    return {
-      kind: "task",
-      id: resource.task_id,
-      link: getAppliedLink(resource),
-    };
+  if ("schedule_id" in resource && typeof resource.schedule_id === "number") {
+    return getAppliedLink(resource);
   }
 
   return null;
@@ -209,6 +381,10 @@ function getAppliedLink(resource: unknown) {
     start_datetime?: string;
   };
 
+  if (value.task_id) {
+    return `/tasks?${new URLSearchParams({ task_id: String(value.task_id) })}`;
+  }
+
   if (value.schedule_id) {
     const params = new URLSearchParams({
       schedule_id: String(value.schedule_id),
@@ -223,10 +399,6 @@ function getAppliedLink(resource: unknown) {
       }
     }
     return `/schedules?${params.toString()}`;
-  }
-
-  if (value.task_id) {
-    return `/tasks?${new URLSearchParams({ task_id: String(value.task_id) })}`;
   }
 
   return null;
@@ -292,26 +464,35 @@ function MemoListPanel({
   return (
     <aside
       className={cn(
-        "flex shrink-0 flex-col border-r border-gray-100 bg-gray-50/60 transition-all duration-200",
-        leftOpen ? "w-[220px]" : "w-[48px]",
+        "relative z-10 flex shrink-0 flex-col overflow-visible border-r border-gray-100 bg-white transition-[width,border-color] duration-200",
+        leftOpen ? "w-[208px]" : "w-0 border-transparent",
       )}
     >
-      <div className="flex h-12 items-center gap-2 border-b border-gray-100 px-3">
-        <button
-          type="button"
-          onClick={onToggleLeft}
-          className={memoPanelButtonClass}
-          aria-label={leftOpen ? "메모 목록 접기" : "메모 목록 열기"}
-          title={leftOpen ? "메모 목록 접기" : "메모 목록 열기"}
-        >
-          {leftOpen ? (
-            <PanelLeftClose className="h-4 w-4" />
-          ) : (
-            <PanelLeftOpen className="h-4 w-4" />
-          )}
-        </button>
-        {leftOpen && (
-          <>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggleLeft();
+        }}
+        className={cn(
+          "absolute top-1/2 z-30 flex -translate-y-1/2 items-center justify-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200",
+          leftOpen
+            ? "-right-1.5 h-6 w-3 rounded-full bg-gray-200 text-gray-400 hover:bg-gray-300 hover:text-gray-600"
+            : "left-0 h-11 w-5 rounded-r-lg bg-violet-600 text-white shadow-lg shadow-violet-500/25 hover:bg-violet-700",
+        )}
+        aria-label={leftOpen ? "메모 목록 접기" : "메모 목록 열기"}
+        title={leftOpen ? "메모 목록 접기" : "메모 목록 열기"}
+      >
+        {leftOpen ? (
+          <ChevronLeft className="h-3 w-3" />
+        ) : (
+          <ChevronRight className="h-4 w-4" />
+        )}
+      </button>
+
+      {leftOpen && (
+        <>
+          <div className="flex h-10 items-center gap-2 border-b border-gray-100 px-3">
             <span className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-800">
               메모
             </span>
@@ -324,164 +505,127 @@ function MemoListPanel({
             >
               <Plus className="h-3.5 w-3.5" />
             </button>
-          </>
-        )}
-      </div>
-
-      {leftOpen && (
-        <div className="border-b border-gray-100 px-3 py-2.5">
-          <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5">
-            <Search className="h-3 w-3 shrink-0 text-gray-400" />
-            <input
-              value={search}
-              onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="검색..."
-              aria-label="메모 검색"
-              className="min-w-0 flex-1 bg-transparent text-xs text-gray-700 outline-none placeholder:text-gray-400"
-            />
-          </label>
-        </div>
-      )}
-
-      <div className="relative flex-1 overflow-y-auto py-1">
-        {isLoading ? (
-          <div className={cn(leftOpen ? "px-3 py-8" : "px-1 py-4")}>
-            {leftOpen ? (
-              <FullSpinner message="메모를 불러오는 중..." />
-            ) : (
-              <RefreshCw className="mx-auto h-4 w-4 animate-spin text-gray-400" />
-            )}
           </div>
-        ) : isError ? (
-          <div className="px-3 py-4">
-            {leftOpen ? (
-              <ErrorState
-                title="메모를 불러오지 못했습니다"
-                message={(error as Error).message}
-                onRetry={onRetry}
-                retrying={isFetching}
+
+          <div className="px-3 py-2.5">
+            <label className="flex h-[30px] items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5">
+              <Search className="h-3 w-3 shrink-0 text-gray-400" />
+              <input
+                value={search}
+                onChange={(event) => onSearchChange(event.target.value)}
+                placeholder="검색..."
+                aria-label="메모 검색"
+                className="min-w-0 flex-1 bg-transparent text-xs text-gray-700 outline-none placeholder:text-gray-400"
               />
-            ) : (
-              <button
-                type="button"
-                onClick={onRetry}
-                className={memoPanelButtonClass}
-                aria-label="메모 다시 불러오기"
-                title="메모 다시 불러오기"
-              >
-                <RefreshCw className="h-4 w-4" />
-              </button>
-            )}
+            </label>
           </div>
-        ) : items.length === 0 ? (
-          <div className={cn("py-8 text-center", leftOpen ? "px-4" : "px-1")}>
-            {leftOpen ? (
-              <>
+
+          <div className="scrollbar-none relative flex-1 overflow-y-auto px-2 pb-2">
+            {isLoading ? (
+              <div className="px-2 py-8">
+                <FullSpinner message="메모를 불러오는 중..." />
+              </div>
+            ) : isError ? (
+              <div className="px-1 py-4">
+                <ErrorState
+                  title="메모를 불러오지 못했습니다"
+                  message={(error as Error).message}
+                  onRetry={onRetry}
+                  retrying={isFetching}
+                />
+              </div>
+            ) : items.length === 0 ? (
+              <div className="px-2 py-8 text-center">
                 <p className="text-sm font-semibold text-gray-500">
                   표시할 메모가 없습니다
                 </p>
                 <p className="mt-1 text-xs leading-5 text-gray-400">
                   새 메모를 만들거나 검색어를 바꿔보세요.
                 </p>
-              </>
+              </div>
             ) : (
-              <FileText className="mx-auto h-4 w-4 text-gray-300" />
+              <div className="space-y-1">
+                {items.map((memo) => {
+                  const selected = memo.memo_id === selectedMemoId;
+                  const confirmingThis = confirmDeleteId === memo.memo_id;
+
+                  return (
+                    <div key={memo.memo_id} className="group relative">
+                      <button
+                        type="button"
+                        onClick={() => onSelect(memo.memo_id)}
+                        title={getMemoTitle(memo)}
+                        className={cn(
+                          "block w-full rounded-md px-2.5 py-2 pr-7 text-left transition-colors",
+                          selected
+                            ? "bg-violet-50 text-violet-700"
+                            : "text-gray-700 hover:bg-gray-100",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "block min-w-0 truncate text-xs font-semibold",
+                            selected ? "text-violet-700" : "text-gray-700",
+                          )}
+                        >
+                          {getMemoTitle(memo)}
+                        </span>
+                        <span className="mt-1 block truncate text-[11px] font-medium text-gray-400">
+                          {formatCompactDateTime(
+                            memo.updated_at ?? memo.created_at,
+                          )}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onRequestDelete(memo.memo_id);
+                        }}
+                        className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded text-gray-300 opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
+                        aria-label="메모 삭제"
+                        title="메모 삭제"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+
+                      {confirmingThis && (
+                        <div
+                          className="absolute left-0 right-0 z-50 mx-1 rounded-lg border border-red-200 bg-white px-3 py-2.5 shadow-lg"
+                          style={{ top: "calc(100% + 2px)" }}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <p className="mb-2 flex items-center gap-1 text-[11px] font-medium text-gray-700">
+                            <AlertTriangle className="h-3 w-3 shrink-0 text-red-500" />
+                            메모를 삭제할까요?
+                          </p>
+                          <div className="flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => onConfirmDelete(memo.memo_id)}
+                              className="flex-1 rounded-md bg-red-500 py-1 text-[11px] font-medium text-white transition-colors hover:bg-red-600"
+                            >
+                              삭제
+                            </button>
+                            <button
+                              type="button"
+                              onClick={onCancelDelete}
+                              className="flex-1 rounded-md bg-gray-100 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:bg-gray-200"
+                            >
+                              취소
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
-        ) : (
-          items.map((memo) => {
-            const selected = memo.memo_id === selectedMemoId;
-            const confirmingThis = confirmDeleteId === memo.memo_id;
-
-            return (
-              <div key={memo.memo_id} className="group relative">
-                <button
-                  type="button"
-                  onClick={() => onSelect(memo.memo_id)}
-                  title={getMemoTitle(memo)}
-                  className={cn(
-                    "flex w-full items-center gap-2.5 transition-colors",
-                    leftOpen ? "px-3 py-2 pr-8" : "justify-center px-3 py-2.5",
-                    selected
-                      ? "bg-violet-100 text-violet-800"
-                      : "text-gray-600 hover:bg-gray-200/60 hover:text-gray-900",
-                  )}
-                >
-                  {memo.parse_status === "completed" ? (
-                    <Sparkles
-                      className={cn(
-                        "h-3.5 w-3.5 shrink-0",
-                        selected ? "text-violet-600" : "text-violet-400",
-                      )}
-                    />
-                  ) : (
-                    <FileText
-                      className={cn(
-                        "h-3.5 w-3.5 shrink-0",
-                        selected ? "text-gray-700" : "text-gray-400",
-                      )}
-                    />
-                  )}
-                  {leftOpen && (
-                    <span
-                      className={cn(
-                        "min-w-0 truncate text-left text-xs",
-                        selected ? "font-semibold" : "font-medium",
-                      )}
-                    >
-                      {getMemoTitle(memo)}
-                    </span>
-                  )}
-                </button>
-
-                {leftOpen && (
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onRequestDelete(memo.memo_id);
-                    }}
-                    className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-gray-300 opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
-                    aria-label="메모 삭제"
-                    title="메모 삭제"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                )}
-
-                {confirmingThis && leftOpen && (
-                  <div
-                    className="absolute left-0 right-0 z-50 mx-1 rounded-lg border border-red-200 bg-white px-3 py-2.5 shadow-lg"
-                    style={{ top: "calc(100% + 2px)" }}
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    <p className="mb-2 flex items-center gap-1 text-[11px] font-medium text-gray-700">
-                      <AlertTriangle className="h-3 w-3 shrink-0 text-red-500" />
-                      메모를 삭제할까요?
-                    </p>
-                    <div className="flex gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => onConfirmDelete(memo.memo_id)}
-                        className="flex-1 rounded-md bg-red-500 py-1 text-[11px] font-medium text-white transition-colors hover:bg-red-600"
-                      >
-                        삭제
-                      </button>
-                      <button
-                        type="button"
-                        onClick={onCancelDelete}
-                        className="flex-1 rounded-md bg-gray-100 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:bg-gray-200"
-                      >
-                        취소
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
-      </div>
+        </>
+      )}
     </aside>
   );
 }
@@ -498,6 +642,7 @@ function MemoCreatePanel({
     register,
     handleSubmit,
     control,
+    watch,
     formState: { errors },
   } = useForm<MemoFormValues>({
     resolver: zodResolver(memoSchema),
@@ -526,31 +671,34 @@ function MemoCreatePanel({
     [createMutation, onCreated],
   );
 
+  const rawText = watch("raw_text") ?? "";
+  const autoParse = watch("auto_parse") ?? false;
+
   return (
     <form
       onSubmit={handleSubmit(onSubmit)}
       noValidate
-      className="flex min-w-0 flex-1 flex-col overflow-hidden"
+      className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[#f7f8fa]"
     >
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-gray-100 px-6">
+      <div className="mx-auto flex h-[68px] w-full max-w-[920px] shrink-0 items-center justify-between px-4 pt-1 sm:px-0">
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-[11px] font-semibold text-violet-700">
-            <FileText className="h-2.5 w-2.5" />
+          <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+          <span className="text-[13px] font-semibold text-violet-600">
             새 메모
           </span>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={onCancel}
-            className="h-7 rounded-lg px-2.5 text-xs text-gray-500 transition-colors hover:bg-gray-100"
+            className="h-8 rounded-lg px-2.5 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
           >
             취소
           </button>
           <button
             type="submit"
             disabled={createMutation.isPending}
-            className="flex h-7 items-center gap-1 rounded-lg bg-gray-900 px-3 text-xs font-medium text-white transition-colors hover:bg-gray-700 disabled:opacity-60"
+            className="flex h-9 items-center gap-1.5 rounded-xl bg-slate-950 px-4 text-xs font-semibold text-white shadow-sm shadow-slate-900/10 transition-colors hover:bg-slate-800 disabled:opacity-60"
           >
             <Send className="h-3.5 w-3.5" />
             {createMutation.isPending ? "저장 중..." : "저장"}
@@ -558,58 +706,104 @@ function MemoCreatePanel({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-10 py-8">
-        <div className="mb-5 flex flex-wrap items-center gap-2">
-          <select
-            {...register("memo_type")}
-            aria-label="메모 유형"
-            className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-xs text-gray-700 outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
-          >
-            {MEMO_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {MEMO_TYPE_LABELS[type]}
-              </option>
-            ))}
-          </select>
-          <Controller
-            control={control}
-            name="category_id"
-            render={({ field }) => (
-              <CategorySelect
-                type="memo"
-                value={field.value as number | "" | undefined}
-                onChange={field.onChange}
-                className="h-9 min-w-44 py-1.5 text-xs"
-              />
-            )}
-          />
-          <label className="inline-flex items-center gap-2 text-xs font-medium text-gray-500">
-            <input
-              type="checkbox"
-              {...register("auto_parse")}
-              className="h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
-            />
-            저장 후 AI 분석
-          </label>
-        </div>
-
-        <textarea
-          rows={16}
-          placeholder="메모를 입력하세요..."
-          {...register("raw_text")}
-          aria-invalid={!!errors.raw_text}
+      <div className="scrollbar-none flex-1 overflow-y-auto px-4 pb-8 sm:px-6">
+        <div
           className={cn(
-            "h-full min-h-[420px] w-full resize-none rounded-xl border bg-gray-50 p-4 text-[15px] leading-[1.85] text-gray-700 outline-none transition-all focus:border-transparent focus:ring-2",
-            errors.raw_text
-              ? "border-red-300 focus:ring-red-200"
-              : "border-gray-200 focus:ring-violet-300",
+            "mx-auto flex min-h-[410px] w-full max-w-[920px] flex-col overflow-hidden rounded-2xl border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05),0_14px_36px_rgba(15,23,42,0.04)] sm:min-h-[442px]",
+            errors.raw_text ? "border-red-200" : "border-gray-200",
           )}
-        />
+        >
+          <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-2.5 sm:px-5">
+            <label className="relative inline-flex">
+              <select
+                {...register("memo_type")}
+                aria-label="메모 유형"
+                className="h-7 min-w-[78px] appearance-none rounded-lg border border-violet-200 bg-violet-50/70 pl-3 pr-7 text-[11px] font-semibold text-violet-700 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+              >
+                {MEMO_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {MEMO_TYPE_LABELS[type]}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-violet-500"
+                aria-hidden
+              />
+            </label>
+            <Controller
+              control={control}
+              name="category_id"
+              render={({ field }) => (
+                <CategorySelect
+                  type="memo"
+                  value={field.value as number | "" | undefined}
+                  onChange={field.onChange}
+                  className="h-7 min-w-[108px] max-w-[150px] rounded-lg border-gray-200 px-2.5 py-1 text-[11px] shadow-none"
+                />
+              )}
+            />
+            <label className="ml-auto inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 text-[11px] font-medium text-blue-600 transition-colors hover:bg-blue-100">
+              <input
+                type="checkbox"
+                {...register("auto_parse")}
+                className="sr-only"
+              />
+              <span
+                className={cn(
+                  "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border transition-colors",
+                  autoParse
+                    ? "border-blue-500 bg-blue-500"
+                    : "border-blue-200 bg-white",
+                )}
+                aria-hidden
+              >
+                {autoParse && <Check className="h-2.5 w-2.5 text-white" />}
+              </span>
+              저장 후 AI 분석
+            </label>
+          </div>
+
+          <textarea
+            rows={16}
+            placeholder="메모를 입력하세요..."
+            {...register("raw_text")}
+            aria-invalid={!!errors.raw_text}
+            className="scrollbar-none min-h-[310px] flex-1 resize-none border-0 bg-white px-5 py-5 text-[15px] leading-[1.85] text-gray-700 outline-none placeholder:text-gray-300 focus:ring-0"
+          />
+
+          <div className="flex h-9 shrink-0 items-center gap-1 border-t border-gray-100 px-4 text-gray-300 sm:px-5">
+            <button
+              type="button"
+              disabled
+              aria-label="표 삽입"
+              title="표 삽입"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-gray-300 disabled:cursor-not-allowed disabled:opacity-80"
+            >
+              <Table2 className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              disabled
+              aria-label="파일 첨부"
+              title="파일 첨부"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-gray-300 disabled:cursor-not-allowed disabled:opacity-80"
+            >
+              <Paperclip className="h-3.5 w-3.5" />
+            </button>
+            <span className="ml-auto text-[11px] font-medium text-gray-300">
+              {rawText.length}자
+            </span>
+          </div>
+        </div>
         {errors.raw_text && (
-          <p className="mt-2 text-xs text-red-600">
+          <p className="mx-auto mt-2 w-full max-w-[920px] text-xs text-red-600">
             {errors.raw_text.message}
           </p>
         )}
+        <p className="mx-auto mt-2 w-full max-w-[920px] text-[11px] font-medium text-gray-400">
+          ✦ 저장 후 AI가 메모를 분석하고 태그를 추천합니다
+        </p>
       </div>
     </form>
   );
@@ -620,11 +814,13 @@ function MemoReaderPanel({
   parseStatus,
   latestResult,
   onDeleted,
+  onParseStart,
 }: {
   memo: Memo;
   parseStatus?: ParseStatus;
   latestResult?: AiParseResult | null;
   onDeleted: (memoId: number) => void;
+  onParseStart: () => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [text, setText] = useState(memo.raw_text);
@@ -686,6 +882,7 @@ function MemoReaderPanel({
 
   const handleParse = async () => {
     setError(null);
+    onParseStart();
     try {
       await parseMutation.mutateAsync({
         memoId: memo.memo_id,
@@ -783,41 +980,49 @@ function MemoReaderPanel({
 
       <form
         onSubmit={handleSave}
-        className="min-h-0 flex-1 overflow-y-auto px-10 py-8"
+        className="scrollbar-none min-h-0 flex-1 overflow-y-auto px-10 py-8"
       >
         <h1 className="mb-6 text-2xl font-bold leading-snug text-gray-900">
           {getMemoTitle(memo, latestResult)}
         </h1>
 
         {isEditing ? (
-          <>
-            <textarea
-              ref={textareaRef}
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              className="h-full min-h-[320px] w-full resize-none rounded-xl border border-gray-200 bg-gray-50 p-4 text-[15px] leading-[1.85] text-gray-700 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-violet-300"
-              placeholder="메모를 입력하세요..."
-            />
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <select
-                value={memoType}
-                onChange={(event) => setMemoType(event.target.value as MemoType)}
-                className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-xs text-gray-700 outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
-              >
-                {MEMO_TYPES.map((type) => (
-                  <option key={type} value={type}>
-                    {MEMO_TYPE_LABELS[type]}
-                  </option>
-                ))}
-              </select>
+          <div className="flex min-h-[420px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+            <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-2.5">
+              <label className="relative inline-flex">
+                <select
+                  value={memoType}
+                  onChange={(event) =>
+                    setMemoType(event.target.value as MemoType)
+                  }
+                  className="h-7 min-w-[78px] appearance-none rounded-lg border border-violet-200 bg-violet-50/70 pl-3 pr-7 text-[11px] font-semibold text-violet-700 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+                >
+                  {MEMO_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {MEMO_TYPE_LABELS[type]}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-violet-500"
+                  aria-hidden
+                />
+              </label>
               <CategorySelect
                 type="memo"
                 value={categoryId}
                 onChange={setCategoryId}
-                className="h-9 min-w-44 py-1.5 text-xs"
+                className="h-7 min-w-[108px] max-w-[150px] rounded-lg border-gray-200 px-2.5 py-1 text-[11px] shadow-none"
               />
             </div>
-          </>
+            <textarea
+              ref={textareaRef}
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              className="scrollbar-none min-h-[320px] flex-1 resize-none border-0 bg-white px-5 py-5 text-[15px] leading-[1.85] text-gray-700 outline-none placeholder:text-gray-300 focus:ring-0"
+              placeholder="메모를 입력하세요..."
+            />
+          </div>
         ) : (
           <div
             className="max-w-none cursor-text whitespace-pre-wrap text-[15px] leading-[1.85] text-gray-700"
@@ -921,9 +1126,26 @@ function AiResultContent({
   const applyMutation = useApplyMemo();
   const deleteScheduleMutation = useDeleteSchedule();
   const deleteTaskMutation = useDeleteTask();
-  const [appliedActions, setAppliedActions] = useState<AppliedActionStore>({});
+  const schedulesQuery = useSchedules();
+  const tasksQuery = useTasks();
+  const queryClient = useQueryClient();
+  const [applyState, setApplyState] = useState<Pick<
+    ApplyMemoResponse,
+    | "result_status"
+    | "executable_action_indexes"
+    | "applied_action_indexes"
+    | "remaining_action_indexes"
+    | "skipped_action_indexes"
+    | "action_states"
+  > | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [removed, setRemoved] = useState<Set<number>>(new Set());
+  const [localAppliedResources, setLocalAppliedResources] = useState<
+    Record<number, AppliedResourceRef[]>
+  >({});
+  const [removingActionIndex, setRemovingActionIndex] = useState<number | null>(
+    null,
+  );
   const [appliedLink, setAppliedLink] = useState<string | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
 
@@ -966,16 +1188,123 @@ function AiResultContent({
   const totalTasks =
     linkedTaskIndexes.size + independentTasks.length + pendingItems.length;
   const detected = result.detected_type as DetectedType;
-  const actionKey = (index: number) => `${memoId}:${result.ai_result_id}:${index}`;
-  const added = useMemo(
-    () => new Set(Object.keys(appliedActions)),
-    [appliedActions],
+  const effectiveActionStates = applyState?.action_states ?? result.action_states;
+  const actionStateByIndex = useMemo(
+    () =>
+      new Map(
+        (effectiveActionStates ?? []).map((state) => [
+          state.action_index,
+          state,
+        ]),
+      ),
+    [effectiveActionStates],
   );
+  const appliedActionIndexes =
+    applyState?.applied_action_indexes ?? result.applied_action_indexes;
+  const remainingActionIndexes =
+    applyState?.remaining_action_indexes ?? result.remaining_action_indexes;
+  const hasRemainingActionIndexes = Array.isArray(remainingActionIndexes);
+  const applied = useMemo(
+    () =>
+      new Set(
+        appliedActionIndexes ??
+          (effectiveActionStates ?? [])
+            .filter((state) => state.applied)
+            .map((state) => state.action_index),
+      ),
+    [appliedActionIndexes, effectiveActionStates],
+  );
+  const remaining = useMemo(
+    () => new Set(remainingActionIndexes ?? []),
+    [remainingActionIndexes],
+  );
+  const appliedCount = visibleEntries.filter(({ index }) =>
+    applied.has(index),
+  ).length;
+  const actionableCount = visibleEntries.filter(
+    ({ action }) =>
+      action.type === "create_schedule" || action.type === "create_task",
+  ).length;
+  const resultAppliedResourceMap = useMemo(() => {
+    const refs: AppliedResourceRef[] = [];
+    const map = new Map<number, AppliedResourceRef[]>();
+
+    pushAppliedResourceRefs(refs, result.applied_actions);
+    refs.forEach((ref) => {
+      if (ref.actionIndex === undefined) return;
+      addResourceRef(map, ref.actionIndex, ref);
+    });
+
+    return map;
+  }, [result.applied_actions]);
+  const sourceMatchedResourceMap = useMemo(() => {
+    const map = new Map<number, AppliedResourceRef[]>();
+    const schedules = schedulesQuery.data ?? [];
+    const tasks = tasksQuery.data ?? [];
+
+    rawActions.forEach((action, index) => {
+      if (action.type === "create_schedule") {
+        schedules
+          .filter((schedule) =>
+            hasAiSource(schedule, memoId, result.ai_result_id),
+          )
+          .filter((schedule) => actionMatchesSchedule(action, schedule))
+          .forEach((schedule) =>
+            addResourceRef(map, index, {
+              type: "schedule",
+              id: schedule.schedule_id,
+              actionIndex: index,
+              link: getAppliedLink(schedule),
+            }),
+          );
+      }
+
+      if (action.type === "create_task") {
+        tasks
+          .filter((task) => hasAiSource(task, memoId, result.ai_result_id))
+          .filter((task) => actionMatchesTask(action, task))
+          .forEach((task) =>
+            addResourceRef(map, index, {
+              type: "task",
+              id: task.task_id,
+              actionIndex: index,
+              link: getAppliedLink(task),
+            }),
+          );
+      }
+    });
+
+    return map;
+  }, [
+    memoId,
+    rawActions,
+    result.ai_result_id,
+    schedulesQuery.data,
+    tasksQuery.data,
+  ]);
+  const appliedResourceMap = useMemo(() => {
+    const map = new Map<number, AppliedResourceRef[]>();
+    const localMap = localAppliedResourceMapFromRecord(localAppliedResources);
+
+    resultAppliedResourceMap.forEach((refs, index) => {
+      refs.forEach((ref) => addResourceRef(map, index, ref));
+    });
+    sourceMatchedResourceMap.forEach((refs, index) => {
+      refs.forEach((ref) => addResourceRef(map, index, ref));
+    });
+    localMap.forEach((refs, index) => {
+      refs.forEach((ref) => addResourceRef(map, index, ref));
+    });
+
+    return map;
+  }, [localAppliedResources, resultAppliedResourceMap, sourceMatchedResourceMap]);
 
   useEffect(() => {
     setExpanded(new Set(scheduleEntries.map(({ index }) => String(index))));
     setRemoved(new Set());
-    setAppliedActions(readAppliedActionStore());
+    setApplyState(null);
+    setLocalAppliedResources({});
+    setRemovingActionIndex(null);
     setAppliedLink(null);
     setApplyError(null);
   }, [result.ai_result_id]);
@@ -990,98 +1319,274 @@ function AiResultContent({
     });
   };
 
-  const rememberAppliedAction = (
-    index: number,
-    applied: AppliedActionResource,
+  const syncApplyState = (
+    response: ApplyMemoResponse,
+    fallbackActionIndex?: number,
   ) => {
-    const key = actionKey(index);
-    setAppliedActions((prev) => {
-      const next = { ...prev, [key]: applied };
-      writeAppliedActionStore(next);
-      return next;
+    setApplyState({
+      result_status: response.result_status,
+      executable_action_indexes: response.executable_action_indexes,
+      applied_action_indexes: response.applied_action_indexes,
+      remaining_action_indexes: response.remaining_action_indexes,
+      skipped_action_indexes: response.skipped_action_indexes,
+      action_states: response.action_states,
     });
-    setAppliedLink(applied.link);
+
+    const resourceRefs = collectAppliedResourceRefs(
+      response,
+      fallbackActionIndex,
+    );
+    if (resourceRefs.length > 0) {
+      setLocalAppliedResources((current) => {
+        const next = { ...current };
+        resourceRefs.forEach((ref) => {
+          const actionIndex = ref.actionIndex ?? fallbackActionIndex;
+          if (actionIndex === undefined) return;
+          next[actionIndex] = uniqueAppliedResourceRefs([
+            ...(next[actionIndex] ?? []),
+            { ...ref, actionIndex },
+          ]);
+        });
+        return next;
+      });
+    }
+
+    const link = getApplyResponseLink(response);
+    if (link) setAppliedLink(link);
+
+    return resourceRefs;
   };
 
-  const forgetAppliedAction = (index: number) => {
-    const key = actionKey(index);
-    setAppliedActions((prev) => {
-      const next = { ...prev };
-      delete next[key];
-      writeAppliedActionStore(next);
-      return next;
+  const isSupportedAction = (index: number) => {
+    const action = rawActions[index];
+    return (
+      action?.type === "create_schedule" || action?.type === "create_task"
+    );
+  };
+
+  const isActionApplied = (index: number) =>
+    applied.has(index) || actionStateByIndex.get(index)?.applied === true;
+
+  const canApplyAction = (index: number) => {
+    if (!isSupportedAction(index) || isActionApplied(index)) return false;
+    const state = actionStateByIndex.get(index);
+    if (state?.applicable === false) return false;
+    if (hasRemainingActionIndexes) return remaining.has(index);
+    return true;
+  };
+
+  const getRelatedScheduleIndexForTaskAction = (taskActionIndex: number) => {
+    const action = rawActions[taskActionIndex];
+    if (action?.type !== "create_task") return null;
+
+    const relatedActionIndex = toNonNegativeNumber(
+      action.related_action_index,
+    );
+    if (
+      relatedActionIndex !== null &&
+      rawActions[relatedActionIndex]?.type === "create_schedule"
+    ) {
+      return relatedActionIndex;
+    }
+
+    const relatedScheduleTitle = normalizeComparableText(
+      action.related_schedule_title,
+    );
+    if (!relatedScheduleTitle) return null;
+
+    const matchingIndex = rawActions.findIndex(
+      (candidate) =>
+        candidate.type === "create_schedule" &&
+        normalizeComparableText(getActionTitle(candidate)) ===
+          relatedScheduleTitle,
+    );
+
+    return matchingIndex >= 0 ? matchingIndex : null;
+  };
+
+  const getAppliedScheduleIdForAction = (
+    scheduleActionIndex: number,
+    extraResourceMap?: Map<number, AppliedResourceRef[]>,
+  ) => {
+    const refs = [
+      ...(extraResourceMap?.get(scheduleActionIndex) ?? []),
+      ...(appliedResourceMap.get(scheduleActionIndex) ?? []),
+    ];
+
+    return refs.find((ref) => ref.type === "schedule")?.id ?? null;
+  };
+
+  const getScheduleIdForTaskAction = (
+    taskActionIndex: number,
+    extraResourceMap?: Map<number, AppliedResourceRef[]>,
+  ) => {
+    const relatedScheduleIndex =
+      getRelatedScheduleIndexForTaskAction(taskActionIndex);
+    if (relatedScheduleIndex === null) return null;
+
+    return getAppliedScheduleIdForAction(relatedScheduleIndex, extraResourceMap);
+  };
+
+  const getApplyPayloadForAction = (
+    index: number,
+    extraResourceMap?: Map<number, AppliedResourceRef[]>,
+  ) => {
+    const scheduleId = getScheduleIdForTaskAction(index, extraResourceMap);
+
+    return {
+      apply_type: "action" as const,
+      action_index: index,
+      ...(scheduleId ? { schedule_id: scheduleId } : {}),
+    };
+  };
+
+  const addTransientResourceRefs = (
+    map: Map<number, AppliedResourceRef[]>,
+    refs: AppliedResourceRef[],
+    fallbackActionIndex: number,
+  ) => {
+    refs.forEach((ref) => {
+      const actionIndex = ref.actionIndex ?? fallbackActionIndex;
+      addResourceRef(map, actionIndex, { ...ref, actionIndex });
     });
   };
 
   const handleApplyAction = async (index: number) => {
-    const action = rawActions[index];
-    if (!action || (action.type !== "create_schedule" && action.type !== "create_task")) {
-      return;
-    }
+    if (!canApplyAction(index)) return;
     setApplyError(null);
     try {
-      const applied = await applyMutation.mutateAsync({
+      const response = await applyMutation.mutateAsync({
         memoId,
-        payload: {
-          apply_type: "action",
-          action_index: index,
-        },
+        payload: getApplyPayloadForAction(index),
       });
-      const appliedResource = resourceFromApplyResponse(applied);
-      if (appliedResource) {
-        rememberAppliedAction(index, appliedResource);
-      } else {
-        setAppliedLink(getAppliedLink(applied.resource));
-      }
+      syncApplyState(response, index);
     } catch (err) {
       setApplyError(getErrorMessage(err, "AI 제안 적용에 실패했습니다."));
     }
   };
 
-  const handleCancelAction = async (index: number) => {
-    const applied = appliedActions[actionKey(index)];
-    if (!applied) return;
-
-    setApplyError(null);
-    try {
-      if (applied.kind === "schedule") {
-        await deleteScheduleMutation.mutateAsync(applied.id);
-      } else {
-        await deleteTaskMutation.mutateAsync(applied.id);
-      }
-      forgetAppliedAction(index);
-      setAppliedLink(null);
-    } catch (err) {
-      setApplyError(getErrorMessage(err, "추가된 항목 취소에 실패했습니다."));
-    }
-  };
-
   const handleApplyBundle = async (indexes: number[]) => {
     setApplyError(null);
+    const transientResourceMap = new Map<number, AppliedResourceRef[]>();
     try {
       for (const index of indexes) {
-        const action = rawActions[index];
-        if (
-          added.has(actionKey(index)) ||
-          !action ||
-          (action.type !== "create_schedule" && action.type !== "create_task")
-        ) {
-          continue;
-        }
-        const applied = await applyMutation.mutateAsync({
+        if (!canApplyAction(index)) continue;
+        const response = await applyMutation.mutateAsync({
           memoId,
-          payload: {
-            apply_type: "action",
-            action_index: index,
-          },
+          payload: getApplyPayloadForAction(index, transientResourceMap),
         });
-        const appliedResource = resourceFromApplyResponse(applied);
-        if (appliedResource) {
-          rememberAppliedAction(index, appliedResource);
-        }
+        const resourceRefs = syncApplyState(response, index);
+        addTransientResourceRefs(transientResourceMap, resourceRefs, index);
       }
     } catch (err) {
       setApplyError(getErrorMessage(err, "AI 결과 적용에 실패했습니다."));
+    }
+  };
+
+  const markActionUnapplied = (index: number) => {
+    setApplyState((current) => {
+      const base = {
+        result_status: result.result_status,
+        executable_action_indexes: result.executable_action_indexes,
+        applied_action_indexes: result.applied_action_indexes,
+        remaining_action_indexes: result.remaining_action_indexes,
+        skipped_action_indexes: undefined,
+        action_states: result.action_states,
+        ...current,
+      };
+      const supportedIndexes = rawActions
+        .map((action, actionIndex) =>
+          action.type === "create_schedule" || action.type === "create_task"
+            ? actionIndex
+            : null,
+        )
+        .filter((actionIndex): actionIndex is number => actionIndex !== null);
+      const previousApplied = base.applied_action_indexes ?? [...applied];
+      const nextApplied = previousApplied.filter(
+        (actionIndex) => actionIndex !== index,
+      );
+      const nextRemaining = base.remaining_action_indexes
+        ? [...new Set([...base.remaining_action_indexes, index])].filter(
+            (actionIndex) => supportedIndexes.includes(actionIndex),
+          )
+        : base.remaining_action_indexes;
+      const previousStates =
+        base.action_states ??
+        rawActions.map((action, actionIndex) => ({
+          action_index: actionIndex,
+          action_type: action.type,
+          applicable:
+            action.type === "create_schedule" || action.type === "create_task",
+          applied: previousApplied.includes(actionIndex),
+        }));
+      const nextStates = previousStates.map((state) =>
+        state.action_index === index
+          ? { ...state, applicable: state.applicable ?? true, applied: false }
+          : state,
+      );
+      const resultStatus =
+        nextApplied.length === 0
+          ? "suggested"
+          : nextApplied.length < supportedIndexes.length
+            ? "partially_applied"
+            : base.result_status;
+
+      return {
+        ...base,
+        result_status: resultStatus,
+        applied_action_indexes: nextApplied,
+        remaining_action_indexes: nextRemaining,
+        action_states: nextStates,
+      };
+    });
+  };
+
+  const handleRemoveAppliedAction = async (index: number) => {
+    const resourceRefs = appliedResourceMap.get(index) ?? [];
+    const uniqueRefs = uniqueAppliedResourceRefs(resourceRefs);
+
+    if (uniqueRefs.length === 0) {
+      setApplyError(
+        "생성된 항목을 찾지 못했습니다. 일정/할 일 화면에서 삭제해 주세요.",
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
+      uniqueRefs.length > 1
+        ? `추가된 항목 ${uniqueRefs.length}개를 삭제할까요?`
+        : uniqueRefs[0].type === "schedule"
+          ? "추가된 일정을 삭제할까요?"
+          : "추가된 할 일을 삭제할까요?",
+    );
+    if (!confirmed) return;
+
+    setApplyError(null);
+    setRemovingActionIndex(index);
+    try {
+      for (const ref of uniqueRefs) {
+        if (ref.type === "schedule") {
+          await deleteScheduleMutation.mutateAsync(ref.id);
+        } else {
+          await deleteTaskMutation.mutateAsync(ref.id);
+        }
+      }
+
+      setLocalAppliedResources((current) => {
+        const next = { ...current };
+        delete next[index];
+        return next;
+      });
+      markActionUnapplied(index);
+      setAppliedLink(null);
+      void queryClient.invalidateQueries({ queryKey: MEMOS_QUERY_KEY });
+      void queryClient.invalidateQueries({
+        queryKey: memoParseResultKey(memoId),
+      });
+    } catch (err) {
+      setApplyError(getErrorMessage(err, "추가된 항목 삭제에 실패했습니다."));
+    } finally {
+      setRemovingActionIndex(null);
     }
   };
 
@@ -1123,42 +1628,90 @@ function AiResultContent({
   };
 
   const renderPlusButton = (index: number, addedLabel = false) => {
-    const isAdded = added.has(actionKey(index));
-    const busy =
-      applyMutation.isPending ||
+    const isAdded = isActionApplied(index);
+    const canApply = canApplyAction(index);
+    const resourceRefs = appliedResourceMap.get(index) ?? [];
+    const addedLink = resourceRefs.find((ref) => ref.link)?.link ?? null;
+    const applying = applyMutation.isPending;
+    const removing = removingActionIndex === index;
+    const anyRemoving =
+      removingActionIndex !== null ||
       deleteScheduleMutation.isPending ||
       deleteTaskMutation.isPending;
+
+    if (isAdded) {
+      const addedButtonClass = cn(
+        "flex shrink-0 items-center justify-center rounded-md bg-indigo-100 text-indigo-700 transition-colors hover:bg-indigo-200 disabled:opacity-50",
+        addedLabel ? "h-6 gap-1 px-2 text-[11px] font-medium" : "h-6 w-6",
+      );
+      const moveClass = cn(
+        "flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors",
+        addedLink
+          ? "text-indigo-400 hover:bg-indigo-50 hover:text-indigo-600"
+          : "cursor-not-allowed text-gray-200",
+      );
+
+      return (
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => void handleRemoveAppliedAction(index)}
+            disabled={anyRemoving}
+            aria-label="추가됨, 다시 누르면 삭제 확인"
+            title={
+              resourceRefs.length > 0
+                ? "추가됨 - 다시 누르면 삭제 확인"
+                : "추가됨"
+            }
+            className={addedButtonClass}
+          >
+            {removing ? (
+              <RefreshCw className="h-3 w-3 animate-spin" />
+            ) : (
+              <Check className="h-3 w-3" />
+            )}
+            {addedLabel && (removing ? "삭제 중" : "추가됨")}
+          </button>
+          {addedLink ? (
+            <Link
+              to={addedLink}
+              className={moveClass}
+              aria-label="생성된 항목으로 이동"
+              title="생성된 항목으로 이동"
+            >
+              <ArrowUpRight className="h-3 w-3" />
+            </Link>
+          ) : (
+            <span
+              className={moveClass}
+              aria-label="생성된 항목 경로 없음"
+              title="생성된 항목 경로 없음"
+            >
+              <ArrowUpRight className="h-3 w-3" />
+            </span>
+          )}
+        </div>
+      );
+    }
 
     return (
       <button
         type="button"
-        onClick={() =>
-          isAdded ? void handleCancelAction(index) : void handleApplyAction(index)
-        }
-        disabled={busy}
-        aria-label={isAdded ? "추가 취소" : "추가"}
-        title={isAdded ? "추가 취소" : "추가"}
+        onClick={() => void handleApplyAction(index)}
+        disabled={applying || !canApply}
+        aria-label="추가"
+        title="추가"
         className={cn(
           "flex shrink-0 items-center justify-center rounded-md transition-colors",
           addedLabel
             ? "h-6 gap-1 px-2 text-[11px] font-medium"
             : "h-6 w-6",
-          isAdded
-            ? "bg-indigo-100 text-indigo-700 hover:bg-red-50 hover:text-red-500"
-            : "text-gray-300 hover:bg-indigo-50 hover:text-indigo-500",
+          "text-gray-300 hover:bg-indigo-50 hover:text-indigo-500",
+          !canApply && "cursor-not-allowed opacity-40",
         )}
       >
-        {isAdded ? (
-          <>
-            <Check className="h-3 w-3" />
-            {addedLabel && "추가됨"}
-          </>
-        ) : (
-          <>
-            <Plus className="h-3 w-3" />
-            {addedLabel && "일정 추가"}
-          </>
-        )}
+        <Plus className="h-3 w-3" />
+        {addedLabel && "일정 추가"}
       </button>
     );
   };
@@ -1181,6 +1734,8 @@ function AiResultContent({
             </span>
             <span className="ml-auto text-[10px] text-violet-500">
               일정 {scheduleEntries.length} · 할 일 {totalTasks}
+              {appliedCount > 0 &&
+                ` · 추가됨 ${appliedCount}/${actionableCount}`}
             </span>
           </div>
 
@@ -1188,9 +1743,9 @@ function AiResultContent({
             const linkedTasks =
               linkedTasksBySchedule[schedulePosition]?.tasks ?? [];
             const isExpanded = expanded.has(String(index));
-            const scheduleAdded = added.has(actionKey(index));
+            const scheduleAdded = isActionApplied(index);
             const addedTodoCount = linkedTasks.filter(({ index: taskIndex }) =>
-              added.has(actionKey(taskIndex)),
+              isActionApplied(taskIndex),
             ).length;
             const allDone =
               scheduleAdded && addedTodoCount === linkedTasks.length;
@@ -1198,6 +1753,7 @@ function AiResultContent({
               index,
               ...linkedTasks.map(({ index: taskIndex }) => taskIndex),
             ];
+            const bundleCanApply = bundleIndexes.some(canApplyAction);
 
             return (
               <div
@@ -1231,21 +1787,23 @@ function AiResultContent({
                       </div>
                       {renderMeta(action)}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setRemoved((prev) => new Set(prev).add(index))
-                      }
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-gray-200 opacity-0 transition-all hover:bg-red-50 hover:text-red-400 group-hover/card:opacity-100"
-                      aria-label="일정 후보 삭제"
-                      title="일정 후보 삭제"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
+                    {!scheduleAdded && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setRemoved((prev) => new Set(prev).add(index))
+                        }
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-gray-200 opacity-0 transition-all hover:bg-red-50 hover:text-red-400 group-hover/card:opacity-100"
+                        aria-label="일정 후보 삭제"
+                        title="일정 후보 삭제"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
                   </div>
 
                   <div className="mt-2 flex items-center gap-1.5">
-                    {!allDone && linkedTasks.length > 0 && (
+                    {!allDone && linkedTasks.length > 0 && bundleCanApply && (
                       <button
                         type="button"
                         onClick={() => void handleApplyBundle(bundleIndexes)}
@@ -1285,7 +1843,7 @@ function AiResultContent({
                       </div>
                       {linkedTasks.map(
                         ({ action: taskAction, index: taskIndex }, idx) => {
-                          const isAdded = added.has(actionKey(taskIndex));
+                          const isAdded = isActionApplied(taskIndex);
                           return (
                             <div
                               key={`${taskAction.type}-${taskIndex}`}
@@ -1321,21 +1879,28 @@ function AiResultContent({
                                 <p className="mt-0.5 flex items-center gap-0.5 text-[10px] text-gray-400">
                                   <Clock className="h-2.5 w-2.5" />
                                   {getActionDateLabel(taskAction) || "시간 미정"}
+                                  {isAdded && (
+                                    <span className="ml-1 rounded bg-indigo-50 px-1 text-indigo-600">
+                                      추가됨
+                                    </span>
+                                  )}
                                 </p>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setRemoved((prev) =>
-                                    new Set(prev).add(taskIndex),
-                                  )
-                                }
-                                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-200 opacity-0 transition-all hover:bg-red-50 hover:text-red-400 group-hover/todo:opacity-100"
-                                aria-label="할 일 후보 삭제"
-                                title="할 일 후보 삭제"
-                              >
-                                <X className="h-3 w-3" />
-                              </button>
+                              {!isAdded && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setRemoved((prev) =>
+                                      new Set(prev).add(taskIndex),
+                                    )
+                                  }
+                                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-200 opacity-0 transition-all hover:bg-red-50 hover:text-red-400 group-hover/todo:opacity-100"
+                                  aria-label="할 일 후보 삭제"
+                                  title="할 일 후보 삭제"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              )}
                               {renderPlusButton(taskIndex)}
                             </div>
                           );
@@ -1376,7 +1941,7 @@ function AiResultContent({
                 </span>
               </div>
               {independentTasks.map(({ action, index }) => {
-                const isAdded = added.has(actionKey(index));
+                const isAdded = isActionApplied(index);
                 return (
                   <div
                     key={`${action.type}-${index}`}
@@ -1405,19 +1970,26 @@ function AiResultContent({
                       <p className="mt-0.5 flex items-center gap-0.5 text-[10px] text-gray-400">
                         <Clock className="h-2.5 w-2.5" />
                         {getActionDateLabel(action) || "시간 미정"}
+                        {isAdded && (
+                          <span className="ml-1 rounded bg-indigo-50 px-1 text-indigo-600">
+                            추가됨
+                          </span>
+                        )}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setRemoved((prev) => new Set(prev).add(index))
-                      }
-                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-200 opacity-0 transition-all hover:bg-red-50 hover:text-red-400 group-hover/stodo:opacity-100"
-                      aria-label="할 일 후보 삭제"
-                      title="할 일 후보 삭제"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
+                    {!isAdded && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setRemoved((prev) => new Set(prev).add(index))
+                        }
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-200 opacity-0 transition-all hover:bg-red-50 hover:text-red-400 group-hover/stodo:opacity-100"
+                        aria-label="할 일 후보 삭제"
+                        title="할 일 후보 삭제"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
                     {renderPlusButton(index)}
                   </div>
                 );
@@ -1470,9 +2042,11 @@ function AiResultContent({
 function MemoAiPanel({
   memo,
   open,
+  onToggleOpen,
 }: {
   memo: Memo | null;
   open: boolean;
+  onToggleOpen: () => void;
 }) {
   const parseMutation = useParseMemo();
   const { data, isLoading, isError, error } = useMemoParseResult(
@@ -1497,11 +2071,23 @@ function MemoAiPanel({
     });
   };
 
-  if (!open) return null;
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={onToggleOpen}
+        className="fixed right-0 top-20 z-40 flex h-11 w-6 items-center justify-center rounded-l-lg border border-r-0 border-gray-200 bg-white text-gray-500 shadow-lg shadow-gray-900/10 transition-colors hover:text-violet-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 min-[600px]:top-1/2 min-[600px]:-translate-y-1/2"
+        aria-label="AI 추출 결과 열기"
+        title="AI 추출 결과 열기"
+      >
+        <PanelRightOpen className="h-4 w-4" />
+      </button>
+    );
+  }
 
   return (
-    <aside className="flex w-[380px] shrink-0 flex-col border-l border-gray-100 bg-gray-50/40 transition-all duration-200">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-gray-100 px-3">
+    <aside className="fixed inset-y-0 right-0 z-40 flex w-[min(380px,100vw)] shrink-0 flex-col border-l border-gray-100 bg-gray-50/95 shadow-2xl shadow-gray-900/10 backdrop-blur transition-transform duration-200">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-gray-100 px-3 min-[600px]:h-16">
         <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-500" />
         <span className="min-w-0 flex-1 truncate text-xs font-semibold text-gray-700">
           AI 추출 결과
@@ -1509,27 +2095,18 @@ function MemoAiPanel({
         <span className="whitespace-nowrap text-[10px] text-gray-400">
           일정 {scheduleCount} · 할 일 {taskCount}
         </span>
-        {memo && (
-          <button
-            type="button"
-            onClick={() => void retry()}
-            disabled={parseMutation.isPending || status === "pending" || status === "processing"}
-            aria-label="AI 재분석"
-            title="AI 재분석"
-            className={cn(
-              "flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs text-violet-500 transition-colors hover:bg-violet-50 hover:text-violet-600 disabled:opacity-50",
-              parseMutation.isPending && "text-violet-500",
-            )}
-          >
-            <RefreshCw
-              className={cn("h-3.5 w-3.5", parseMutation.isPending && "animate-spin")}
-            />
-            재분석
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={onToggleOpen}
+          aria-label="AI 추출 결과 접기"
+          title="AI 추출 결과 접기"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200"
+        >
+          <PanelRightClose className="h-4 w-4" />
+        </button>
       </div>
 
-      <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
+      <div className="scrollbar-none flex-1 space-y-2 overflow-y-auto px-3 py-3">
         {!memo ? (
           <div className="rounded-xl border border-gray-200 bg-white px-3 py-8 text-center text-xs text-gray-400">
             메모를 선택하세요.
@@ -1560,16 +2137,8 @@ function MemoAiPanel({
             <p className="text-center text-xs">
               추출된 일정과 할 일이 없습니다.
               <br />
-              재분석을 실행해보세요.
+              본문의 재분석을 실행해보세요.
             </p>
-            <button
-              type="button"
-              onClick={() => void retry()}
-              className="mt-1 flex items-center gap-1 text-xs text-violet-600 hover:underline"
-            >
-              <RefreshCw className="h-3 w-3" />
-              재분석하기
-            </button>
           </div>
         )}
       </div>
@@ -1678,52 +2247,48 @@ export default function Memos() {
             selectedMemo.updated_at ?? selectedMemo.created_at,
           )}`
         : `${items.length}개 메모`;
+  const aiPanelOpen = mode !== "create" && rightOpen;
 
   return (
     <AppShell
       fullBleed
       titleMeta={titleMeta}
-      aiChatButtonOffset={rightOpen ? "380px" : "0px"}
-      headerActions={
-        <button
-          type="button"
-          onClick={() => setRightOpen((open) => !open)}
-          className={appSidebarToggleButtonClass}
-          aria-label={rightOpen ? "AI 추출 결과 접기" : "AI 추출 결과 열기"}
-          title={rightOpen ? "AI 추출 결과 접기" : "AI 추출 결과 열기"}
-        >
-          <PanelRight className="h-4 w-4" />
-        </button>
-      }
+      aiChatButtonOffset={aiPanelOpen ? MEMO_AI_PANEL_WIDTH : "0px"}
+      headerRightOffset={aiPanelOpen ? MEMO_AI_PANEL_WIDTH : "0px"}
     >
       <div
-        className="relative flex h-full overflow-hidden bg-white font-sans text-gray-950"
+        className={cn(
+          "relative flex h-full overflow-hidden bg-white font-sans text-gray-950 transition-[padding] duration-200",
+          aiPanelOpen && "min-[600px]:pr-[380px]",
+        )}
         onClick={() => setConfirmDeleteId(null)}
       >
-        <MemoListPanel
-          items={filteredItems}
-          selectedMemoId={selectedMemoId}
-          search={search}
-          leftOpen={leftOpen}
-          isLoading={isLoading}
-          isError={isError}
-          error={error}
-          isFetching={isFetching}
-          confirmDeleteId={confirmDeleteId}
-          onToggleLeft={() => setLeftOpen((open) => !open)}
-          onSearchChange={setSearch}
-          onSelect={handleSelect}
-          onCreate={() => {
-            setMode("create");
-            setConfirmDeleteId(null);
-          }}
-          onRequestDelete={(memoId) => setConfirmDeleteId(memoId)}
-          onConfirmDelete={(memoId) => void handleConfirmDelete(memoId)}
-          onCancelDelete={() => setConfirmDeleteId(null)}
-          onRetry={() => {
-            void refetch();
-          }}
-        />
+        {mode !== "create" && (
+          <MemoListPanel
+            items={filteredItems}
+            selectedMemoId={selectedMemoId}
+            search={search}
+            leftOpen={leftOpen}
+            isLoading={isLoading}
+            isError={isError}
+            error={error}
+            isFetching={isFetching}
+            confirmDeleteId={confirmDeleteId}
+            onToggleLeft={() => setLeftOpen((open) => !open)}
+            onSearchChange={setSearch}
+            onSelect={handleSelect}
+            onCreate={() => {
+              setMode("create");
+              setConfirmDeleteId(null);
+            }}
+            onRequestDelete={(memoId) => setConfirmDeleteId(memoId)}
+            onConfirmDelete={(memoId) => void handleConfirmDelete(memoId)}
+            onCancelDelete={() => setConfirmDeleteId(null)}
+            onRetry={() => {
+              void refetch();
+            }}
+          />
+        )}
 
         {mode === "create" ? (
           <MemoCreatePanel
@@ -1740,15 +2305,19 @@ export default function Memos() {
             parseStatus={selectedStatus}
             latestResult={selectedResult}
             onDeleted={handleDeleted}
+            onParseStart={() => setRightOpen(true)}
           />
         ) : (
           <EmptyMemoPanel onCreate={() => setMode("create")} />
         )}
 
-        <MemoAiPanel
-          memo={selectedMemo}
-          open={rightOpen}
-        />
+        {mode !== "create" && (
+          <MemoAiPanel
+            memo={selectedMemo}
+            open={rightOpen}
+            onToggleOpen={() => setRightOpen((open) => !open)}
+          />
+        )}
       </div>
     </AppShell>
   );
