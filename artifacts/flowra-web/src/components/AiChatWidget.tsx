@@ -90,18 +90,36 @@ function isMessageFromUser(message: AiChatMessage) {
   return message.role === "user";
 }
 
+function getMessageActionState(message: AiChatMessage, actionIndex: number) {
+  return message.action_states?.find(
+    (state) => state.action_index === actionIndex,
+  );
+}
+
 function isActionApplied(
   message: AiChatMessage,
   actionIndex: number,
   locallyApplied: boolean,
 ): boolean {
   if (locallyApplied) return true;
+  if (getMessageActionState(message, actionIndex)?.applied) return true;
+  if (message.applied_action_indexes?.includes(actionIndex)) return true;
   if (message.action_status === "applied") return true;
   return (
     message.applied_actions?.some(
       (action) => action.action_index === actionIndex,
     ) ?? false
   );
+}
+
+function isActionAvailable(message: AiChatMessage, actionIndex: number) {
+  if (isActionApplied(message, actionIndex, false)) return false;
+  const state = getMessageActionState(message, actionIndex);
+  if (state?.applicable === false) return false;
+  if (Array.isArray(message.remaining_action_indexes)) {
+    return message.remaining_action_indexes.includes(actionIndex);
+  }
+  return true;
 }
 
 function EmptyChatState({
@@ -142,6 +160,7 @@ function AiChatActionCard({
   actionIndex,
   sessionId,
   applied,
+  available,
   applying,
   onApply,
 }: {
@@ -150,6 +169,7 @@ function AiChatActionCard({
   actionIndex: number;
   sessionId: number | null;
   applied: boolean;
+  available: boolean;
   applying: boolean;
   onApply: (input: {
     messageId: number;
@@ -164,7 +184,7 @@ function AiChatActionCard({
   const reviewMeta = getAiSuggestedActionReviewMeta(action, {
     includeRelatedActionIndex: true,
   });
-  const canApply = categoryType !== null;
+  const canApply = categoryType !== null && available;
   const disabled = applied || applying || !sessionId || !canApply;
 
   return (
@@ -237,7 +257,7 @@ function AiChatActionCard({
         </div>
       </div>
 
-      {canApply ? (
+      {categoryType ? (
         <div className="mt-3 grid gap-2 min-[380px]:grid-cols-[1fr_auto]">
           <CategorySelect
             type={categoryType}
@@ -319,6 +339,7 @@ function AiChatMessageBubble({
                 index,
                 appliedKeys.has(key),
               );
+              const available = isActionAvailable(message, index);
 
               return (
                 <AiChatActionCard
@@ -328,6 +349,7 @@ function AiChatMessageBubble({
                   actionIndex={index}
                   sessionId={sessionId}
                   applied={applied}
+                  available={available}
                   applying={applyingKey === key}
                   onApply={onApply}
                 />
@@ -352,7 +374,15 @@ function AiChatSessionList({
   onSelect: (sessionId: number) => void;
 }) {
   return (
-    <div className="max-h-56 overflow-y-auto border-b border-slate-200 bg-white px-2 py-2">
+    <aside className="max-h-56 overflow-y-auto border-b border-slate-200 bg-white px-2 py-2 min-[600px]:h-full min-[600px]:max-h-none min-[600px]:w-64 min-[600px]:shrink-0 min-[600px]:border-b-0 min-[600px]:border-r min-[600px]:py-3">
+      <div className="hidden items-center justify-between gap-2 px-2 pb-2 min-[600px]:flex">
+        <span className="text-xs font-semibold text-slate-500">대화 목록</span>
+        {!isLoading && (
+          <span className="text-[11px] font-medium text-slate-400">
+            {sessions.length}개
+          </span>
+        )}
+      </div>
       {isLoading ? (
         <div className="flex items-center justify-center gap-2 py-6 text-sm font-medium text-slate-500">
           <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
@@ -404,7 +434,7 @@ function AiChatSessionList({
           })}
         </div>
       )}
-    </div>
+    </aside>
   );
 }
 
@@ -458,7 +488,11 @@ export default function AiChatWidget({
   const handleNewSession = () => {
     setActiveSessionId(null);
     setPreferNewSession(true);
-    setSessionListOpen(false);
+    if (window.matchMedia("(max-width: 599px)").matches) {
+      setSessionListOpen(false);
+    } else {
+      setSessionListOpen(true);
+    }
     setDraft("");
     setPendingContent(null);
     setAppliedKeys(new Set());
@@ -467,7 +501,9 @@ export default function AiChatWidget({
   const handleSelectSession = (sessionId: number) => {
     setActiveSessionId(sessionId);
     setPreferNewSession(false);
-    setSessionListOpen(false);
+    if (window.matchMedia("(max-width: 599px)").matches) {
+      setSessionListOpen(false);
+    }
     setDraft("");
     setPendingContent(null);
     setAppliedKeys(new Set());
@@ -490,7 +526,9 @@ export default function AiChatWidget({
         sessionId = session.session_id;
         setActiveSessionId(sessionId);
         setPreferNewSession(false);
-        setSessionListOpen(false);
+        if (window.matchMedia("(max-width: 599px)").matches) {
+          setSessionListOpen(false);
+        }
       }
 
       await sendMessageMutation.mutateAsync({
@@ -523,7 +561,7 @@ export default function AiChatWidget({
     setApplyingKey(key);
 
     try {
-      await applyActionMutation.mutateAsync({
+      const response = await applyActionMutation.mutateAsync({
         messageId,
         sessionId: activeSessionId ?? undefined,
         payload: {
@@ -534,7 +572,14 @@ export default function AiChatWidget({
       });
       setAppliedKeys((current) => {
         const next = new Set(current);
-        next.add(key);
+        const appliedIndexes =
+          response.applied_action_indexes ??
+          response.action_states
+            ?.filter((state) => state.applied)
+            .map((state) => state.action_index) ??
+          [actionIndex];
+
+        appliedIndexes.forEach((index) => next.add(`${messageId}:${index}`));
         return next;
       });
     } finally {
@@ -553,6 +598,12 @@ export default function AiChatWidget({
   const offsetStyle = {
     "--flowra-ai-chat-button-offset": buttonRightOffset,
   } as CSSProperties;
+  const panelStyle = {
+    "--flowra-ai-chat-button-offset": buttonRightOffset,
+    "--flowra-ai-chat-panel-width": sessionListOpen
+      ? "min(760px, calc(100vw - 2rem - var(--flowra-ai-chat-button-offset, 0px)))"
+      : "min(420px, calc(100vw - 2rem - var(--flowra-ai-chat-button-offset, 0px)))",
+  } as CSSProperties;
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -560,8 +611,8 @@ export default function AiChatWidget({
         <section
           id={PANEL_ID}
           aria-label="Flowra AI 채팅"
-          className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] top-16 z-50 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl shadow-slate-900/20 transition-[right] duration-200 min-[600px]:inset-auto min-[600px]:bottom-24 min-[600px]:right-[calc(1.5rem+var(--flowra-ai-chat-button-offset,0px))] min-[600px]:h-[min(72dvh,620px)] min-[600px]:w-[min(420px,calc(100vw-2rem))]"
-          style={offsetStyle}
+          className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] top-16 z-50 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl shadow-slate-900/20 transition-[right,width] duration-200 min-[600px]:inset-auto min-[600px]:bottom-24 min-[600px]:right-[calc(1.5rem+var(--flowra-ai-chat-button-offset,0px))] min-[600px]:h-[min(72dvh,620px)] min-[600px]:w-[var(--flowra-ai-chat-panel-width)]"
+          style={panelStyle}
         >
           <header className="flex min-h-14 items-center justify-between gap-3 border-b border-slate-200 px-4">
             <div className="flex min-w-0 items-center gap-3">
@@ -628,92 +679,96 @@ export default function AiChatWidget({
             </div>
           </header>
 
-          {sessionListOpen && (
-            <AiChatSessionList
-              sessions={sessions}
-              activeSessionId={activeSessionId}
-              isLoading={sessionsQuery.isLoading}
-              onSelect={handleSelectSession}
-            />
-          )}
-
-          <div className="min-h-0 flex-1 overflow-y-auto bg-[#f7f8f5] px-4 py-4">
-            {!hasMessages ? (
-              <EmptyChatState
-                isLoading={
-                  sessionsQuery.isLoading ||
-                  (activeSessionId !== null && messagesQuery.isLoading)
-                }
-                hasSession={activeSessionId !== null}
+          <div className="min-h-0 flex flex-1 flex-col min-[600px]:flex-row">
+            {sessionListOpen && (
+              <AiChatSessionList
+                sessions={sessions}
+                activeSessionId={activeSessionId}
+                isLoading={sessionsQuery.isLoading}
+                onSelect={handleSelectSession}
               />
-            ) : (
-              <div className="space-y-3">
-                {messages.map((message) => (
-                  <AiChatMessageBubble
-                    key={message.message_id}
-                    message={message}
-                    sessionId={activeSessionId}
-                    appliedKeys={appliedKeys}
-                    applyingKey={applyingKey}
-                    onApply={handleApply}
+            )}
+
+            <div className="min-h-0 flex flex-1 flex-col">
+              <div className="min-h-0 flex-1 overflow-y-auto bg-[#f7f8f5] px-4 py-4">
+                {!hasMessages ? (
+                  <EmptyChatState
+                    isLoading={
+                      sessionsQuery.isLoading ||
+                      (activeSessionId !== null && messagesQuery.isLoading)
+                    }
+                    hasSession={activeSessionId !== null}
                   />
-                ))}
-                {pendingMessage && (
-                  <AiChatMessageBubble
-                    message={pendingMessage}
-                    sessionId={activeSessionId}
-                    appliedKeys={appliedKeys}
-                    applyingKey={applyingKey}
-                    onApply={handleApply}
-                  />
-                )}
-                {busy && (
-                  <div className="flex justify-start">
-                    <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-500 shadow-sm">
-                      <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
-                      답변 생성 중...
-                    </div>
+                ) : (
+                  <div className="space-y-3">
+                    {messages.map((message) => (
+                      <AiChatMessageBubble
+                        key={message.message_id}
+                        message={message}
+                        sessionId={activeSessionId}
+                        appliedKeys={appliedKeys}
+                        applyingKey={applyingKey}
+                        onApply={handleApply}
+                      />
+                    ))}
+                    {pendingMessage && (
+                      <AiChatMessageBubble
+                        message={pendingMessage}
+                        sessionId={activeSessionId}
+                        appliedKeys={appliedKeys}
+                        applyingKey={applyingKey}
+                        onApply={handleApply}
+                      />
+                    )}
+                    {busy && (
+                      <div className="flex justify-start">
+                        <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-500 shadow-sm">
+                          <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
+                          답변 생성 중...
+                        </div>
+                      </div>
+                    )}
+                    <div ref={messagesEndRef} />
                   </div>
                 )}
-                <div ref={messagesEndRef} />
               </div>
-            )}
-          </div>
 
-          <form
-            className="border-t border-slate-200 bg-white p-3"
-            onSubmit={(event) => void handleSubmit(event)}
-          >
-            <div className="flex items-end gap-2">
-              <Textarea
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                onKeyDown={handleKeyDown}
-                disabled={busy}
-                rows={2}
-                placeholder="AI에게 요청하기"
-                className="max-h-28 min-h-11 resize-none py-2.5 text-sm shadow-none"
-              />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="submit"
-                    size="icon"
-                    disabled={!draft.trim() || busy}
-                    aria-label="메시지 보내기"
-                    className="h-11 w-11 shrink-0 rounded-lg"
-                  >
-                    {busy ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Send className="h-4 w-4" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top">보내기</TooltipContent>
-              </Tooltip>
+              <form
+                className="border-t border-slate-200 bg-white p-3"
+                onSubmit={(event) => void handleSubmit(event)}
+              >
+                <div className="flex items-end gap-2">
+                  <Textarea
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={handleKeyDown}
+                    disabled={busy}
+                    rows={2}
+                    placeholder="AI에게 요청하기"
+                    className="max-h-28 min-h-11 resize-none py-2.5 text-sm shadow-none"
+                  />
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="submit"
+                        size="icon"
+                        disabled={!draft.trim() || busy}
+                        aria-label="메시지 보내기"
+                        className="h-11 w-11 shrink-0 rounded-lg"
+                      >
+                        {busy ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Send className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">보내기</TooltipContent>
+                  </Tooltip>
+                </div>
+              </form>
             </div>
-          </form>
+          </div>
         </section>
       )}
 
