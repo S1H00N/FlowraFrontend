@@ -2242,13 +2242,18 @@ AiParseResult 주요 필드:
 - `extracted_priority`
 - `suggested_actions`
 - `confidence_score`
-- `status`: `suggested` | `approved` | `rejected`
+- `status`: `suggested` | `partially_applied` | `approved` | `rejected`
+- `result_status`: 현재 생성된 리소스를 기준으로 계산한 상태. 리소스 삭제 등으로 저장된 `status`와 다를 수 있음
+- `executable_action_indexes`: 적용 가능한 액션 index 목록
+- `applied_action_indexes`: 이미 적용된 액션 index 목록
+- `remaining_action_indexes`: 아직 적용 가능한 미적용 액션 index 목록
+- `action_states`: 액션별 `applicable`, `applied` 상태
 - `created_at`
 - `updated_at`
 
 ### `POST /memos/:memo_id/apply`
 
-AI 파싱 결과를 일정, 반복 일정, 할 일, 리마인더로 반영합니다. 적용 성공 시 해당 AI 결과 상태는 `approved`로 변경됩니다.
+AI 파싱 결과를 일정, 반복 일정, 할 일, 리마인더로 반영합니다. 일부 액션만 적용하면 해당 AI 결과 상태는 `partially_applied`, 실행 가능한 모든 액션이 적용되면 `approved`로 변경됩니다.
 
 Request body:
 
@@ -2275,6 +2280,12 @@ Response data:
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
 | `apply_type` | `schedule` \| `task` \| `action` \| `all` | 적용 유형 |
+| `result_status` | `suggested` \| `partially_applied` \| `approved` | 적용 후 AI 결과 상태 |
+| `executable_action_indexes` | number[] | 적용 가능한 액션 index 목록 |
+| `applied_action_indexes` | number[] | 이미 적용된 액션 index 목록 |
+| `remaining_action_indexes` | number[] | 아직 적용 가능한 미적용 액션 index 목록 |
+| `skipped_action_indexes` | number[] | `apply_type=all`에서 이미 적용되어 건너뛴 액션 index 목록 |
+| `action_states` | object[] | 액션별 `applicable`, `applied` 상태 |
 | `resource` | Schedule \| Task \| null | 첫 번째 생성 리소스 |
 | `resources` | Array | 생성된 일정/할 일 전체 |
 | `reminders` | Reminder[] | 함께 생성된 리마인더 |
@@ -2288,6 +2299,8 @@ Response data:
 - `apply_type=all`은 생성 가능한 `create_schedule`, `create_task`만 적용하며 `pending_item`은 제외합니다.
 - `suggested_actions[].related_action_index`는 같은 파싱 결과 안에서 할 일이 속한 일정 액션의 0-based index입니다.
 - `apply_type=all`에서 `create_task.related_action_index`가 같은 결과 안의 `create_schedule`을 가리키면 생성된 할 일의 `schedule_id`가 해당 일정으로 자동 연결됩니다.
+- 단일 액션 적용 후에도 `remaining_action_indexes`가 남아 있으면 같은 AI 결과의 나머지 액션을 계속 적용할 수 있습니다.
+- `apply_type=all`은 이미 적용된 액션을 오류로 처리하지 않고 `skipped_action_indexes`에 담아 건너뜁니다.
 - 반복 일정은 여러 일정으로 생성되고 같은 `recurrence_group_id`로 묶입니다.
 - `suggested_actions[].reminders`가 있으면 생성된 일정/할 일에 리마인더가 함께 생성됩니다.
 - `needs_review`, `review_reason`, `date_uncertain`, `time_uncertain`, `auto_filled`, `source_text`, `due_datetime_source`, `related_schedule_title`, `confidence`로 확인 필요 여부와 추출 근거를 표시합니다.

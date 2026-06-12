@@ -357,7 +357,25 @@ Response 예시:
         }
       ],
       "confidence_score": 0.912,
-      "status": "suggested"
+      "status": "suggested",
+      "result_status": "suggested",
+      "executable_action_indexes": [0, 1],
+      "applied_action_indexes": [],
+      "remaining_action_indexes": [0, 1],
+      "action_states": [
+        {
+          "action_index": 0,
+          "action_type": "create_schedule",
+          "applicable": true,
+          "applied": false
+        },
+        {
+          "action_index": 1,
+          "action_type": "create_task",
+          "applicable": true,
+          "applied": false
+        }
+      ]
     },
     "parse_results": [
       {
@@ -373,6 +391,7 @@ Response 예시:
 
 - `latest_result`는 `memo.last_ai_result_id` 기준 최신 결과
 - `parse_results`는 해당 메모의 AI 결과 이력 전체
+- `result_status`, `action_states`, `remaining_action_indexes`는 현재 생성된 일정/할 일을 기준으로 계산됩니다. 프론트의 액션별 버튼 활성화는 저장된 `status`보다 이 필드를 우선 사용하세요.
 - 메모 상태가 `failed`이면 `memo.parse_error_message`를 확인
 
 ### 4. AI 결과를 일정 또는 할 일로 반영
@@ -430,6 +449,25 @@ Response 예시:
   "message": "AI parse result applied",
   "data": {
     "apply_type": "schedule",
+    "result_status": "partially_applied",
+    "executable_action_indexes": [0, 1],
+    "applied_action_indexes": [0],
+    "remaining_action_indexes": [1],
+    "skipped_action_indexes": [],
+    "action_states": [
+      {
+        "action_index": 0,
+        "action_type": "create_schedule",
+        "applicable": true,
+        "applied": true
+      },
+      {
+        "action_index": 1,
+        "action_type": "create_task",
+        "applicable": true,
+        "applied": false
+      }
+    ],
     "resource": {
       "schedule_id": 91,
       "title": "디자인 회의",
@@ -454,9 +492,11 @@ Response 예시:
 - `apply_type=all`
   - 모든 액션을 순서대로 적용
   - `create_task.related_action_index`가 같은 결과 안의 `create_schedule`을 가리키면 생성된 할 일의 `schedule_id`가 해당 일정으로 자동 연결됨
+  - 이미 적용된 액션은 오류로 처리하지 않고 건너뛰며, 응답의 `skipped_action_indexes`에 포함됨
 - 반복 일정 액션은 여러 `Schedule`을 만들고 같은 `recurrence_group_id`로 묶음
 - 액션에 `reminders`가 있으면 일정/할 일 생성 후 리마인더도 함께 생성
-- 적용 성공 시 AI 결과 `status`는 `approved`로 변경
+- 일부 액션만 적용하면 AI 결과 `status`는 `partially_applied`, 실행 가능한 모든 액션이 적용되면 `approved`로 변경
+- 응답의 `action_states[].applied`, `remaining_action_indexes`, `skipped_action_indexes`로 액션별 적용 여부를 판단
 - 동일 `ai_result_id + action_index` 조합으로 다시 생성하려 하면 중복 방지 에러 발생
 
 주요 에러:
@@ -619,14 +659,25 @@ Request body:
   - `schedule`: 첫 번째 일정 액션만 적용
   - `task`: 첫 번째 할 일 액션만 적용
   - `action`: `action_index` 액션 1개 적용
-  - `all`: 모든 액션 적용
+  - `all`: 미적용 액션 전체 적용. 이미 적용된 액션은 건너뜀
 - `category_id`: 생성할 일정 또는 할 일 카테고리
 - `schedule_id`: 할 일 생성 시 연결할 기존 일정 ID
 - `apply_type=all`에서 `related_action_index`가 있는 할 일은 같은 적용 요청에서 생성된 일정에 자동 연결됩니다.
 
+Response 주요 필드:
+
+- `action_status`: `suggested` | `partially_applied` | `applied`
+- `executable_action_indexes`: 적용 가능한 액션 index 목록
+- `applied_action_indexes`: 이미 적용된 액션 index 목록
+- `remaining_action_indexes`: 아직 적용 가능한 미적용 액션 index 목록
+- `skipped_action_indexes`: `apply_type=all`에서 이미 적용되어 건너뛴 액션 index 목록
+- `action_states`: 액션별 `applied` 상태
+- `applied_actions`: 이번 요청에서 실제 생성된 액션별 결과
+
 중복 방지:
 
 - 동일 `message_id + action_index` 조합은 한 번만 적용할 수 있습니다.
+- 단, `apply_type=all`은 이미 적용된 액션을 오류로 처리하지 않고 `skipped_action_indexes`에 담아 건너뜁니다.
 
 주요 에러:
 
@@ -749,7 +800,7 @@ Query params:
 
 - `page`
 - `page_size`
-- `status`: `suggested` | `approved` | `rejected`
+- `status`: `suggested` | `partially_applied` | `approved` | `rejected`
 - `detected_type`: `schedule` | `task` | `note` | `mixed`
 - `min_confidence`: `0.0 ~ 1.0`
 - `user_id`
@@ -767,7 +818,7 @@ Response data item 예시:
   "user_name": "홍길동",
   "detected_type": "mixed",
   "extracted_title": "디자인 회의",
-  "status": "approved",
+  "status": "partially_applied",
   "confidence_score": 0.912,
   "model_used": "gpt-5.4",
   "created_at": "2026-04-21T04:00:00Z",
