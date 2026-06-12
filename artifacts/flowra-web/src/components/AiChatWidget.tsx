@@ -81,9 +81,11 @@ function getSessionPreview(session: AiChatSession) {
 }
 
 function formatSessionTime(session: AiChatSession) {
-  return formatAiSuggestedActionDateTime(
-    session.last_message_at ?? session.updated_at ?? session.created_at,
-  ) ?? "";
+  return (
+    formatAiSuggestedActionDateTime(
+      session.last_message_at ?? session.updated_at ?? session.created_at,
+    ) ?? ""
+  );
 }
 
 function isMessageFromUser(message: AiChatMessage) {
@@ -131,7 +133,7 @@ function EmptyChatState({
 }) {
   return (
     <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-      <div className="flex h-11 w-11 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+      <div className="flex h-11 w-11 items-center justify-center rounded-full bg-violet-50 text-violet-700 ring-1 ring-violet-100">
         {isLoading ? (
           <Loader2 className="h-5 w-5 animate-spin" />
         ) : (
@@ -190,7 +192,7 @@ function AiChatActionCard({
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
       <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-700 ring-1 ring-slate-200">
+        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-violet-700 ring-1 ring-slate-200">
           <Icon className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
@@ -199,14 +201,14 @@ function AiChatActionCard({
               className={cn(
                 "rounded-md border px-2 py-0.5 text-[11px] font-semibold",
                 canApply
-                  ? "border-emerald-100 bg-emerald-50 text-emerald-700"
+                  ? "border-violet-100 bg-violet-50 text-violet-700"
                   : "border-amber-100 bg-amber-50 text-amber-700",
               )}
             >
               {getAiSuggestedActionLabel(action)}
             </span>
             {applied && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-700">
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 적용됨
               </span>
@@ -320,12 +322,14 @@ function AiChatMessageBubble({
   const actions = !isUser ? (message.suggested_actions ?? []) : [];
 
   return (
-    <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}>
+    <div
+      className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}
+    >
       <div
         className={cn(
           "max-w-[86%] rounded-lg px-3 py-2 text-sm leading-6 shadow-sm",
           isUser
-            ? "bg-emerald-600 text-white"
+            ? "bg-violet-600 text-white"
             : "border border-slate-200 bg-white text-slate-700",
         )}
       >
@@ -385,7 +389,7 @@ function AiChatSessionList({
       </div>
       {isLoading ? (
         <div className="flex items-center justify-center gap-2 py-6 text-sm font-medium text-slate-500">
-          <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
+          <Loader2 className="h-4 w-4 animate-spin text-violet-600" />
           대화 목록을 불러오는 중...
         </div>
       ) : sessions.length === 0 ? (
@@ -405,9 +409,9 @@ function AiChatSessionList({
                 aria-current={selected ? "true" : undefined}
                 onClick={() => onSelect(session.session_id)}
                 className={cn(
-                  "flex w-full min-w-0 flex-col rounded-lg px-3 py-2.5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200",
+                  "flex w-full min-w-0 flex-col rounded-lg px-3 py-2.5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200",
                   selected
-                    ? "bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200"
+                    ? "bg-violet-50 text-violet-900 ring-1 ring-violet-200"
                     : "text-slate-700 hover:bg-slate-50",
                 )}
               >
@@ -424,7 +428,7 @@ function AiChatSessionList({
                 <span
                   className={cn(
                     "mt-0.5 line-clamp-1 text-xs leading-5",
-                    selected ? "text-emerald-700" : "text-slate-500",
+                    selected ? "text-violet-700" : "text-slate-500",
                   )}
                 >
                   {getSessionPreview(session)}
@@ -470,8 +474,7 @@ export default function AiChatWidget({
     [activeSessionId, sessions],
   );
   const messages = messagesQuery.data ?? [];
-  const busy =
-    createSessionMutation.isPending || sendMessageMutation.isPending;
+  const busy = createSessionMutation.isPending || sendMessageMutation.isPending;
   const hasMessages = messages.length > 0 || pendingContent !== null;
 
   useEffect(() => {
@@ -572,12 +575,10 @@ export default function AiChatWidget({
       });
       setAppliedKeys((current) => {
         const next = new Set(current);
-        const appliedIndexes =
-          response.applied_action_indexes ??
+        const appliedIndexes = response.applied_action_indexes ??
           response.action_states
             ?.filter((state) => state.applied)
-            .map((state) => state.action_index) ??
-          [actionIndex];
+            .map((state) => state.action_index) ?? [actionIndex];
 
         appliedIndexes.forEach((index) => next.add(`${messageId}:${index}`));
         return next;
@@ -616,7 +617,7 @@ export default function AiChatWidget({
         >
           <header className="flex min-h-14 items-center justify-between gap-3 border-b border-slate-200 px-4">
             <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-700 ring-1 ring-violet-100">
                 <Bot className="h-5 w-5" />
               </div>
               <div className="min-w-0">
@@ -637,10 +638,12 @@ export default function AiChatWidget({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    aria-label={sessionListOpen ? "대화 목록 닫기" : "대화 목록 열기"}
+                    aria-label={
+                      sessionListOpen ? "대화 목록 닫기" : "대화 목록 열기"
+                    }
                     aria-pressed={sessionListOpen}
                     className={cn(
-                      "inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200",
+                      "inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200",
                       sessionListOpen && "bg-slate-100 text-slate-900",
                     )}
                     onClick={() => setSessionListOpen((value) => !value)}
@@ -655,7 +658,7 @@ export default function AiChatWidget({
                   <button
                     type="button"
                     aria-label="새 AI 대화"
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200"
                     onClick={handleNewSession}
                   >
                     <Plus className="h-4 w-4" />
@@ -668,7 +671,7 @@ export default function AiChatWidget({
                   <button
                     type="button"
                     aria-label="AI 채팅 닫기"
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200"
                     onClick={() => setOpen(false)}
                   >
                     <X className="h-4 w-4" />
@@ -723,7 +726,7 @@ export default function AiChatWidget({
                     {busy && (
                       <div className="flex justify-start">
                         <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-500 shadow-sm">
-                          <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
+                          <Loader2 className="h-4 w-4 animate-spin text-violet-600" />
                           답변 생성 중...
                         </div>
                       </div>
@@ -779,7 +782,7 @@ export default function AiChatWidget({
             aria-label={open ? "AI 채팅 닫기" : "AI 채팅 열기"}
             aria-controls={PANEL_ID}
             aria-expanded={open}
-            className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600 text-white shadow-xl shadow-emerald-900/25 transition-[background-color,box-shadow,right] duration-200 hover:bg-emerald-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-emerald-200 min-[600px]:bottom-6 min-[600px]:right-[calc(1.5rem+var(--flowra-ai-chat-button-offset,0px))]"
+            className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-xl shadow-violet-900/25 transition-[background-color,box-shadow,right] duration-200 hover:bg-violet-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-violet-200 min-[600px]:bottom-6 min-[600px]:right-[calc(1.5rem+var(--flowra-ai-chat-button-offset,0px))]"
             style={offsetStyle}
             onClick={() => setOpen((value) => !value)}
           >

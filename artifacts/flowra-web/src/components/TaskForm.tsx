@@ -53,7 +53,9 @@ export default function TaskForm({
             typeof values.category_id === "number"
               ? String(values.category_id)
               : undefined,
-          schedule_id: defaultScheduleId ? String(defaultScheduleId) : undefined,
+          schedule_id: defaultScheduleId
+            ? String(defaultScheduleId)
+            : undefined,
           due_datetime: values.due_datetime
             ? localInputToOffsetISOString(values.due_datetime)
             : undefined,
@@ -82,7 +84,7 @@ export default function TaskForm({
             className={`h-11 w-full rounded-lg border px-3 text-sm shadow-sm outline-none transition focus:ring-2 ${
               errors.title
                 ? "border-red-400 focus:border-red-500 focus:ring-red-200"
-                : "border-slate-200 bg-white focus:border-emerald-500 focus:ring-emerald-100"
+                : "border-slate-200 bg-white focus:border-violet-500 focus:ring-violet-100"
             }`}
           />
           {errors.title && (
@@ -92,7 +94,7 @@ export default function TaskForm({
         <select
           {...register("priority")}
           aria-label="우선순위"
-          className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+          className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
         >
           {priorityOptions.map((option) => (
             <option key={option.key} value={option.key}>
@@ -117,13 +119,13 @@ export default function TaskForm({
           <input
             type="datetime-local"
             {...register("due_datetime")}
-            className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+            className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
           />
         </label>
         <button
           type="submit"
           disabled={createMutation.isPending}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60"
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-violet-600 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60"
         >
           <Plus className="h-4 w-4" />
           {createMutation.isPending ? "추가 중..." : "추가"}

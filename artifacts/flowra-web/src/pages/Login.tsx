@@ -50,14 +50,14 @@ export default function Login() {
     `mt-1 w-full rounded-lg border px-3 py-2.5 text-sm shadow-sm outline-none transition focus:ring-2 ${
       hasError
         ? "border-red-400 focus:border-red-500 focus:ring-red-100"
-        : "border-slate-300 focus:border-emerald-500 focus:ring-emerald-100"
+        : "border-slate-300 focus:border-violet-500 focus:ring-violet-100"
     }`;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-600 text-white shadow-sm">
             <Sparkles className="h-5 w-5" />
           </div>
           <div>
@@ -112,7 +112,7 @@ export default function Login() {
                 </label>
                 <Link
                   to="/forgot-password"
-                  className="text-xs font-medium text-emerald-700 hover:underline"
+                  className="text-xs font-medium text-violet-700 hover:underline"
                 >
                   비밀번호 찾기
                 </Link>
@@ -136,7 +136,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60"
+              className="w-full rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60"
             >
               {isSubmitting ? "로그인 중..." : "로그인"}
             </button>
@@ -146,7 +146,7 @@ export default function Login() {
             계정이 없으신가요?{" "}
             <Link
               to="/signup"
-              className="font-medium text-emerald-700 hover:underline"
+              className="font-medium text-violet-700 hover:underline"
             >
               회원가입
             </Link>

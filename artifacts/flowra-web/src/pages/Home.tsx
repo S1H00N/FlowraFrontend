@@ -1,18 +1,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link, NavLink } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
-  Bell,
   Bot,
-  CalendarDays,
   Check,
-  CheckSquare2,
   ClipboardList,
   Download,
   Flame,
-  LayoutDashboard,
-  NotebookPen,
-  PanelLeft,
-  PanelRight,
+  PanelRightClose,
+  PanelRightOpen,
   Rocket,
   RotateCcw,
   Search,
@@ -23,10 +18,10 @@ import {
   TrendingUp,
   Zap,
 } from "lucide-react";
+import AppShell from "@/components/AppShell";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCategories } from "@/hooks/useCategories";
 import { useMe } from "@/hooks/useMe";
-import { useNotificationUnreadCount } from "@/hooks/useNotifications";
 import { useSetTaskCompletion } from "@/hooks/useTasks";
 import { useTodayHome } from "@/hooks/useTodayHome";
 import ErrorState from "@/components/ui/ErrorState";
@@ -89,13 +84,6 @@ const tagColorByName: Record<string, string> = {
   일정: "bg-indigo-100 text-indigo-600 border-indigo-200",
   할일: "bg-slate-100 text-slate-500 border-slate-200",
 };
-
-const navItems = [
-  { to: "/", label: "홈", icon: LayoutDashboard, end: true },
-  { to: "/tasks", label: "할일", icon: CheckSquare2 },
-  { to: "/schedules", label: "캘린더", icon: CalendarDays },
-  { to: "/memos", label: "메모", icon: NotebookPen },
-];
 
 function taskLink(task: HomeTask) {
   const params = new URLSearchParams({
@@ -219,173 +207,6 @@ function taskMatchesFilter(task: DashboardTask, filter: DashboardFilter) {
     return !task.done && (task.priority === "urgent" || task.priority === "high");
   }
   return true;
-}
-
-function Sidebar({
-  open,
-  displayName,
-  onToggle,
-}: {
-  open: boolean;
-  displayName: string;
-  onToggle: () => void;
-}) {
-  const initials = displayName.slice(0, 1).toUpperCase() || "U";
-
-  return (
-    <aside
-      className={cn(
-        "fixed inset-y-0 left-0 z-30 hidden flex-col overflow-hidden border-r border-slate-200 bg-white py-5 shadow-sm transition-all duration-200 min-[720px]:flex",
-        open ? "w-56" : "w-14",
-      )}
-    >
-      <div
-        className={cn(
-          "mb-8 flex items-center gap-2.5 px-3",
-          open ? "justify-between" : "justify-center",
-        )}
-      >
-        {open && (
-          <Link to="/" className="flex min-w-0 items-center gap-2 pl-1">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 text-xs font-bold text-white">
-              T
-            </span>
-            <span className="truncate text-sm font-bold text-slate-700">
-              TodoAI
-            </span>
-          </Link>
-        )}
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-label={open ? "사이드바 접기" : "사이드바 펼치기"}
-          title={open ? "사이드바 접기" : "사이드바 펼치기"}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-300 transition hover:bg-slate-100 hover:text-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
-        >
-          <PanelLeft className="h-4 w-4" />
-        </button>
-      </div>
-
-      <nav className="flex flex-1 flex-col gap-1 px-1.5">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          return (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              title={!open ? item.label : undefined}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-3 rounded-xl text-sm font-medium transition",
-                  open ? "px-3 py-2.5" : "justify-center py-2.5",
-                  isActive
-                    ? "bg-violet-50 text-violet-700"
-                    : "text-slate-400 hover:bg-slate-50 hover:text-slate-600",
-                )
-              }
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {open && <span className="truncate">{item.label}</span>}
-            </NavLink>
-          );
-        })}
-      </nav>
-
-      <div className="px-1.5">
-        <div
-          className={cn(
-            "flex items-center gap-2.5 px-2 py-2",
-            !open && "justify-center",
-          )}
-        >
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-pink-400 to-rose-500 text-xs font-bold text-white">
-            {initials}
-          </span>
-          {open && (
-            <div className="min-w-0">
-              <p className="truncate text-xs font-medium text-slate-600">
-                {displayName}
-              </p>
-              <p className="truncate text-[10px] text-slate-400">
-                개인 워크스페이스
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-    </aside>
-  );
-}
-
-function MobileBottomNav() {
-  return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-slate-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] pt-1 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur min-[720px]:hidden">
-      {navItems.map((item) => {
-        const Icon = item.icon;
-        return (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.end}
-            className={({ isActive }) =>
-              cn(
-                "flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg text-[11px] font-medium",
-                isActive ? "text-violet-700" : "text-slate-500",
-              )
-            }
-          >
-            <Icon className="h-4 w-4" />
-            {item.label}
-          </NavLink>
-        );
-      })}
-    </nav>
-  );
-}
-
-function TopBar({
-  dateLabel,
-  displayName,
-  overdueCount,
-  unreadCount,
-}: {
-  dateLabel: string;
-  displayName: string;
-  overdueCount: number;
-  unreadCount: number;
-}) {
-  return (
-    <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-slate-200 bg-slate-50/90 px-4 backdrop-blur sm:px-6">
-      <div className="min-w-0">
-        <p className="truncate text-xs text-slate-400">{dateLabel}</p>
-        <h1 className="truncate text-base font-bold leading-tight text-slate-800">
-          좋은 아침이에요, {displayName}
-        </h1>
-      </div>
-      <div className="ml-auto flex items-center gap-2">
-        {overdueCount > 0 && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-600">
-            <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
-            지연 {overdueCount}개
-          </span>
-        )}
-        <button
-          type="button"
-          aria-label="알림"
-          title="알림"
-          className="relative flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
-        >
-          <Bell className="h-4 w-4" />
-          {unreadCount > 0 && (
-            <span className="absolute right-1 top-1 min-w-3 rounded-full bg-rose-500 px-0.5 text-[9px] font-bold leading-3 text-white">
-              {unreadCount > 9 ? "9+" : unreadCount}
-            </span>
-          )}
-        </button>
-      </div>
-    </header>
-  );
 }
 
 function UrgentAlert({
@@ -875,177 +696,179 @@ function RightAiPanel({
   recommendedTask?: DashboardTask;
   onToggle: () => void;
 }) {
-  return (
-    <aside
-      className={cn(
-        "hidden shrink-0 flex-col overflow-hidden transition-all duration-200 xl:flex",
-        open ? "w-[268px] border-l border-slate-200 bg-white" : "w-9 bg-slate-50",
-      )}
-    >
-      <div
-        className={cn(
-          "flex h-14 shrink-0 items-center border-b border-slate-200",
-          open ? "justify-between px-4" : "justify-center",
-        )}
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-label="AI 패널 열기"
+        title="AI 패널 열기"
+        className="fixed right-0 top-20 z-40 hidden h-11 w-6 items-center justify-center rounded-l-lg border border-r-0 border-slate-200 bg-white text-slate-500 shadow-lg shadow-slate-900/10 transition-colors hover:text-violet-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 xl:flex xl:top-1/2 xl:-translate-y-1/2"
       >
-        {open && <span className="text-xs font-semibold text-slate-500">AI 패널</span>}
+        <PanelRightOpen className="h-4 w-4" />
+      </button>
+    );
+  }
+
+  return (
+    <aside className="fixed inset-y-0 right-0 z-40 hidden w-[268px] flex-col border-l border-slate-200 bg-white shadow-2xl shadow-slate-900/10 backdrop-blur xl:flex">
+      <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-4">
+        <span className="text-xs font-semibold text-slate-500">AI 패널</span>
         <button
           type="button"
           onClick={onToggle}
-          aria-label={open ? "AI 패널 접기" : "AI 패널 펼치기"}
-          title={open ? "AI 패널 접기" : "AI 패널 펼치기"}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-300 transition hover:bg-slate-100 hover:text-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
+          aria-label="AI 패널 접기"
+          title="AI 패널 접기"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
         >
-          <PanelRight className="h-4 w-4" />
+          <PanelRightClose className="h-4 w-4" />
         </button>
       </div>
 
-      {open && (
-        <div className="flex flex-1 flex-col gap-4 overflow-auto p-4">
-          <section>
-            <div className="mb-3 flex items-center gap-2">
-              <span className="text-xs font-semibold text-slate-500">
-                AI 인사이트
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
+        <section>
+          <div className="mb-3 flex items-center gap-2">
+            <span className="text-xs font-semibold text-slate-500">
+              AI 인사이트
+            </span>
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          </div>
+          <div className="space-y-2">
+            <InsightCard
+              icon={<Zap className="h-4 w-4" />}
+              label="최적 집중 시간"
+              value="오전 9-11시"
+              bar={85}
+              gradient="from-violet-400 to-indigo-400"
+            />
+            <InsightCard
+              icon={<TrendingUp className="h-4 w-4" />}
+              label="이번 주 완료율"
+              value={`${Math.max(progress, 1)}%`}
+              bar={Math.max(progress, 8)}
+              gradient="from-emerald-400 to-teal-400"
+            />
+            <InsightCard
+              icon={<Timer className="h-4 w-4" />}
+              label="평균 작업 시간"
+              value="1.8시간"
+              bar={60}
+              gradient="from-amber-400 to-orange-400"
+            />
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50 p-4">
+          <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-violet-600">
+            <Sparkles className="h-3.5 w-3.5" />
+            지금 시작하기 좋아요
+          </p>
+          <p className="mb-3 text-xs leading-relaxed text-slate-500">
+            오전 집중 시간대예요. 긴급 작업을 먼저 처리하세요.
+          </p>
+          {recommendedTask ? (
+            <div className="mb-3 rounded-xl border border-violet-100 bg-white p-3 shadow-sm">
+              <span className="rounded border border-rose-200 bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600">
+                {priorityConfig[recommendedTask.priority].label}
               </span>
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            </div>
-            <div className="space-y-2">
-              <InsightCard
-                icon={<Zap className="h-4 w-4" />}
-                label="최적 집중 시간"
-                value="오전 9-11시"
-                bar={85}
-                gradient="from-violet-400 to-indigo-400"
-              />
-              <InsightCard
-                icon={<TrendingUp className="h-4 w-4" />}
-                label="이번 주 완료율"
-                value={`${Math.max(progress, 1)}%`}
-                bar={Math.max(progress, 8)}
-                gradient="from-emerald-400 to-teal-400"
-              />
-              <InsightCard
-                icon={<Timer className="h-4 w-4" />}
-                label="평균 작업 시간"
-                value="1.8시간"
-                bar={60}
-                gradient="from-amber-400 to-orange-400"
-              />
-            </div>
-          </section>
-
-          <section className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50 p-4">
-            <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-violet-600">
-              <Sparkles className="h-3.5 w-3.5" />
-              지금 시작하기 좋아요
-            </p>
-            <p className="mb-3 text-xs leading-relaxed text-slate-500">
-              오전 집중 시간대예요. 긴급 작업을 먼저 처리하세요.
-            </p>
-            {recommendedTask ? (
-              <div className="mb-3 rounded-xl border border-violet-100 bg-white p-3 shadow-sm">
-                <span className="rounded border border-rose-200 bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600">
-                  {priorityConfig[recommendedTask.priority].label}
+              <p className="mt-1.5 text-sm font-semibold leading-snug text-slate-700">
+                {recommendedTask.title}
+              </p>
+              <div className="mt-1.5 flex items-center gap-2">
+                <span className="text-xs text-rose-500">
+                  {recommendedTask.overdue ? recommendedTask.dueLabel : "우선 처리"}
                 </span>
-                <p className="mt-1.5 text-sm font-semibold leading-snug text-slate-700">
-                  {recommendedTask.title}
-                </p>
-                <div className="mt-1.5 flex items-center gap-2">
-                  <span className="text-xs text-rose-500">
-                    {recommendedTask.overdue ? recommendedTask.dueLabel : "우선 처리"}
-                  </span>
-                  <span className="text-xs text-slate-300">·</span>
-                  <span className="text-xs text-slate-400">
-                    {recommendedTask.estimate}
-                  </span>
-                </div>
+                <span className="text-xs text-slate-300">·</span>
+                <span className="text-xs text-slate-400">
+                  {recommendedTask.estimate}
+                </span>
               </div>
-            ) : (
-              <div className="mb-3 rounded-xl border border-violet-100 bg-white p-3 text-xs text-slate-400 shadow-sm">
-                추천할 작업이 아직 없습니다.
-              </div>
-            )}
-            <Link
-              to={recommendedTask ? taskLink(recommendedTask) : "/tasks"}
-              className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-violet-600 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-500"
-            >
-              <Rocket className="h-3.5 w-3.5" />
-              바로 시작
-            </Link>
-          </section>
+            </div>
+          ) : (
+            <div className="mb-3 rounded-xl border border-violet-100 bg-white p-3 text-xs text-slate-400 shadow-sm">
+              추천할 작업이 아직 없습니다.
+            </div>
+          )}
+          <Link
+            to={recommendedTask ? taskLink(recommendedTask) : "/tasks"}
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-violet-600 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-500"
+          >
+            <Rocket className="h-3.5 w-3.5" />
+            바로 시작
+          </Link>
+        </section>
 
-          <section className="rounded-xl border border-slate-100 bg-slate-50 p-4">
-            <p className="mb-3 text-xs font-semibold text-slate-400">
-              이번 주 진행 현황
-            </p>
-            <div className="flex h-14 items-end gap-1.5">
-              {[
-                { h: 40, label: "월" },
-                { h: 65, label: "화" },
-                { h: 30, label: "수" },
-                { h: 80, label: "목" },
-                { h: 55, label: "금" },
-                { h: 74, label: "토" },
-                { h: Math.max(progress, 12), label: "오늘" },
-              ].map((bar, index) => (
-                <div key={bar.label} className="flex flex-1 flex-col items-center gap-1">
-                  <div
-                    className="w-full rounded-sm"
-                    style={{
-                      height: `${bar.h}%`,
-                      background:
-                        index === 6
-                          ? "linear-gradient(to top,#7c3aed,#818cf8)"
-                          : "#e2e8f0",
-                    }}
-                  />
-                  <span
-                    className={cn(
-                      "text-[9px]",
+        <section className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+          <p className="mb-3 text-xs font-semibold text-slate-400">
+            이번 주 진행 현황
+          </p>
+          <div className="flex h-14 items-end gap-1.5">
+            {[
+              { h: 40, label: "월" },
+              { h: 65, label: "화" },
+              { h: 30, label: "수" },
+              { h: 80, label: "목" },
+              { h: 55, label: "금" },
+              { h: 74, label: "토" },
+              { h: Math.max(progress, 12), label: "오늘" },
+            ].map((bar, index) => (
+              <div key={bar.label} className="flex flex-1 flex-col items-center gap-1">
+                <div
+                  className="w-full rounded-sm"
+                  style={{
+                    height: `${bar.h}%`,
+                    background:
                       index === 6
-                        ? "font-semibold text-violet-500"
-                        : "text-slate-300",
-                    )}
-                  >
-                    {bar.label}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </section>
+                        ? "linear-gradient(to top,#7c3aed,#818cf8)"
+                        : "var(--flowra-border-strong)",
+                  }}
+                />
+                <span
+                  className={cn(
+                    "text-[9px]",
+                    index === 6
+                      ? "font-semibold text-violet-500"
+                      : "text-slate-300",
+                  )}
+                >
+                  {bar.label}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
 
-          <section>
-            <p className="mb-2 text-xs font-semibold text-slate-400">빠른 실행</p>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { icon: Bot, label: "AI 요약", to: "/memos" },
-                { icon: ClipboardList, label: "템플릿", to: "/memos" },
-                { icon: Download, label: "내보내기", to: "/tasks" },
-                { icon: Settings, label: "설정", to: "/settings" },
-              ].map((action) => {
-                const Icon = action.icon;
-                return (
-                  <Link
-                    key={action.label}
-                    to={action.to}
-                    className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    <span className="truncate">{action.label}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          </section>
-        </div>
-      )}
+        <section>
+          <p className="mb-2 text-xs font-semibold text-slate-400">빠른 실행</p>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { icon: Bot, label: "AI 요약", to: "/memos" },
+              { icon: ClipboardList, label: "템플릿", to: "/memos" },
+              { icon: Download, label: "내보내기", to: "/tasks" },
+              { icon: Settings, label: "설정", to: "/settings" },
+            ].map((action) => {
+              const Icon = action.icon;
+              return (
+                <Link
+                  key={action.label}
+                  to={action.to}
+                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  <span className="truncate">{action.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      </div>
     </aside>
   );
 }
 
 function LoadingDashboard() {
   return (
-    <div className="p-6">
+    <div>
       <div className="mb-4 h-20 animate-pulse rounded-xl bg-rose-50" />
       <div className="mb-5 h-48 animate-pulse rounded-2xl bg-violet-200" />
       <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -1063,16 +886,28 @@ export default function Home() {
   const meQuery = useMe();
   const homeQuery = useTodayHome();
   const categoriesQuery = useCategories("task");
-  const unreadCountQuery = useNotificationUnreadCount();
   const setTaskCompletion = useSetTaskCompletion();
 
-  const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
+  const [isXlUp, setIsXlUp] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(min-width: 1280px)").matches;
+  });
   const [filter, setFilter] = useState<DashboardFilter>("all");
   const [search, setSearch] = useState("");
   const [checkedOverrides, setCheckedOverrides] = useState<Record<number, boolean>>(
     {},
   );
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(min-width: 1280px)");
+    const handleChange = () => setIsXlUp(mediaQuery.matches);
+
+    handleChange();
+    mediaQuery.addEventListener("change", handleChange);
+
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
 
   const displayName = meQuery.data?.name ?? cachedUser?.name ?? "사용자";
   const rawTasks = homeQuery.data?.due_today_tasks ?? [];
@@ -1132,125 +967,117 @@ export default function Home() {
     );
   };
 
+  const rightPanelOffset = isXlUp && rightOpen ? "268px" : "0px";
   return (
-    <div className="min-h-screen overflow-hidden bg-slate-50 font-sans text-slate-800">
-      <Sidebar
-        open={leftOpen}
-        displayName={displayName}
-        onToggle={() => setLeftOpen((open) => !open)}
-      />
-
+    <AppShell
+      wide
+      greeting={
+        <div className="min-w-0">
+          <p className="truncate text-xs text-slate-400">{dateLabel}</p>
+          <h1 className="truncate text-base font-bold leading-tight text-slate-800">
+            좋은 아침이에요, {displayName}
+          </h1>
+        </div>
+      }
+      aiChatButtonOffset={rightPanelOffset}
+      headerRightOffset={rightPanelOffset}
+    >
       <div
         className={cn(
-          "flex min-h-screen transition-all duration-200",
-          leftOpen ? "min-[720px]:ml-56" : "min-[720px]:ml-14",
+          "transition-[padding] duration-200",
+          rightOpen && "xl:pr-[268px]",
         )}
       >
-        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <TopBar
-            dateLabel={dateLabel}
-            displayName={displayName}
-            overdueCount={overdueCount}
-            unreadCount={unreadCountQuery.data ?? 0}
-          />
+        {homeQuery.isLoading ? (
+            <LoadingDashboard />
+          ) : homeQuery.isError ? (
+            <ErrorState
+              title="홈 대시보드를 불러오지 못했습니다"
+              message={(homeQuery.error as Error).message}
+              onRetry={() => homeQuery.refetch()}
+              retrying={homeQuery.isFetching}
+            />
+          ) : (
+            <>
+              <UrgentAlert
+                overdueCount={overdueCount}
+                urgentCount={urgentCount}
+                onView={() => setFilter("urgent")}
+              />
 
-          <div className="flex-1 overflow-auto pb-24 min-[720px]:pb-6">
-            {homeQuery.isLoading ? (
-              <LoadingDashboard />
-            ) : homeQuery.isError ? (
-              <div className="p-6">
-                <ErrorState
-                  title="홈 대시보드를 불러오지 못했습니다"
-                  message={(homeQuery.error as Error).message}
-                  onRetry={() => homeQuery.refetch()}
-                  retrying={homeQuery.isFetching}
+              <AiBriefingCard
+                briefingText={homeQuery.data?.briefing_text ?? ""}
+                progress={progress}
+                doneCount={doneCount}
+                totalCount={totalCount}
+                urgentCount={urgentCount}
+                recommendedTask={recommendedTask}
+              />
+
+              <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <StatCard
+                  label="긴급"
+                  value={urgentCount}
+                  sub="즉시 처리"
+                  accent="text-rose-600"
+                  tone="border-rose-100 bg-rose-50"
+                  onClick={() => setFilter("urgent")}
                 />
-              </div>
-            ) : (
-              <div className="p-4 sm:p-6">
-                <UrgentAlert
-                  overdueCount={overdueCount}
-                  urgentCount={urgentCount}
-                  onView={() => setFilter("urgent")}
+                <StatCard
+                  label="높은 우선순위"
+                  value={highCount}
+                  sub="오늘 내 완료"
+                  accent="text-orange-600"
+                  tone="border-orange-100 bg-orange-50"
+                  onClick={() => setFilter("high")}
                 />
-
-                <AiBriefingCard
-                  briefingText={homeQuery.data?.briefing_text ?? ""}
-                  progress={progress}
-                  doneCount={doneCount}
-                  totalCount={totalCount}
-                  urgentCount={urgentCount}
-                  recommendedTask={recommendedTask}
+                <StatCard
+                  label="완료"
+                  value={doneCount}
+                  sub={`전체 ${totalCount}개 중`}
+                  accent="text-emerald-600"
+                  tone="border-slate-100 bg-white"
+                  onClick={() => setFilter("done")}
                 />
-
-                <section className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <StatCard
-                    label="긴급"
-                    value={urgentCount}
-                    sub="즉시 처리"
-                    accent="text-rose-600"
-                    tone="border-rose-100 bg-rose-50"
-                    onClick={() => setFilter("urgent")}
-                  />
-                  <StatCard
-                    label="높은 우선순위"
-                    value={highCount}
-                    sub="오늘 내 완료"
-                    accent="text-orange-600"
-                    tone="border-orange-100 bg-orange-50"
-                    onClick={() => setFilter("high")}
-                  />
-                  <StatCard
-                    label="완료"
-                    value={doneCount}
-                    sub={`전체 ${totalCount}개 중`}
-                    accent="text-emerald-600"
-                    tone="border-slate-100 bg-white"
-                    onClick={() => setFilter("done")}
-                  />
-                  <StatCard
-                    label="연속 완료"
-                    value={
-                      <span className="inline-flex items-center gap-1">
-                        6일 <Flame className="h-5 w-5 text-orange-500" />
-                      </span>
-                    }
-                    sub="최고 기록 중"
-                    accent="text-amber-600"
-                    tone="border-slate-100 bg-white"
-                  />
-                </section>
-
-                {setTaskCompletion.isPending && (
-                  <div className="mb-3 flex items-center gap-2 text-xs font-medium text-slate-400">
-                    <Spinner size="xs" />
-                    완료 상태를 저장하는 중...
-                  </div>
-                )}
-
-                <TaskListPanel
-                  filter={filter}
-                  search={search}
-                  tasks={tasks}
-                  urgentCount={urgentCount}
-                  onFilterChange={setFilter}
-                  onSearchChange={setSearch}
-                  onToggle={handleToggleTask}
+                <StatCard
+                  label="연속 완료"
+                  value={
+                    <span className="inline-flex items-center gap-1">
+                      6일 <Flame className="h-5 w-5 text-orange-500" />
+                    </span>
+                  }
+                  sub="최고 기록 중"
+                  accent="text-amber-600"
+                  tone="border-slate-100 bg-white"
                 />
-              </div>
-            )}
-          </div>
-        </main>
+              </section>
 
-        <RightAiPanel
-          open={rightOpen}
-          progress={progress}
-          recommendedTask={recommendedTask}
-          onToggle={() => setRightOpen((open) => !open)}
-        />
+              {setTaskCompletion.isPending && (
+                <div className="mb-3 flex items-center gap-2 text-xs font-medium text-slate-400">
+                  <Spinner size="xs" />
+                  완료 상태를 저장하는 중...
+                </div>
+              )}
+
+              <TaskListPanel
+                filter={filter}
+                search={search}
+                tasks={tasks}
+                urgentCount={urgentCount}
+                onFilterChange={setFilter}
+                onSearchChange={setSearch}
+                onToggle={handleToggleTask}
+              />
+            </>
+          )}
       </div>
 
-      <MobileBottomNav />
-    </div>
+      <RightAiPanel
+        open={rightOpen}
+        progress={progress}
+        recommendedTask={recommendedTask}
+        onToggle={() => setRightOpen((open) => !open)}
+      />
+    </AppShell>
   );
 }

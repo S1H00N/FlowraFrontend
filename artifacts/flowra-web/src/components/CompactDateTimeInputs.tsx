@@ -116,9 +116,7 @@ function normalizeDateInput(value: string, baseDateKey: string) {
   let month = 0;
   let day = 0;
 
-  const fullMatch = /^(\d{4})[-/.\s]*(\d{1,2})[-/.\s]*(\d{1,2})/.exec(
-    trimmed,
-  );
+  const fullMatch = /^(\d{4})[-/.\s]*(\d{1,2})[-/.\s]*(\d{1,2})/.exec(trimmed);
   const shortMatch = /^(\d{1,2})[-/.\s]+(\d{1,2})/.exec(trimmed);
   const compactMatch = /^(\d{4})(\d{2})(\d{2})$/.exec(trimmed);
   const compactShortMatch = /^(\d{1,2})(\d{2})$/.exec(trimmed);
@@ -421,7 +419,7 @@ export function CompactDateInput({
     <label
       ref={containerRef}
       className={cn(
-        "relative flex h-9 min-w-0 items-center gap-2 rounded-md border border-transparent bg-transparent px-2 text-sm font-medium text-slate-900 transition hover:border-slate-200 hover:bg-white focus-within:border-emerald-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-100",
+        "relative flex h-9 min-w-0 items-center gap-2 rounded-md border border-transparent bg-transparent px-2 text-sm font-medium text-slate-900 transition hover:border-slate-200 hover:bg-white focus-within:border-violet-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-violet-100",
         className,
       )}
       onBlur={(event) => {
@@ -582,7 +580,7 @@ export function CompactDateInput({
                       className={cn(
                         "aspect-square rounded-md text-sm font-medium transition",
                         dateKey === selectedKey
-                          ? "bg-emerald-500 text-white"
+                          ? "bg-violet-500 text-white"
                           : disabled
                             ? "cursor-not-allowed text-slate-600"
                             : "text-slate-200 hover:bg-neutral-800",
@@ -983,9 +981,9 @@ export function CompactTimeInput({
     <div
       ref={containerRef}
       className={cn(
-        "relative flex h-9 min-w-0 items-center gap-2 rounded-md text-sm font-medium text-slate-900 transition focus-within:ring-2 focus-within:ring-emerald-100",
+        "relative flex h-9 min-w-0 items-center gap-2 rounded-md text-sm font-medium text-slate-900 transition focus-within:ring-2 focus-within:ring-violet-100",
         boxed
-          ? "w-full border border-transparent bg-transparent px-2 hover:border-slate-200 hover:bg-white focus-within:border-emerald-300 focus-within:bg-white"
+          ? "w-full border border-transparent bg-transparent px-2 hover:border-slate-200 hover:bg-white focus-within:border-violet-300 focus-within:bg-white"
           : "w-auto px-0",
         disabled && "bg-slate-100 text-slate-400",
         className,
@@ -1115,7 +1113,7 @@ export function CompactTimeInput({
                 index === activeOptionIndex ||
                   option === draftTimeOption ||
                   option === value
-                  ? "bg-neutral-800 text-emerald-200"
+                  ? "bg-neutral-800 text-violet-200"
                   : "text-slate-100 hover:bg-neutral-800",
               )}
               aria-selected={index === activeOptionIndex}

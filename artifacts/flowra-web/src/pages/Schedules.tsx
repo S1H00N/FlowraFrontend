@@ -137,7 +137,7 @@ function orderedWeekdayLabels(weekStart: WeekStartDay) {
   });
 }
 
-interface DayMeta {
+export interface DayMeta {
   count: number;
   hasDeadline: boolean;
 }
@@ -168,7 +168,7 @@ function isEditableKeyboardTarget(target: EventTarget | null) {
 
   return Boolean(
     target.isContentEditable ||
-      target.closest("input, textarea, select, [contenteditable]"),
+    target.closest("input, textarea, select, [contenteditable]"),
   );
 }
 
@@ -212,7 +212,7 @@ const prioritySelectMeta: Record<
     description: "여유 있게 처리",
   },
   medium: {
-    color: "#10b981",
+    color: "#8b5cf6",
     description: "기본 우선순위",
   },
   high: {
@@ -583,7 +583,7 @@ function CompactDateInput({
   return (
     <label
       ref={containerRef}
-      className={`relative flex h-9 min-w-0 items-center gap-2 rounded-md border border-transparent bg-transparent px-2 text-sm font-medium text-slate-900 transition hover:border-slate-200 hover:bg-white focus-within:border-emerald-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-100 ${className}`}
+      className={`relative flex h-9 min-w-0 items-center gap-2 rounded-md border border-transparent bg-transparent px-2 text-sm font-medium text-slate-900 transition hover:border-slate-200 hover:bg-white focus-within:border-violet-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-violet-100 ${className}`}
       onBlur={(event) => {
         if (closingFromOutsidePointerRef.current) return;
         if (event.currentTarget.contains(event.relatedTarget)) return;
@@ -740,7 +740,7 @@ function CompactDateInput({
                       }}
                       className={`aspect-square rounded-md text-sm font-medium transition ${
                         dateKey === selectedKey
-                          ? "bg-emerald-500 text-white"
+                          ? "bg-violet-500 text-white"
                           : disabled
                             ? "cursor-not-allowed text-slate-600"
                             : "text-slate-200 hover:bg-neutral-800"
@@ -1137,9 +1137,9 @@ function CompactTimeInput({
   return (
     <div
       ref={containerRef}
-      className={`relative flex h-9 min-w-0 items-center gap-2 rounded-md text-sm font-medium text-slate-900 transition focus-within:ring-2 focus-within:ring-emerald-100 ${
+      className={`relative flex h-9 min-w-0 items-center gap-2 rounded-md text-sm font-medium text-slate-900 transition focus-within:ring-2 focus-within:ring-violet-100 ${
         boxed
-          ? "w-full border border-transparent bg-transparent px-2 hover:border-slate-200 hover:bg-white focus-within:border-emerald-300 focus-within:bg-white"
+          ? "w-full border border-transparent bg-transparent px-2 hover:border-slate-200 hover:bg-white focus-within:border-violet-300 focus-within:bg-white"
           : "w-auto px-0"
       } ${disabled ? "bg-slate-100 text-slate-400" : ""}`}
       onBlur={(event) => {
@@ -1264,9 +1264,9 @@ function CompactTimeInput({
               onClick={() => selectTimeOption(option)}
               className={`flex h-8 w-full items-center rounded-md px-2 text-left text-sm font-medium tabular-nums transition ${
                 index === activeOptionIndex
-                  ? "bg-neutral-800 text-emerald-200"
+                  ? "bg-neutral-800 text-violet-200"
                   : option === draftTimeOption || option === value
-                    ? "bg-neutral-800 text-emerald-200"
+                    ? "bg-neutral-800 text-violet-200"
                     : "text-slate-100 hover:bg-neutral-800"
               }`}
               aria-selected={index === activeOptionIndex}
@@ -1291,10 +1291,10 @@ const defaultScheduleFilters: ScheduleFilters = {
 
 const COMPANY_SCHEDULE_ID_OFFSET = 1_000_000_000;
 const PREVIEW_SCHEDULE_ID_OFFSET = 2_000_000_000;
-const companyScheduleAccent = "#2563eb";
+const companyScheduleAccent = "#7c3aed";
 const schedulePanelLayoutStorageKey = "flowra-schedule-panel-layout";
 const scheduleSidebarToggleButtonClass =
-  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-transparent text-slate-500 shadow-none transition hover:bg-slate-100 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300";
+  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-transparent text-slate-500 shadow-none transition hover:bg-slate-100 hover:text-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300";
 type CompanyScheduleTargetType = "company" | "department" | "member";
 const scheduleOwnerOptions: Array<{ value: ScheduleOwnerType; label: string }> =
   [
@@ -1330,9 +1330,7 @@ const scheduleOwnerFilterColors: Record<ScheduleOwnerFilter, string> = {
 const companyScheduleTargetTypeOptions: Array<{
   value: CompanyScheduleTargetType;
   label: string;
-}> = [
-  { value: "department", label: "부서" },
-];
+}> = [{ value: "department", label: "부서" }];
 const personalAttendeeSuggestions: PersonalScheduleAttendee[] = [];
 const scheduleVisibilityScopeOptions = [
   {
@@ -1507,7 +1505,10 @@ function scheduleIdentityKey(schedule: Schedule) {
     : `personal:${schedule.schedule_id}`;
 }
 
-function mergeSchedules(schedules: Schedule[], companySchedules: Schedule[]) {
+export function mergeSchedules(
+  schedules: Schedule[],
+  companySchedules: Schedule[],
+) {
   const byIdentity = new Map<string, Schedule>();
 
   for (const schedule of [...schedules, ...companySchedules]) {
@@ -1523,7 +1524,7 @@ function normalizeScheduleType(value: unknown): ScheduleType {
     : "other";
 }
 
-function companyScheduleToSchedule(schedule: CompanySchedule): Schedule {
+export function companyScheduleToSchedule(schedule: CompanySchedule): Schedule {
   return {
     schedule_id: companyScheduleSyntheticId(schedule.company_schedule_id),
     company_schedule_id: schedule.company_schedule_id,
@@ -2120,7 +2121,7 @@ function normalizeDateKeys(dateKeys: string[]) {
     .sort();
 }
 
-function groupHolidaysByDate(holidays: Holiday[]) {
+export function groupHolidaysByDate(holidays: Holiday[]) {
   const grouped = new Map<string, Holiday[]>();
 
   for (const holiday of holidays) {
@@ -3025,7 +3026,7 @@ function FilterDropdown<TValue extends FilterOptionValue>({
         </span>
       </span>
       {selected ? (
-        <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+        <Check className="h-3.5 w-3.5 shrink-0 text-violet-400" />
       ) : null}
     </button>
   );
@@ -3063,7 +3064,7 @@ function FilterDropdown<TValue extends FilterOptionValue>({
                 >
                   <span>{allLabel}</span>
                   {displayValues.length === 0 ? (
-                    <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                    <Check className="h-3.5 w-3.5 shrink-0 text-violet-400" />
                   ) : null}
                 </button>
               ) : null}
@@ -3084,7 +3085,7 @@ function FilterDropdown<TValue extends FilterOptionValue>({
         onClick={() => setOpen((current) => !current)}
         className={`flex h-10 w-full min-w-0 items-center justify-between gap-2 rounded-md border px-2 text-left text-sm font-medium shadow-none outline-none transition ${
           open
-            ? "border-emerald-300 bg-white ring-2 ring-emerald-100"
+            ? "border-violet-300 bg-white ring-2 ring-violet-100"
             : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white"
         }`}
         aria-expanded={open}
@@ -3096,7 +3097,7 @@ function FilterDropdown<TValue extends FilterOptionValue>({
         </span>
         <ChevronDown
           className={`h-4 w-4 shrink-0 text-slate-400 transition ${
-            open ? "rotate-180 text-emerald-500" : ""
+            open ? "rotate-180 text-violet-500" : ""
           }`}
         />
       </button>
@@ -3127,7 +3128,7 @@ function ScheduleOwnerViewSelector({
           className={`inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold shadow-sm transition hover:bg-slate-50 ${
             value === "all"
               ? "border-slate-200 bg-white text-slate-900"
-              : "border-blue-200 bg-blue-50 text-blue-700"
+              : "border-violet-200 bg-violet-50 text-violet-700"
           }`}
           aria-label="일정 보기 선택"
         >
@@ -3150,7 +3151,7 @@ function ScheduleOwnerViewSelector({
               value === option.value ? "bg-neutral-800" : ""
             }`}
           >
-            <span className="flex h-4 w-4 items-center justify-center text-emerald-400">
+            <span className="flex h-4 w-4 items-center justify-center text-violet-400">
               {value === option.value ? <Check className="h-4 w-4" /> : null}
             </span>
             <span
@@ -3163,9 +3164,7 @@ function ScheduleOwnerViewSelector({
             <span className="min-w-0">
               <span
                 className={`block truncate font-medium ${
-                  value === option.value
-                    ? "text-emerald-200"
-                    : "text-slate-100"
+                  value === option.value ? "text-violet-200" : "text-slate-100"
                 }`}
               >
                 {option.label}
@@ -3251,10 +3250,10 @@ function ScheduleFilterPanel({
     <div className="flex max-h-[min(34rem,calc(100vh-6rem))] flex-col overflow-hidden">
       <div className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4">
         <div className="flex min-w-0 items-center gap-2">
-          <Search className="h-4 w-4 text-emerald-600" />
+          <Search className="h-4 w-4 text-violet-600" />
           <h2 className="text-base font-semibold text-slate-950">필터</h2>
           {activeCount > 0 && (
-            <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+            <span className="rounded-full bg-violet-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
               {activeCount}
             </span>
           )}
@@ -3289,7 +3288,7 @@ function ScheduleFilterPanel({
               onChange={(event) => onUpdate({ q: event.target.value })}
               placeholder="검색"
               aria-label="검색"
-              className="h-10 w-full rounded-md border border-transparent bg-transparent px-9 text-sm font-medium text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-200 hover:bg-white focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+              className="h-10 w-full rounded-md border border-transparent bg-transparent px-9 text-sm font-medium text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-200 hover:bg-white focus:border-violet-300 focus:bg-white focus:ring-2 focus:ring-violet-100"
             />
           </div>
         </label>
@@ -4546,7 +4545,7 @@ export function ScheduleFormPanel({
                     )}
                     <span
                       className={`flex h-5 w-5 shrink-0 items-center justify-center ${
-                        selected ? "text-emerald-400" : "text-transparent"
+                        selected ? "text-violet-400" : "text-transparent"
                       }`}
                     >
                       <Check className="h-4 w-4" />
@@ -4642,9 +4641,9 @@ export function ScheduleFormPanel({
       />
       <span
         aria-hidden
-        className={`relative inline-flex h-3.5 w-7 shrink-0 items-center rounded-full border transition peer-focus-visible:ring-2 peer-focus-visible:ring-blue-200 ${
+        className={`relative inline-flex h-3.5 w-7 shrink-0 items-center rounded-full border transition peer-focus-visible:ring-2 peer-focus-visible:ring-violet-200 ${
           allDay
-            ? "border-blue-500 bg-blue-500"
+            ? "border-violet-500 bg-violet-500"
             : "border-slate-300 bg-slate-100"
         }`}
       >
@@ -4691,9 +4690,9 @@ export function ScheduleFormPanel({
       />
       <span
         aria-hidden
-        className={`relative inline-flex h-3.5 w-7 shrink-0 items-center rounded-full border transition peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-200 ${
+        className={`relative inline-flex h-3.5 w-7 shrink-0 items-center rounded-full border transition peer-focus-visible:ring-2 peer-focus-visible:ring-violet-200 ${
           repeatEnabled
-            ? "border-emerald-500 bg-emerald-500"
+            ? "border-violet-500 bg-violet-500"
             : "border-slate-300 bg-slate-100"
         }`}
       >
@@ -4883,7 +4882,7 @@ export function ScheduleFormPanel({
                 <span className="min-w-0 flex-1 truncate">{label}</span>
                 <span
                   className={`flex h-5 w-5 shrink-0 items-center justify-center ${
-                    selected ? "text-emerald-400" : "text-transparent"
+                    selected ? "text-violet-400" : "text-transparent"
                   }`}
                 >
                   <Check className="h-4 w-4" />
@@ -4906,7 +4905,7 @@ export function ScheduleFormPanel({
                   getCalendarViewMonth(repeatUntilDateKey),
                 )
               }
-              className="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-2 text-left text-sm font-medium text-zinc-100 outline-none transition hover:border-zinc-600 hover:bg-zinc-800 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/20"
+              className="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-2 text-left text-sm font-medium text-zinc-100 outline-none transition hover:border-zinc-600 hover:bg-zinc-800 focus:border-violet-400 focus:ring-2 focus:ring-violet-500/20"
               aria-label="반복 종료 날짜"
             >
               <span>{repeatUntilDateKey}</span>
@@ -4984,11 +4983,11 @@ export function ScheduleFormPanel({
                         onClick={() => selectRepeatUntilDate(dateKey)}
                         className={`aspect-square rounded-md text-sm font-semibold outline-none transition ${
                           selected
-                            ? "bg-emerald-500 text-white shadow-sm"
+                            ? "bg-violet-500 text-white shadow-sm"
                             : disabled
                               ? "cursor-not-allowed text-zinc-600"
                               : today
-                                ? "text-emerald-300 ring-1 ring-emerald-600/60 hover:bg-neutral-800"
+                                ? "text-violet-300 ring-1 ring-violet-600/60 hover:bg-neutral-800"
                                 : "text-slate-200 hover:bg-neutral-800 hover:text-white"
                         }`}
                       >
@@ -5025,7 +5024,7 @@ export function ScheduleFormPanel({
                 setRepeatCount(nextCount);
                 syncCustomRepeatEnd("count", null, nextCount);
               }}
-              className="h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 text-sm text-zinc-100 outline-none transition [color-scheme:dark] focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/20"
+              className="h-9 w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 text-sm text-zinc-100 outline-none transition [color-scheme:dark] focus:border-violet-400 focus:ring-2 focus:ring-violet-500/20"
             />
             <div className="mt-1 text-xs font-medium text-zinc-400">
               {formatRepeatEndSummary("count", null, repeatCount ?? 10)}
@@ -5155,7 +5154,7 @@ export function ScheduleFormPanel({
                 interval: Math.max(1, Number(event.target.value) || 1),
               })
             }
-            className="h-9 w-14 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+            className="h-9 w-14 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
             aria-label="반복 간격"
           />
           <div className="relative">
@@ -5166,7 +5165,7 @@ export function ScheduleFormPanel({
                   unit: event.target.value as RepeatFrequencyUnit,
                 })
               }
-              className="h-9 w-20 appearance-none rounded-md border border-slate-200 bg-white px-3 pr-8 text-sm text-slate-900 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+              className="h-9 w-20 appearance-none rounded-md border border-slate-200 bg-white px-3 pr-8 text-sm text-slate-900 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
               aria-label="반복 단위"
             >
               <option value="day">일</option>
@@ -5193,8 +5192,8 @@ export function ScheduleFormPanel({
                   onClick={() => toggleDraftCustomWeekday(weekday.value)}
                   className={`h-7 w-7 rounded-full border text-xs font-semibold transition ${
                     selected
-                      ? "border-blue-500 bg-blue-500 text-white shadow-sm"
-                      : "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                      ? "border-violet-500 bg-violet-500 text-white shadow-sm"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
                   }`}
                 >
                   {weekday.label}
@@ -5219,7 +5218,7 @@ export function ScheduleFormPanel({
                   count: null,
                 })
               }
-              className="h-4 w-4 accent-blue-500"
+              className="h-4 w-4 accent-violet-500"
             />
             종료일 없음
           </label>
@@ -5236,7 +5235,7 @@ export function ScheduleFormPanel({
                   count: null,
                 })
               }
-              className="h-4 w-4 accent-blue-500"
+              className="h-4 w-4 accent-violet-500"
               aria-label="날짜에 종료"
             />
             <CompactDateInput
@@ -5277,7 +5276,7 @@ export function ScheduleFormPanel({
                   count: draftCustomRepeat.count ?? 4,
                 })
               }
-              className="h-4 w-4 accent-blue-500"
+              className="h-4 w-4 accent-violet-500"
             />
             <input
               type="number"
@@ -5291,7 +5290,7 @@ export function ScheduleFormPanel({
                   count: Math.max(1, Number(event.target.value) || 1),
                 })
               }
-              className="h-9 w-16 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 disabled:border-slate-100 disabled:bg-slate-50 disabled:text-slate-300"
+              className="h-9 w-16 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100 disabled:border-slate-100 disabled:bg-slate-50 disabled:text-slate-300"
               aria-label="반복 횟수"
             />
             <span
@@ -5318,13 +5317,15 @@ export function ScheduleFormPanel({
               onClick={() =>
                 setDraftIncludeHolidayRepeats((current) => !current)
               }
-              className="group flex min-w-[7rem] flex-col items-end rounded-md text-right outline-none focus-visible:ring-2 focus-visible:ring-blue-100"
+              className="group flex min-w-[7rem] flex-col items-end rounded-md text-right outline-none focus-visible:ring-2 focus-visible:ring-violet-100"
             >
               <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
                 {draftIncludeHolidayRepeats ? "켬" : "끔"}
                 <span
                   className={`flex h-5 w-9 items-center rounded-full p-0.5 transition ${
-                    draftIncludeHolidayRepeats ? "bg-blue-500" : "bg-slate-200"
+                    draftIncludeHolidayRepeats
+                      ? "bg-violet-500"
+                      : "bg-slate-200"
                   }`}
                 >
                   <span
@@ -5355,7 +5356,7 @@ export function ScheduleFormPanel({
           <button
             type="button"
             onClick={completeCustomRepeat}
-            className="h-9 rounded-md bg-blue-500 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-600"
+            className="h-9 rounded-md bg-violet-500 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-600"
           >
             완료
           </button>
@@ -5409,62 +5410,66 @@ export function ScheduleFormPanel({
             ))}
           </div>
           <div className="mt-2 grid grid-cols-7 gap-1">
-            {buildMonthCells(selectedDatesCalendarMonth, weekStart).map((date, index) => {
-              if (!date) {
-                return <div key={`blank-${index}`} className="aspect-square" />;
-              }
+            {buildMonthCells(selectedDatesCalendarMonth, weekStart).map(
+              (date, index) => {
+                if (!date) {
+                  return (
+                    <div key={`blank-${index}`} className="aspect-square" />
+                  );
+                }
 
-              const dateKey = toDateKey(date);
-              const selected = draftDateSet.has(dateKey);
-              const today = dateKey === todayKey;
-              const active = dateKey === activeSelectedDateKey;
+                const dateKey = toDateKey(date);
+                const selected = draftDateSet.has(dateKey);
+                const today = dateKey === todayKey;
+                const active = dateKey === activeSelectedDateKey;
 
-              return (
-                <button
-                  key={dateKey}
-                  ref={(node) => {
-                    selectedDateButtonRefs.current[dateKey] = node;
-                  }}
-                  type="button"
-                  role="gridcell"
-                  aria-selected={selected}
-                  tabIndex={active ? 0 : -1}
-                  onFocus={() => setActiveSelectedDateKey(dateKey)}
-                  onClick={() => toggleDraftRepeatDate(dateKey)}
-                  onKeyDown={(event) => {
-                    if (event.key === "ArrowLeft") {
-                      event.preventDefault();
-                      moveActiveSelectedDate(-1);
-                    }
-                    if (event.key === "ArrowRight") {
-                      event.preventDefault();
-                      moveActiveSelectedDate(1);
-                    }
-                    if (event.key === "ArrowUp") {
-                      event.preventDefault();
-                      moveActiveSelectedDate(-7);
-                    }
-                    if (event.key === "ArrowDown") {
-                      event.preventDefault();
-                      moveActiveSelectedDate(7);
-                    }
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      toggleDraftRepeatDate(dateKey);
-                    }
-                  }}
-                  className={`aspect-square rounded-md text-sm font-semibold outline-none transition ${
-                    selected
-                      ? "bg-emerald-500 text-white shadow-sm"
-                      : today
-                        ? "text-emerald-300 ring-1 ring-emerald-600/60 hover:bg-neutral-800"
-                        : "text-slate-200 hover:bg-neutral-800 hover:text-white"
-                  } ${active && !selected ? "ring-2 ring-emerald-500/40" : ""}`}
-                >
-                  {date.getDate()}
-                </button>
-              );
-            })}
+                return (
+                  <button
+                    key={dateKey}
+                    ref={(node) => {
+                      selectedDateButtonRefs.current[dateKey] = node;
+                    }}
+                    type="button"
+                    role="gridcell"
+                    aria-selected={selected}
+                    tabIndex={active ? 0 : -1}
+                    onFocus={() => setActiveSelectedDateKey(dateKey)}
+                    onClick={() => toggleDraftRepeatDate(dateKey)}
+                    onKeyDown={(event) => {
+                      if (event.key === "ArrowLeft") {
+                        event.preventDefault();
+                        moveActiveSelectedDate(-1);
+                      }
+                      if (event.key === "ArrowRight") {
+                        event.preventDefault();
+                        moveActiveSelectedDate(1);
+                      }
+                      if (event.key === "ArrowUp") {
+                        event.preventDefault();
+                        moveActiveSelectedDate(-7);
+                      }
+                      if (event.key === "ArrowDown") {
+                        event.preventDefault();
+                        moveActiveSelectedDate(7);
+                      }
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        toggleDraftRepeatDate(dateKey);
+                      }
+                    }}
+                    className={`aspect-square rounded-md text-sm font-semibold outline-none transition ${
+                      selected
+                        ? "bg-violet-500 text-white shadow-sm"
+                        : today
+                          ? "text-violet-300 ring-1 ring-violet-600/60 hover:bg-neutral-800"
+                          : "text-slate-200 hover:bg-neutral-800 hover:text-white"
+                    } ${active && !selected ? "ring-2 ring-violet-500/40" : ""}`}
+                  >
+                    {date.getDate()}
+                  </button>
+                );
+              },
+            )}
           </div>
         </div>
 
@@ -5477,8 +5482,7 @@ export function ScheduleFormPanel({
     );
   };
 
-  const normalizeAttendeeEmail = (value: string) =>
-    value.trim().toLowerCase();
+  const normalizeAttendeeEmail = (value: string) => value.trim().toLowerCase();
 
   const isValidAttendeeEmail = (value: string) =>
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
@@ -5489,8 +5493,8 @@ export function ScheduleFormPanel({
   const personalAttendeeLabel = (attendee: PersonalScheduleAttendee) =>
     attendee.name || attendee.email;
 
-  const filteredPersonalAttendeeSuggestions = personalAttendeeSuggestions.filter(
-    (attendee) => {
+  const filteredPersonalAttendeeSuggestions =
+    personalAttendeeSuggestions.filter((attendee) => {
       const query = personalAttendeeQuery.trim().toLowerCase();
       const selected = personalAttendees.some(
         (item) =>
@@ -5505,8 +5509,7 @@ export function ScheduleFormPanel({
         attendee.name?.toLowerCase().includes(query) ||
         attendee.email.toLowerCase().includes(query)
       );
-    },
-  );
+    });
 
   const addPersonalAttendee = (attendee: PersonalScheduleAttendee) => {
     setError(null);
@@ -5544,7 +5547,9 @@ export function ScheduleFormPanel({
   const removePersonalAttendee = (attendee: PersonalScheduleAttendee) => {
     const attendeeEmail = normalizeAttendeeEmail(attendee.email);
     setPersonalAttendees((prev) =>
-      prev.filter((item) => normalizeAttendeeEmail(item.email) !== attendeeEmail),
+      prev.filter(
+        (item) => normalizeAttendeeEmail(item.email) !== attendeeEmail,
+      ),
     );
   };
 
@@ -5574,7 +5579,9 @@ export function ScheduleFormPanel({
     const member = (membersQuery.data ?? []).find(
       (item) => item.company_member_id === target.company_member_id,
     );
-    return member ? renderMemberLabel(member) : `팀원 ${target.company_member_id}`;
+    return member
+      ? renderMemberLabel(member)
+      : `팀원 ${target.company_member_id}`;
   };
 
   const buildCompanyTargetDraft = (): CompanyScheduleCreateTarget | null => {
@@ -5819,13 +5826,13 @@ export function ScheduleFormPanel({
   };
 
   const settingsRowButtonClass =
-    "flex h-9 w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-md border border-transparent px-2.5 text-xs font-medium text-slate-900 outline-none transition hover:border-slate-200 hover:bg-white focus-visible:border-emerald-300 focus-visible:bg-white focus-visible:ring-2 focus-visible:ring-emerald-100";
+    "flex h-9 w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-md border border-transparent px-2.5 text-xs font-medium text-slate-900 outline-none transition hover:border-slate-200 hover:bg-white focus-visible:border-violet-300 focus-visible:bg-white focus-visible:ring-2 focus-visible:ring-violet-100";
   const settingsRowLabelClass = "px-2 text-xs font-medium text-slate-500";
   const compactFieldGroupClass = "border-b border-slate-200/70 pb-2";
   const compactSelectClass =
-    "h-9 rounded-md border-transparent bg-transparent px-2 shadow-none hover:border-slate-200 hover:bg-white hover:shadow-none focus-visible:border-emerald-300 focus-visible:bg-white focus-visible:ring-2 focus-visible:ring-emerald-100 data-[state=open]:border-emerald-300 data-[state=open]:bg-white data-[state=open]:ring-2 data-[state=open]:ring-emerald-100 disabled:bg-transparent disabled:shadow-none";
+    "h-9 rounded-md border-transparent bg-transparent px-2 shadow-none hover:border-slate-200 hover:bg-white hover:shadow-none focus-visible:border-violet-300 focus-visible:bg-white focus-visible:ring-2 focus-visible:ring-violet-100 data-[state=open]:border-violet-300 data-[state=open]:bg-white data-[state=open]:ring-2 data-[state=open]:ring-violet-100 disabled:bg-transparent disabled:shadow-none";
   const compactFieldFrameClass =
-    "rounded-md border border-transparent bg-transparent px-2 transition hover:border-slate-200 hover:bg-white focus-within:border-emerald-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-100";
+    "rounded-md border border-transparent bg-transparent px-2 transition hover:border-slate-200 hover:bg-white focus-within:border-violet-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-violet-100";
   const compactInnerInputClass =
     "h-9 w-full min-w-0 bg-transparent p-0 text-xs font-medium text-slate-900 outline-none placeholder:text-slate-400";
   const handleScheduleOwnerChange = (value: ScheduleOwnerType) => {
@@ -5854,7 +5861,7 @@ export function ScheduleFormPanel({
         }
         value={scheduleOwner}
         options={scheduleOwnerOptions}
-        className="h-9 w-auto rounded-md border-transparent bg-transparent px-2.5 text-sm shadow-none hover:border-slate-200 hover:bg-slate-50 hover:shadow-none focus-visible:border-emerald-300 focus-visible:bg-white focus-visible:ring-2 focus-visible:ring-emerald-100 data-[state=open]:border-emerald-300 data-[state=open]:bg-white data-[state=open]:ring-2 data-[state=open]:ring-emerald-100 disabled:bg-transparent disabled:shadow-none"
+        className="h-9 w-auto rounded-md border-transparent bg-transparent px-2.5 text-sm shadow-none hover:border-slate-200 hover:bg-slate-50 hover:shadow-none focus-visible:border-violet-300 focus-visible:bg-white focus-visible:ring-2 focus-visible:ring-violet-100 data-[state=open]:border-violet-300 data-[state=open]:bg-white data-[state=open]:ring-2 data-[state=open]:ring-violet-100 disabled:bg-transparent disabled:shadow-none"
         side="right"
         sideOffset={10}
         floatingBoundary="panel"
@@ -5897,8 +5904,8 @@ export function ScheduleFormPanel({
                 aria-label="협업 요청 사용"
               />
               <span
-                className={`relative h-5 w-9 shrink-0 rounded-full transition peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-200 ${
-                  companyCollaborationEnabled ? "bg-emerald-500" : "bg-slate-200"
+                className={`relative h-5 w-9 shrink-0 rounded-full transition peer-focus-visible:ring-2 peer-focus-visible:ring-violet-200 ${
+                  companyCollaborationEnabled ? "bg-violet-500" : "bg-slate-200"
                 }`}
               >
                 <span
@@ -5941,7 +5948,7 @@ export function ScheduleFormPanel({
                 setCompanyDepartmentId("");
                 setCompanyMemberId("");
               }}
-              className="h-9 w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 pr-7 text-xs font-semibold text-slate-900 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+              className="h-9 w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 pr-7 text-xs font-semibold text-slate-900 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
               aria-label="참석자 유형"
             >
               {companyScheduleTargetTypeOptions.map((option) => (
@@ -5961,7 +5968,7 @@ export function ScheduleFormPanel({
                 value={companyDepartmentId}
                 disabled={departmentsQuery.isLoading}
                 onChange={(event) => setCompanyDepartmentId(event.target.value)}
-                className="h-9 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-900 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100 disabled:text-slate-400"
+                className="h-9 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-900 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100 disabled:text-slate-400"
                 aria-label="참석 부서"
               >
                 <option value="">
@@ -5983,7 +5990,7 @@ export function ScheduleFormPanel({
                 value={companyMemberId}
                 disabled={membersQuery.isLoading}
                 onChange={(event) => setCompanyMemberId(event.target.value)}
-                className="h-9 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-900 outline-none transition focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100 disabled:text-slate-400"
+                className="h-9 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-900 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100 disabled:text-slate-400"
                 aria-label="참석 팀원"
               >
                 <option value="">
@@ -6010,7 +6017,7 @@ export function ScheduleFormPanel({
               type="button"
               onClick={addCompanyTarget}
               disabled={!canAddCompanyTarget}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
               aria-label="부서 추가"
               title="부서 추가"
             >
@@ -6025,13 +6032,13 @@ export function ScheduleFormPanel({
                 return (
                   <span
                     key={companyTargetKey(target)}
-                    className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-emerald-100 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700"
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-violet-100 bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-700"
                   >
                     <span className="truncate">{label}</span>
                     <button
                       type="button"
                       onClick={() => removeCompanyTarget(target)}
-                      className="-mr-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-emerald-600 transition hover:bg-emerald-100 hover:text-emerald-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
+                      className="-mr-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-violet-600 transition hover:bg-violet-100 hover:text-violet-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200"
                       aria-label={`${label} 제거`}
                     >
                       <X className="h-3 w-3" />
@@ -6042,7 +6049,8 @@ export function ScheduleFormPanel({
             </div>
           ) : (
             <p className="px-1 text-[11px] font-medium text-slate-400">
-              내 소속 부서는 자동 포함되며, 추가한 부서는 부서장 승인 후 참여합니다.
+              내 소속 부서는 자동 포함되며, 추가한 부서는 부서장 승인 후
+              참여합니다.
             </p>
           )}
         </div>
@@ -6088,7 +6096,7 @@ export function ScheduleFormPanel({
                   setPersonalAttendeeQuery(event.target.value)
                 }
                 placeholder="이름 또는 이메일"
-                className="h-9 w-full rounded-md border border-slate-200 bg-white px-8 text-xs font-medium text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+                className="h-9 w-full rounded-md border border-slate-200 bg-white px-8 text-xs font-medium text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
               />
             </div>
 
@@ -6124,10 +6132,9 @@ export function ScheduleFormPanel({
                 type="button"
                 onClick={addPersonalEmailInvite}
                 disabled={!canInviteByEmail}
-                className="flex h-9 w-full items-center justify-center gap-2 rounded-md bg-emerald-600 px-3 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                className="flex h-9 w-full items-center justify-center gap-2 rounded-md bg-violet-600 px-3 text-xs font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
               >
-                <UserPlus className="h-3.5 w-3.5" />
-                새 이메일 초대
+                <UserPlus className="h-3.5 w-3.5" />새 이메일 초대
               </button>
             </div>
           </PopoverContent>
@@ -6140,13 +6147,13 @@ export function ScheduleFormPanel({
               return (
                 <span
                   key={personalAttendeeKey(attendee)}
-                  className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-emerald-100 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700"
+                  className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-violet-100 bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-700"
                 >
                   <span className="truncate">{label}</span>
                   <button
                     type="button"
                     onClick={() => removePersonalAttendee(attendee)}
-                    className="-mr-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-emerald-600 transition hover:bg-emerald-100 hover:text-emerald-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
+                    className="-mr-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-violet-600 transition hover:bg-violet-100 hover:text-violet-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200"
                     aria-label={`${label} 제거`}
                   >
                     <X className="h-3 w-3" />
@@ -6176,7 +6183,7 @@ export function ScheduleFormPanel({
             {scheduleOwnerSelect ??
               (mode !== "create" ? (
                 <>
-                  <p className="text-xs font-semibold text-emerald-700">
+                  <p className="text-xs font-semibold text-violet-700">
                     개인 일정
                   </p>
                   <h2 className="mt-1 text-lg font-semibold text-slate-950">
@@ -6214,7 +6221,7 @@ export function ScheduleFormPanel({
                   setForm({ ...form, title: event.target.value })
                 }
                 placeholder="일정 제목"
-                className="h-11 w-full rounded-md border border-transparent bg-transparent px-2 text-base font-medium text-slate-950 outline-none transition-[border-color,background-color,opacity,box-shadow] duration-150 placeholder:text-slate-400 hover:border-slate-200 hover:bg-white/60 focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                className="h-11 w-full rounded-md border border-transparent bg-transparent px-2 text-base font-medium text-slate-950 outline-none transition-[border-color,background-color,opacity,box-shadow] duration-150 placeholder:text-slate-400 hover:border-slate-200 hover:bg-white/60 focus:border-violet-300 focus:bg-white focus:ring-2 focus:ring-violet-100"
               />
             </label>
 
@@ -6373,7 +6380,7 @@ export function ScheduleFormPanel({
                     {renderAllDayControl(
                       `inline-flex h-8 shrink-0 items-center gap-2 rounded-md px-2 text-xs font-medium transition ${
                         allDay
-                          ? "bg-blue-50 text-blue-700 ring-1 ring-blue-100"
+                          ? "bg-violet-50 text-violet-700 ring-1 ring-violet-100"
                           : "text-slate-700 hover:bg-slate-50"
                       }`,
                     )}
@@ -6381,7 +6388,7 @@ export function ScheduleFormPanel({
                       renderRepeatEnabledControl(
                         `inline-flex h-8 shrink-0 items-center gap-2 rounded-md px-2 text-xs font-medium transition ${
                           repeatEnabled
-                            ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"
+                            ? "bg-violet-50 text-violet-700 ring-1 ring-violet-100"
                             : "text-slate-700 hover:bg-slate-50"
                         }`,
                       )}
@@ -6428,7 +6435,7 @@ export function ScheduleFormPanel({
                             onClick={() =>
                               setIncludeHolidayRepeats((current) => !current)
                             }
-                            className="flex min-h-9 w-full items-start justify-between gap-3 rounded-md px-2.5 py-1.5 text-left outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-emerald-100"
+                            className="flex min-h-9 w-full items-start justify-between gap-3 rounded-md px-2.5 py-1.5 text-left outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-violet-100"
                           >
                             <span className="min-w-0">
                               <span className="block truncate text-xs font-medium text-slate-900">
@@ -6443,7 +6450,7 @@ export function ScheduleFormPanel({
                               aria-hidden="true"
                               className={`mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition ${
                                 includeHolidayRepeats
-                                  ? "bg-emerald-500"
+                                  ? "bg-violet-500"
                                   : "bg-slate-200"
                               }`}
                             >
@@ -6628,9 +6635,9 @@ export function ScheduleFormPanel({
                                     });
                                   }
                                 }}
-                                className={`inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded px-2 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-100 disabled:cursor-not-allowed disabled:text-slate-400 ${
+                                className={`inline-flex h-8 min-w-0 items-center justify-center gap-1.5 rounded px-2 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-100 disabled:cursor-not-allowed disabled:text-slate-400 ${
                                   selected
-                                    ? "bg-emerald-50 text-emerald-700 shadow-sm ring-1 ring-emerald-100"
+                                    ? "bg-violet-50 text-violet-700 shadow-sm ring-1 ring-violet-100"
                                     : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 disabled:hover:bg-transparent"
                                 }`}
                               >
@@ -6664,7 +6671,7 @@ export function ScheduleFormPanel({
                       ? targetDateKeys.length === 0
                       : targetDateKeys.length <= 1)
                   }
-                  className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-emerald-600 px-3 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-violet-600 px-3 text-sm font-medium text-white shadow-sm transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isPending
                     ? "반복 일정 생성 중..."
@@ -6709,7 +6716,7 @@ export function ScheduleFormPanel({
                     : autoSaveState === "saving"
                       ? "border-amber-200 bg-amber-50 text-amber-700"
                       : autoSaveState === "saved"
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        ? "border-violet-200 bg-violet-50 text-violet-700"
                         : "border-slate-200 bg-slate-50 text-slate-600"
                 }`}
               >
@@ -6750,7 +6757,7 @@ export function ScheduleFormPanel({
                   ?.querySelector("form");
                 formEl?.requestSubmit();
               }}
-              className="inline-flex h-10 w-full min-w-[86px] items-center justify-center gap-2 rounded-md bg-emerald-600 px-4 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(5,150,105,0.22)] transition hover:bg-emerald-700 hover:shadow-[0_10px_22px_rgba(5,150,105,0.28)] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 active:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none sm:w-auto"
+              className="inline-flex h-10 w-full min-w-[86px] items-center justify-center gap-2 rounded-md bg-violet-600 px-4 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(124,58,237,0.22)] transition hover:bg-violet-700 hover:shadow-[0_10px_22px_rgba(124,58,237,0.28)] focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 focus-visible:ring-offset-2 active:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none sm:w-auto"
             >
               {isPending ? (
                 <RotateCcw className="h-4 w-4 animate-spin" />
@@ -6815,7 +6822,7 @@ function MiniCalendar({
       ? "bg-white"
       : meta.hasDeadline
         ? "bg-rose-500"
-        : "bg-teal-500";
+        : "bg-violet-500";
 
     return (
       <span className="pointer-events-none absolute inset-x-0 bottom-1 flex items-center justify-center">
@@ -6967,7 +6974,9 @@ function ExpandableScheduleDescription({ text }: { text: string }) {
       <p
         ref={textRef}
         onClick={canToggle ? toggle : undefined}
-        title={canToggle ? (expanded ? "설명 접기" : "설명 전체 보기") : undefined}
+        title={
+          canToggle ? (expanded ? "설명 접기" : "설명 전체 보기") : undefined
+        }
         className={`whitespace-pre-wrap break-words leading-5 ${
           expanded ? "" : "line-clamp-2"
         } ${canToggle ? "cursor-pointer" : ""}`}
@@ -6981,7 +6990,7 @@ function ExpandableScheduleDescription({ text }: { text: string }) {
           aria-expanded={expanded}
           aria-label={expanded ? "설명 접기" : "설명 전체 보기"}
           title={expanded ? "설명 접기" : "설명 전체 보기"}
-          className="mt-1 inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-100"
+          className="mt-1 inline-flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] font-semibold text-violet-700 transition hover:bg-violet-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-100"
         >
           {expanded ? (
             <ChevronUp className="h-3.5 w-3.5" />
@@ -7025,19 +7034,20 @@ function TimelineItem({
   const creator = company ? companyScheduleCreatorDisplay(schedule) : null;
   const accentColor = scheduleAccentColor(schedule);
   const cardColor =
-    (company ? companyScheduleAccent : category?.color) ?? fallbackCategoryColor;
+    (company ? companyScheduleAccent : category?.color) ??
+    fallbackCategoryColor;
 
   return (
     <li
       id={`schedule-${schedule.schedule_id}`}
       onClick={company ? (event) => onEdit(event.currentTarget) : undefined}
-      className={`group relative overflow-hidden rounded-lg border bg-white p-4 shadow-sm shadow-slate-200/60 transition hover:border-emerald-200 hover:shadow-md ${
+      className={`group relative overflow-hidden rounded-lg border bg-white p-4 shadow-sm shadow-slate-200/60 transition hover:border-violet-200 hover:shadow-md ${
         company ? "cursor-pointer" : ""
       } ${
         highlighted
-          ? "border-emerald-300 ring-2 ring-emerald-100"
+          ? "border-violet-300 ring-2 ring-violet-100"
           : preview
-            ? "border-dashed border-emerald-300"
+            ? "border-dashed border-violet-300"
             : "border-slate-200"
       }`}
       style={{ backgroundColor: colorWithAlpha(cardColor, "10") }}
@@ -7055,14 +7065,14 @@ function TimelineItem({
               checked={!!selected}
               onChange={onToggleSelect}
               aria-label={`${schedule.title} select schedule`}
-              className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+              className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
             />
           </label>
         )}
 
         <div className="w-20 shrink-0 text-xs font-medium text-slate-500">
           {schedule.all_day ? (
-            <span className="rounded-md bg-emerald-50 px-2 py-1 font-semibold text-emerald-700">
+            <span className="rounded-md bg-violet-50 px-2 py-1 font-semibold text-violet-700">
               종일
             </span>
           ) : (
@@ -7090,15 +7100,15 @@ function TimelineItem({
               {schedule.title}
             </h3>
             {schedule.is_completed && (
-              <span className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+              <span className="rounded-md border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700">
                 완료
               </span>
             )}
             <span
               className={`rounded-md border px-2 py-0.5 text-[11px] font-medium ${
                 company
-                  ? "border-blue-200 bg-blue-50 text-blue-700"
-                  : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  ? "border-violet-200 bg-violet-50 text-violet-700"
+                  : "border-violet-200 bg-violet-50 text-violet-700"
               }`}
             >
               {company ? "회사" : "개인"}
@@ -7107,15 +7117,15 @@ function TimelineItem({
               <span
                 className={`rounded-md border px-2 py-0.5 text-[11px] font-medium ${
                   preview
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : "border-blue-200 bg-blue-50 text-blue-700"
+                    ? "border-violet-200 bg-violet-50 text-violet-700"
+                    : "border-violet-200 bg-violet-50 text-violet-700"
                 }`}
               >
                 {preview ? "미리보기" : "회사"}
               </span>
             )}
             {company && schedule.company?.name && (
-              <span className="rounded-md border border-blue-100 bg-blue-50/70 px-2 py-0.5 text-[11px] text-blue-700">
+              <span className="rounded-md border border-violet-100 bg-violet-50/70 px-2 py-0.5 text-[11px] text-violet-700">
                 {schedule.company.name}
               </span>
             )}
@@ -7141,14 +7151,14 @@ function TimelineItem({
             {category && <CategoryMetaChip category={category} />}
             {creator && (
               <span
-                className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-blue-100 bg-white px-2 py-0.5 text-[11px] font-medium leading-5 text-slate-600"
+                className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-violet-100 bg-white px-2 py-0.5 text-[11px] font-medium leading-5 text-slate-600"
                 title={
                   creator.email
                     ? `추가한 사람: ${creator.label} (${creator.email})`
                     : `추가한 사람: ${creator.label}`
                 }
               >
-                <UserRound className="h-3 w-3 shrink-0 text-blue-500" />
+                <UserRound className="h-3 w-3 shrink-0 text-violet-500" />
                 <span className="shrink-0 text-slate-400">추가</span>
                 <span className="min-w-0 truncate">{creator.label}</span>
               </span>
@@ -7180,7 +7190,7 @@ function TimelineItem({
               type="button"
               onClick={(event) => onEdit(event.currentTarget)}
               aria-label="Edit"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
             >
               <Pencil className="h-4 w-4" />
             </button>
@@ -7286,7 +7296,7 @@ function companyScheduleTargetStatusLabel(status?: string | null) {
 
 function companyScheduleStatusClassName(status?: string | null) {
   if (status === "active" || status === "approved") {
-    return "border-emerald-100 bg-emerald-50 text-emerald-700";
+    return "border-violet-100 bg-violet-50 text-violet-700";
   }
   if (status === "rejected" || status === "removed" || status === "cancelled") {
     return "border-red-100 bg-red-50 text-red-700";
@@ -7399,7 +7409,7 @@ function CompanyScheduleApprovalPopover({
                 className="rounded-md border border-slate-200 bg-white p-3"
               >
                 <div className="flex items-start gap-2">
-                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-700">
+                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-violet-50 text-violet-700">
                     <CheckSquare2 className="h-4 w-4" />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -7407,9 +7417,7 @@ function CompanyScheduleApprovalPopover({
                       {companyScheduleApprovalTitle(approval)}
                     </p>
                     <p className="mt-1 text-[11px] font-medium text-slate-500">
-                      {companyScheduleApprovalTypeLabel(
-                        approval.approval_type,
-                      )}
+                      {companyScheduleApprovalTypeLabel(approval.approval_type)}
                       {targetLabel ? ` · ${targetLabel}` : ""}
                     </p>
                     {createdAt && (
@@ -7433,7 +7441,7 @@ function CompanyScheduleApprovalPopover({
                       type="button"
                       onClick={() => onApprove(approval)}
                       disabled={actionPending || !approvalId}
-                      className="inline-flex h-7 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
+                      className="inline-flex h-7 items-center justify-center rounded-md border border-violet-200 bg-violet-50 px-2.5 text-[11px] font-semibold text-violet-700 transition hover:bg-violet-100 disabled:opacity-50"
                     >
                       승인
                     </button>
@@ -7458,7 +7466,7 @@ function CompanyScheduleApprovalPopover({
         >
           <CheckSquare2 className="h-4 w-4" />
           {pendingCount > 0 && (
-            <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-blue-600 px-1 text-[10px] font-semibold leading-4 text-white ring-2 ring-white">
+            <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-violet-600 px-1 text-[10px] font-semibold leading-4 text-white ring-2 ring-white">
               {pendingCount}
             </span>
           )}
@@ -7531,7 +7539,7 @@ function ScheduleReadonlyPanel({
       >
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-5">
           <div className="min-w-0">
-            <p className="text-xs font-semibold text-blue-700">회사 일정</p>
+            <p className="text-xs font-semibold text-violet-700">회사 일정</p>
             <h2 className="mt-1 truncate text-base font-semibold text-slate-950">
               {schedule.title}
             </h2>
@@ -7571,7 +7579,7 @@ function ScheduleReadonlyPanel({
                   추가한 사람
                 </dt>
                 <dd className="mt-1 flex min-w-0 items-center gap-1.5 text-slate-900">
-                  <UserRound className="h-4 w-4 shrink-0 text-blue-500" />
+                  <UserRound className="h-4 w-4 shrink-0 text-violet-500" />
                   <span className="min-w-0 truncate font-medium">
                     {creator.label}
                   </span>
@@ -7590,7 +7598,7 @@ function ScheduleReadonlyPanel({
                 </dt>
                 <dd className="mt-1 flex flex-wrap items-center gap-1.5">
                   {schedule.is_collaboration && (
-                    <span className="rounded-md border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                    <span className="rounded-md border border-violet-100 bg-violet-50 px-2 py-0.5 text-xs font-semibold text-violet-700">
                       협업 일정
                     </span>
                   )}
@@ -7600,7 +7608,9 @@ function ScheduleReadonlyPanel({
                         schedule.approval_status,
                       )}`}
                     >
-                      {companyScheduleTargetStatusLabel(schedule.approval_status)}
+                      {companyScheduleTargetStatusLabel(
+                        schedule.approval_status,
+                      )}
                     </span>
                   )}
                 </dd>
@@ -7612,7 +7622,7 @@ function ScheduleReadonlyPanel({
               </dt>
               <dd className="mt-1 text-slate-900">
                 {dateLabel}
-                <span className="ml-2 rounded-md bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                <span className="ml-2 rounded-md bg-violet-50 px-2 py-0.5 text-xs font-semibold text-violet-700">
                   {timeLabel}
                 </span>
               </dd>
@@ -8020,8 +8030,8 @@ function MonthSchedulePreview({
         schedule.is_completed ? "opacity-70" : ""
       } ${muted ? "opacity-60" : ""} ${
         active
-          ? "ring-2 ring-emerald-400 ring-offset-1"
-          : "hover:ring-1 hover:ring-emerald-200"
+          ? "ring-2 ring-violet-400 ring-offset-1"
+          : "hover:ring-1 hover:ring-violet-200"
       } ${preview ? "border border-dashed" : ""} ${
         continuesBefore ? "rounded-l-none pl-1" : ""
       } ${continuesAfter ? "rounded-r-none pr-1" : ""} ${className}`}
@@ -8174,73 +8184,63 @@ function MonthScheduleGrid({
   }, [interaction, monthSchedules]);
   const monthScheduleSegments = useMemo(
     () =>
-      layoutMonthScheduleSegments(
-        displayMonthSchedules,
-        cells,
-        holidaysByDate,
-      ),
+      layoutMonthScheduleSegments(displayMonthSchedules, cells, holidaysByDate),
     [cells, displayMonthSchedules, holidaysByDate],
   );
   const maxPreviewContentSlots = Math.min(
     maxVisibleItems,
     monthPreviewCardLimit,
   );
-  const contentCapacitiesByDate = useMemo(
-    () => {
-      let capacities = new Map(
-        cells.map((cell) => [toDateKey(cell.date), maxPreviewContentSlots]),
+  const contentCapacitiesByDate = useMemo(() => {
+    let capacities = new Map(
+      cells.map((cell) => [toDateKey(cell.date), maxPreviewContentSlots]),
+    );
+    const hiddenContentCapacity = Math.max(
+      0,
+      Math.min(maxPreviewContentSlots, maxVisibleItems - 1),
+    );
+
+    for (let pass = 0; pass < cells.length; pass += 1) {
+      const visibleScheduleCounts = countVisibleMonthSchedulesByDate(
+        monthScheduleSegments,
+        cells,
+        capacities,
       );
-      const hiddenContentCapacity = Math.max(
-        0,
-        Math.min(maxPreviewContentSlots, maxVisibleItems - 1),
-      );
+      let changed = false;
 
-      for (let pass = 0; pass < cells.length; pass += 1) {
-        const visibleScheduleCounts = countVisibleMonthSchedulesByDate(
-          monthScheduleSegments,
-          cells,
-          capacities,
-        );
-        let changed = false;
+      for (const cell of cells) {
+        const key = toDateKey(cell.date);
+        const holidays = holidaysByDate.get(key) ?? [];
+        const schedules = schedulesByDate.get(key) ?? [];
+        const contentCapacity = capacities.get(key) ?? maxPreviewContentSlots;
+        const visibleHolidayCount = Math.min(holidays.length, contentCapacity);
+        const visibleScheduleCount = visibleScheduleCounts.get(key) ?? 0;
+        const hasHiddenItems =
+          holidays.length + schedules.length >
+          visibleHolidayCount + visibleScheduleCount;
 
-        for (const cell of cells) {
-          const key = toDateKey(cell.date);
-          const holidays = holidaysByDate.get(key) ?? [];
-          const schedules = schedulesByDate.get(key) ?? [];
-          const contentCapacity = capacities.get(key) ?? maxPreviewContentSlots;
-          const visibleHolidayCount = Math.min(
-            holidays.length,
-            contentCapacity,
-          );
-          const visibleScheduleCount = visibleScheduleCounts.get(key) ?? 0;
-          const hasHiddenItems =
-            holidays.length + schedules.length >
-            visibleHolidayCount + visibleScheduleCount;
-
-          if (!hasHiddenItems || contentCapacity <= hiddenContentCapacity) {
-            continue;
-          }
-
-          capacities.set(key, hiddenContentCapacity);
-          changed = true;
+        if (!hasHiddenItems || contentCapacity <= hiddenContentCapacity) {
+          continue;
         }
 
-        if (!changed) {
-          break;
-        }
+        capacities.set(key, hiddenContentCapacity);
+        changed = true;
       }
 
-      return capacities;
-    },
-    [
-      cells,
-      holidaysByDate,
-      maxPreviewContentSlots,
-      maxVisibleItems,
-      monthScheduleSegments,
-      schedulesByDate,
-    ],
-  );
+      if (!changed) {
+        break;
+      }
+    }
+
+    return capacities;
+  }, [
+    cells,
+    holidaysByDate,
+    maxPreviewContentSlots,
+    maxVisibleItems,
+    monthScheduleSegments,
+    schedulesByDate,
+  ]);
   const visibleMonthScheduleCountByDate = useMemo(
     () =>
       countVisibleMonthSchedulesByDate(
@@ -8253,9 +8253,7 @@ function MonthScheduleGrid({
 
   const isInteractiveCellTarget = (target: EventTarget | null) =>
     target instanceof HTMLElement &&
-    Boolean(
-      target.closest("button,a,input,textarea,select,[role='button']"),
-    );
+    Boolean(target.closest("button,a,input,textarea,select,[role='button']"));
 
   const handleDayCellDoubleClick = (
     event: ReactMouseEvent<HTMLDivElement>,
@@ -8475,7 +8473,7 @@ function MonthScheduleGrid({
             Math.max(0, holidays.length - visibleHolidayCount) +
             Math.max(0, schedules.length - visibleScheduleCount);
           const moreButtonToneClass = selected
-            ? "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+            ? "bg-violet-50 text-violet-800 hover:bg-violet-100"
             : currentMonth
               ? isHoliday
                 ? "bg-rose-50/30 text-rose-800 hover:bg-rose-50"
@@ -8486,7 +8484,7 @@ function MonthScheduleGrid({
             <div
               key={key}
               onDoubleClick={(event) => handleDayCellDoubleClick(event, day)}
-              className={`relative min-h-0 cursor-default overflow-hidden border-b border-r border-slate-100 p-1.5 transition hover:bg-emerald-50/40 sm:p-2 ${
+              className={`relative min-h-0 cursor-default overflow-hidden border-b border-r border-slate-100 p-1.5 transition hover:bg-violet-50/40 sm:p-2 ${
                 (index + 1) % 7 === 0 ? "border-r-0" : ""
               } ${
                 currentMonth
@@ -8495,9 +8493,7 @@ function MonthScheduleGrid({
                     : "bg-white"
                   : "bg-slate-50/70 text-slate-300"
               } ${
-                selected
-                  ? "bg-emerald-50 ring-2 ring-inset ring-emerald-400"
-                  : ""
+                selected ? "bg-violet-50 ring-2 ring-inset ring-violet-400" : ""
               }`}
             >
               <button
@@ -8508,9 +8504,9 @@ function MonthScheduleGrid({
                 }}
                 className={`ml-auto flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-xs font-semibold transition ${
                   selected
-                    ? "bg-emerald-600 text-white"
+                    ? "bg-violet-600 text-white"
                     : today
-                      ? "bg-emerald-600 text-white"
+                      ? "bg-violet-600 text-white"
                       : currentMonth
                         ? isHoliday
                           ? "bg-rose-50 text-rose-700 hover:bg-rose-100"
@@ -8527,7 +8523,7 @@ function MonthScheduleGrid({
                     event.stopPropagation();
                     onCreateDay(day, event.currentTarget);
                   }}
-                  className="inline-flex h-6 w-6 items-center justify-center overflow-hidden rounded-md px-0 text-xs font-semibold text-emerald-700 opacity-100 transition hover:bg-emerald-50 focus-visible:opacity-100 sm:w-auto sm:px-2 sm:opacity-0 sm:group-hover/month-add-zone:opacity-100"
+                  className="inline-flex h-6 w-6 items-center justify-center overflow-hidden rounded-md px-0 text-xs font-semibold text-violet-700 opacity-100 transition hover:bg-violet-50 focus-visible:opacity-100 sm:w-auto sm:px-2 sm:opacity-0 sm:group-hover/month-add-zone:opacity-100"
                 >
                   <Plus className="h-3.5 w-3.5 shrink-0" />
                   추가
@@ -8748,7 +8744,8 @@ function scheduleWithDraftTime(
   options?: ScheduleTimeChangeOptions,
 ): Schedule {
   const allDay =
-    options?.allDay ?? (schedule.all_day || shouldUseAllDayLaneForRange(start, end));
+    options?.allDay ??
+    (schedule.all_day || shouldUseAllDayLaneForRange(start, end));
 
   return {
     ...schedule,
@@ -8786,7 +8783,7 @@ function scheduleAccentColor(
 
   return (
     scheduleTypeSelectMeta[schedule.schedule_type]?.color ??
-    (schedule.schedule_type === "deadline" ? "#f43f5e" : "#10b981")
+    (schedule.schedule_type === "deadline" ? "#f43f5e" : "#7c3aed")
   );
 }
 
@@ -8799,8 +8796,7 @@ function scheduleCardColor(
   return (
     (schedule.category_id
       ? categoryColors.get(schedule.category_id)
-      : undefined) ??
-    fallbackCategoryColor
+      : undefined) ?? fallbackCategoryColor
   );
 }
 
@@ -8851,7 +8847,7 @@ function PreviewPriorityBadge({
 
 function weekdayToneClass(day: Date, selected = false, holiday = false) {
   if (isToday(day)) {
-    return "bg-emerald-50/95 text-emerald-800 shadow-[inset_0_-2px_0_rgba(16,185,129,0.45)]";
+    return "bg-violet-50/95 text-violet-800 shadow-[inset_0_-2px_0_rgba(124,58,237,0.45)]";
   }
   if (holiday || day.getDay() === 0) {
     return selected
@@ -8861,14 +8857,14 @@ function weekdayToneClass(day: Date, selected = false, holiday = false) {
   if (day.getDay() === 6) {
     return selected ? "bg-sky-50/90 text-sky-700" : "bg-sky-50/45 text-sky-600";
   }
-  return selected ? "bg-emerald-50/80 text-slate-950" : "text-slate-500";
+  return selected ? "bg-violet-50/80 text-slate-950" : "text-slate-500";
 }
 
 function weekdayColumnClass(day: Date, selected = false, holiday = false) {
   if (isToday(day)) {
-    return "bg-emerald-50/35 shadow-[inset_2px_0_0_rgba(16,185,129,0.18),inset_-2px_0_0_rgba(16,185,129,0.18)]";
+    return "bg-violet-50/35 shadow-[inset_2px_0_0_rgba(124,58,237,0.18),inset_-2px_0_0_rgba(124,58,237,0.18)]";
   }
-  if (selected) return "bg-emerald-50/20";
+  if (selected) return "bg-violet-50/20";
   if (holiday || day.getDay() === 0) return "bg-rose-50/20";
   if (day.getDay() === 6) return "bg-sky-50/20";
   return "";
@@ -10168,7 +10164,7 @@ function WeekScheduleGrid({
         >
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-emerald-50 hover:text-emerald-700"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-violet-50 hover:text-violet-700"
             onClick={() => {
               const menu = createContextMenu;
               setCreateContextMenu(null);
@@ -10214,7 +10210,7 @@ function WeekScheduleGrid({
                 <span
                   className={
                     today
-                      ? "flex h-6 min-w-6 items-center justify-center rounded-full bg-emerald-600 px-1.5 text-[11px] font-semibold text-white"
+                      ? "flex h-6 min-w-6 items-center justify-center rounded-full bg-violet-600 px-1.5 text-[11px] font-semibold text-white"
                       : selected
                         ? "font-semibold text-slate-950"
                         : ""
@@ -10287,7 +10283,7 @@ function WeekScheduleGrid({
                         allDay: true,
                       });
                     }}
-                    className="inline-flex rounded-lg px-2 py-0.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
+                    className="inline-flex rounded-lg px-2 py-0.5 text-xs font-semibold text-violet-700 transition hover:bg-violet-50"
                   >
                     <Plus className="h-3.5 w-3.5" />
                   </button>
@@ -10328,7 +10324,7 @@ function WeekScheduleGrid({
 
                 return (
                   <div
-                    className="pointer-events-none absolute top-1.5 z-40 h-7 rounded-md bg-emerald-100/90 px-2 text-left text-[11px] font-semibold leading-7 text-emerald-800 shadow-sm ring-1 ring-emerald-300"
+                    className="pointer-events-none absolute top-1.5 z-40 h-7 rounded-md bg-violet-100/90 px-2 text-left text-[11px] font-semibold leading-7 text-violet-800 shadow-sm ring-1 ring-violet-300"
                     style={{
                       left: `calc(${(activeSpan.startIndex / dayCount) * 100}% + 4px)`,
                       width: `calc(${(span / dayCount) * 100}% - 8px)`,
@@ -10394,8 +10390,8 @@ function WeekScheduleGrid({
                         : "z-20 cursor-grab"
                   } ${
                     selected
-                      ? "ring-2 ring-emerald-400 ring-offset-1"
-                      : "hover:ring-1 hover:ring-emerald-200"
+                      ? "ring-2 ring-violet-400 ring-offset-1"
+                      : "hover:ring-1 hover:ring-violet-200"
                   } ${preview ? "border border-dashed" : ""}`}
                   style={{
                     top: 26 + holidayLaneCount * 24 + lane * 24,
@@ -10445,7 +10441,10 @@ function WeekScheduleGrid({
                       />
                     </>
                   )}
-                  <PriorityDot schedule={schedule} className="pointer-events-none mr-1 align-middle" />
+                  <PriorityDot
+                    schedule={schedule}
+                    className="pointer-events-none mr-1 align-middle"
+                  />
                   {readOnly && (
                     <span className="pointer-events-none mr-1 rounded bg-white/60 px-1 text-[10px]">
                       {preview ? "미리보기" : "회사"}
@@ -10551,7 +10550,7 @@ function WeekScheduleGrid({
                     }
                   }}
                   onContextMenu={(event) => showCreateContextMenu(event, day)}
-                  className={`relative border-r border-slate-100 transition hover:bg-emerald-50/20 last:border-r-0 ${weekdayColumnClass(day, selected, isHoliday)}`}
+                  className={`relative border-r border-slate-100 transition hover:bg-violet-50/20 last:border-r-0 ${weekdayColumnClass(day, selected, isHoliday)}`}
                 />
               );
             })}
@@ -10559,7 +10558,7 @@ function WeekScheduleGrid({
             {createInteraction?.surface === "time" &&
               createInteraction.dragged && (
                 <div
-                  className="pointer-events-none absolute z-40 rounded-lg bg-emerald-100/85 px-2 py-1 text-xs font-semibold text-emerald-800 shadow-sm ring-1 ring-emerald-300"
+                  className="pointer-events-none absolute z-40 rounded-lg bg-violet-100/85 px-2 py-1 text-xs font-semibold text-violet-800 shadow-sm ring-1 ring-violet-300"
                   style={scheduleBlockStyleFromDates(
                     createInteraction.start,
                     createInteraction.end,
@@ -10627,8 +10626,8 @@ function WeekScheduleGrid({
                       : "cursor-grab active:cursor-grabbing"
                   } ${
                     selected
-                      ? "ring-2 ring-emerald-400 ring-offset-1"
-                      : "hover:ring-1 hover:ring-emerald-200"
+                      ? "ring-2 ring-violet-400 ring-offset-1"
+                      : "hover:ring-1 hover:ring-violet-200"
                   } ${activeDraft ? "opacity-45 saturate-75" : ""} ${
                     preview ? "border border-dashed" : ""
                   }`}
@@ -11039,12 +11038,15 @@ export default function Schedules() {
     start_from: monthRange.startFrom,
     start_to: monthRange.startTo,
   });
-  const companySchedulesQuery = useCompanySchedules({
-    start_from: monthRange.startFrom,
-    start_to: monthRange.startTo,
-  }, {
-    enabled: hasCompanyMembership,
-  });
+  const companySchedulesQuery = useCompanySchedules(
+    {
+      start_from: monthRange.startFrom,
+      start_to: monthRange.startTo,
+    },
+    {
+      enabled: hasCompanyMembership,
+    },
+  );
   const holidaysQuery = useHolidaysInRange(
     {
       start_date: monthRange.startDate,
@@ -11673,7 +11675,8 @@ export default function Schedules() {
     const nextStart = toOffsetISOString(start);
     const nextEnd = toOffsetISOString(end);
     const nextAllDay =
-      options?.allDay ?? (schedule.all_day || shouldUseAllDayLaneForRange(start, end));
+      options?.allDay ??
+      (schedule.all_day || shouldUseAllDayLaneForRange(start, end));
 
     setOptimisticScheduleTimes((prev) => {
       const next = new Map(prev);
@@ -11832,13 +11835,13 @@ export default function Schedules() {
                   title="검색 및 필터"
                   className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border shadow-sm transition ${
                     desktopFiltersOpen || activeFilterCount > 0
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      ? "border-violet-200 bg-violet-50 text-violet-700"
                       : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                   }`}
                 >
                   <Search className="h-4 w-4" />
                   {activeFilterCount > 0 && (
-                    <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-emerald-600 px-1 text-[10px] font-semibold leading-4 text-white ring-2 ring-white">
+                    <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-violet-600 px-1 text-[10px] font-semibold leading-4 text-white ring-2 ring-white">
                       {activeFilterCount}
                     </span>
                   )}
@@ -11920,7 +11923,7 @@ export default function Schedules() {
                       scheduleView === option.value ? "bg-neutral-800" : ""
                     }`}
                   >
-                    <span className="flex h-4 w-4 items-center justify-center text-emerald-400">
+                    <span className="flex h-4 w-4 items-center justify-center text-violet-400">
                       {scheduleView === option.value && (
                         <Check className="h-4 w-4" />
                       )}
@@ -11928,7 +11931,7 @@ export default function Schedules() {
                     <span
                       className={`font-medium ${
                         scheduleView === option.value
-                          ? "text-emerald-200"
+                          ? "text-violet-200"
                           : "text-slate-100"
                       }`}
                     >
@@ -12027,7 +12030,7 @@ export default function Schedules() {
     >
       <div
         data-flowra-schedule-page
-        className="h-full min-h-0 overflow-hidden bg-white dark:bg-slate-950"
+        className="flowra-workspace h-full min-h-0 overflow-hidden"
       >
         <section className="sr-only">
           <div>
@@ -12083,13 +12086,13 @@ export default function Schedules() {
                     title="검색 및 필터"
                     className={`relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border shadow-sm transition ${
                       mobileFiltersOpen || activeFilterCount > 0
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        ? "border-violet-200 bg-violet-50 text-violet-700"
                         : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                     }`}
                   >
                     <Search className="h-4 w-4" />
                     {activeFilterCount > 0 && (
-                      <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-emerald-600 px-1 text-[10px] font-semibold leading-4 text-white ring-2 ring-white">
+                      <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-violet-600 px-1 text-[10px] font-semibold leading-4 text-white ring-2 ring-white">
                         {activeFilterCount}
                       </span>
                     )}
@@ -12171,7 +12174,7 @@ export default function Schedules() {
                         scheduleView === option.value ? "bg-neutral-800" : ""
                       }`}
                     >
-                      <span className="flex h-4 w-4 items-center justify-center text-emerald-400">
+                      <span className="flex h-4 w-4 items-center justify-center text-violet-400">
                         {scheduleView === option.value && (
                           <Check className="h-4 w-4" />
                         )}
@@ -12179,7 +12182,7 @@ export default function Schedules() {
                       <span
                         className={`font-medium ${
                           scheduleView === option.value
-                            ? "text-emerald-200"
+                            ? "text-violet-200"
                             : "text-slate-100"
                         }`}
                       >
@@ -12309,11 +12312,11 @@ export default function Schedules() {
                       key={chip.key}
                       type="button"
                       onClick={() => updateFilters(chip.reset)}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-violet-100 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
                       aria-label={`${chip.label} 필터 제거`}
                     >
                       <span>{chip.label}</span>
-                      <X className="h-3 w-3 text-emerald-500" />
+                      <X className="h-3 w-3 text-violet-500" />
                     </button>
                   ))}
                   <button
@@ -12551,7 +12554,9 @@ export default function Schedules() {
                 hasCompanyMembership
                   ? async (payload) => {
                       const createdSchedule =
-                        await createCompanyScheduleMutation.mutateAsync(payload);
+                        await createCompanyScheduleMutation.mutateAsync(
+                          payload,
+                        );
                       const start = new Date(
                         createdSchedule?.start_datetime ??
                           payload.start_datetime,

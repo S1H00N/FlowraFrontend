@@ -7,7 +7,7 @@
     "Aptos", "Segoe UI Variable", "Segoe UI", "Noto Sans KR",
     "Apple SD Gothic Neo", ui-sans-serif, system-ui, sans-serif;
   --flowra-page-bg: #f8fafc;
-  --flowra-shell-bg: #f7f8f5;
+  --flowra-shell-bg: #f8fafc;
   --flowra-surface: #ffffff;
   --flowra-surface-elevated: rgba(255, 255, 255, 0.95);
   --flowra-surface-muted: rgba(248, 250, 252, 0.8);
@@ -19,9 +19,9 @@
   --flowra-text: #334155;
   --flowra-text-muted: #64748b;
   --flowra-text-subtle: #94a3b8;
-  --flowra-accent-bg: #ecfdf5;
-  --flowra-accent-text: #047857;
-  --flowra-primary: #059669;
+  --flowra-accent-bg: #f5f3ff;
+  --flowra-accent-text: #6d28d9;
+  --flowra-primary: #7c3aed;
   --flowra-primary-foreground: #ffffff;
   --flowra-destructive: #dc2626;
   --flowra-destructive-foreground: #ffffff;
@@ -42,9 +42,9 @@
   --flowra-text: #d6d6d6;
   --flowra-text-muted: #9b9b9b;
   --flowra-text-subtle: #6f6f6f;
-  --flowra-accent-bg: rgba(16, 185, 129, 0.16);
-  --flowra-accent-text: #6ee7b7;
-  --flowra-primary: #059669;
+  --flowra-accent-bg: rgba(124, 58, 237, 0.18);
+  --flowra-accent-text: #c4b5fd;
+  --flowra-primary: #8b5cf6;
   --flowra-primary-foreground: #ffffff;
   --flowra-destructive: #ef4444;
   --flowra-destructive-foreground: #ffffff;
@@ -92,18 +92,125 @@ body {
 }
 
 ::selection {
-  background: rgba(5, 150, 105, 0.18);
-  color: #064e3b;
+  background: rgba(124, 58, 237, 0.18);
+  color: #4c1d95;
+}
+
+.flowra-app-shell {
+  background: var(--flowra-shell-bg);
+  color: var(--flowra-text-strong);
+}
+
+.flowra-workspace {
+  background: var(--flowra-page-bg);
+  color: var(--flowra-text-strong);
+}
+
+.flowra-page-stack {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.flowra-page-hero {
+  overflow: hidden;
+  border: 1px solid var(--flowra-border);
+  border-radius: 1rem;
+  background: var(--flowra-surface);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.05),
+    0 14px 36px rgba(15, 23, 42, 0.04);
+}
+
+.flowra-surface {
+  overflow: hidden;
+  border: 1px solid var(--flowra-border);
+  border-radius: 0.75rem;
+  background: var(--flowra-surface);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.05),
+    0 12px 32px rgba(15, 23, 42, 0.035);
+}
+
+.flowra-subtle-panel {
+  border: 1px solid var(--flowra-border-soft);
+  border-radius: 0.75rem;
+  background: var(--flowra-surface-muted);
+}
+
+.flowra-toolbar {
+  border: 1px solid var(--flowra-border);
+  border-radius: 0.75rem;
+  background: var(--flowra-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.flowra-list-card {
+  border: 1px solid var(--flowra-border);
+  border-radius: 0.75rem;
+  background: var(--flowra-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.flowra-list-card:hover {
+  border-color: rgba(124, 58, 237, 0.26);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    0 12px 28px rgba(15, 23, 42, 0.05);
+}
+
+.flowra-input {
+  border: 1px solid var(--flowra-border);
+  border-radius: 0.75rem;
+  background: var(--flowra-surface-muted);
+  color: var(--flowra-text-strong);
+  outline: none;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.flowra-input:focus {
+  border-color: rgba(124, 58, 237, 0.45);
+  background: var(--flowra-surface);
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12);
+}
+
+.flowra-primary-button {
+  background: var(--flowra-primary);
+  color: var(--flowra-primary-foreground);
+  box-shadow: 0 8px 18px rgba(124, 58, 237, 0.2);
+}
+
+.flowra-primary-button:hover {
+  background: #6d28d9;
+  box-shadow: 0 10px 22px rgba(124, 58, 237, 0.28);
+}
+
+.flowra-filter-active {
+  background: var(--flowra-accent-bg);
+  color: var(--flowra-accent-text);
+  box-shadow: inset 0 0 0 1px rgba(124, 58, 237, 0.16);
+}
+
+.flowra-filter-idle {
+  color: var(--flowra-text-muted);
+}
+
+.flowra-filter-idle:hover {
+  background: var(--flowra-surface-soft);
+  color: var(--flowra-text-strong);
 }
 
 .dark ::selection {
-  background: rgba(110, 231, 183, 0.24);
-  color: #ecfdf5;
+  background: rgba(196, 181, 253, 0.24);
+  color: #f5f3ff;
 }
 
 .dark
   :where(
     [class~="bg-[#f7f8f5]"],
+    [class~="bg-[#f7f8fa]"],
     [class~="bg-[#f7f8fb]"],
     [class~="bg-zinc-50"]
   ) {
@@ -112,6 +219,18 @@ body {
 
 .dark :where([class~="bg-white/90"], [class~="bg-white/95"]) {
   background-color: var(--flowra-surface-elevated);
+}
+
+.dark :where([class~="bg-slate-50/90"]) {
+  background-color: var(--flowra-surface-elevated);
+}
+
+.dark :where([class~="dark:bg-slate-950"]) {
+  background-color: var(--flowra-surface);
+}
+
+.dark :where([class~="bg-white"][class~="font-sans"]) {
+  background-color: var(--flowra-shell-bg);
 }
 
 .dark
@@ -133,7 +252,8 @@ body {
   :where(
     [class~="bg-slate-50"],
     [class~="bg-slate-50/70"],
-    [class~="bg-slate-50/80"]
+    [class~="bg-slate-50/80"],
+    [class~="bg-slate-50/95"]
   ) {
   background-color: var(--flowra-surface-muted);
 }
@@ -148,6 +268,7 @@ body {
 
 .dark
   :where(
+    [class~="border-slate-50"],
     [class~="border-slate-100"],
     [class~="border-slate-200"],
     [class~="border-slate-200/70"],
@@ -155,6 +276,14 @@ body {
     [class~="border-slate-300"]
   ) {
   border-color: var(--flowra-border);
+}
+
+.dark :where([class~="divide-slate-50"]) > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--flowra-border-soft);
+}
+
+.dark :where([class~="shadow-slate-900/10"]) {
+  --tw-shadow-color: rgba(0, 0, 0, 0.42);
 }
 
 .dark :where([class~="ring-slate-100"], [class~="ring-slate-200/80"]) {
@@ -173,26 +302,48 @@ body {
   color: var(--flowra-text-muted);
 }
 
-.dark :where([class~="text-slate-400"], [class~="text-slate-300"]) {
+.dark
+  :where(
+    [class~="text-slate-400"],
+    [class~="text-slate-300"],
+    [class~="text-slate-200"]
+  ) {
   color: var(--flowra-text-subtle);
 }
 
-.dark :where([class~="bg-emerald-50"], [class~="bg-emerald-50/40"]) {
+.dark :where([class~="bg-violet-50"], [class~="bg-violet-50/40"]) {
   background-color: var(--flowra-accent-bg);
 }
 
 .dark
   :where(
-    [class~="text-emerald-600"],
-    [class~="text-emerald-700"],
-    [class~="text-emerald-800"]
+    [class~="text-violet-600"],
+    [class~="text-violet-700"],
+    [class~="text-violet-800"],
+    [class~="text-violet-900"]
   ) {
   color: var(--flowra-accent-text);
 }
 
-.dark :where([class~="ring-emerald-100"], [class~="border-emerald-200"]) {
-  --tw-ring-color: rgba(110, 231, 183, 0.28);
-  border-color: rgba(110, 231, 183, 0.28);
+.dark
+  :where(
+    [class~="ring-violet-100"],
+    [class~="border-violet-100"],
+    [class~="border-violet-200"]
+  ) {
+  --tw-ring-color: rgba(196, 181, 253, 0.28);
+  border-color: rgba(196, 181, 253, 0.28);
+}
+
+.dark
+  :where(
+    [class~="bg-gradient-to-br"][class~="from-violet-50"][class~="to-indigo-50"]
+  ) {
+  background-image: linear-gradient(
+    to bottom right,
+    rgba(124, 58, 237, 0.16),
+    rgba(99, 102, 241, 0.16)
+  );
 }
 
 .dark :where([class~="bg-red-50"]) {
@@ -200,7 +351,11 @@ body {
 }
 
 .dark
-  :where([class~="text-red-500"], [class~="text-red-600"], [class~="text-red-700"]) {
+  :where(
+    [class~="text-red-500"],
+    [class~="text-red-600"],
+    [class~="text-red-700"]
+  ) {
   color: #fca5a5;
 }
 
@@ -208,8 +363,29 @@ body {
   border-color: rgba(248, 113, 113, 0.36);
 }
 
+.dark :where([class~="bg-rose-50"], [class~="bg-rose-100"]) {
+  background-color: rgba(244, 63, 94, 0.14);
+}
+
 .dark
-  :where([class~="bg-blue-50"], [class~="bg-blue-50/20"], [class~="bg-sky-50"]) {
+  :where(
+    [class~="text-rose-500"],
+    [class~="text-rose-600"],
+    [class~="text-rose-700"]
+  ) {
+  color: #fda4af;
+}
+
+.dark :where([class~="border-rose-200"], [class~="border-rose-300"]) {
+  border-color: rgba(251, 113, 133, 0.36);
+}
+
+.dark
+  :where(
+    [class~="bg-blue-50"],
+    [class~="bg-blue-50/20"],
+    [class~="bg-sky-50"]
+  ) {
   background-color: rgba(59, 130, 246, 0.14);
 }
 
@@ -227,15 +403,27 @@ body {
   border-color: rgba(147, 197, 253, 0.36);
 }
 
-.dark :where([class~="bg-indigo-50"], [class~="bg-violet-50"]) {
+.dark
+  :where(
+    [class~="bg-indigo-50"],
+    [class~="bg-indigo-50/30"],
+    [class~="bg-indigo-50/60"],
+    [class~="bg-violet-50"]
+  ) {
   background-color: rgba(129, 140, 248, 0.14);
+}
+
+.dark :where([class~="bg-indigo-100"]) {
+  background-color: rgba(129, 140, 248, 0.24);
 }
 
 .dark
   :where(
+    [class~="text-indigo-400"],
     [class~="text-indigo-500"],
     [class~="text-indigo-600"],
     [class~="text-indigo-700"],
+    [class~="text-indigo-800"],
     [class~="text-violet-500"]
   ) {
   color: #c4b5fd;
@@ -252,6 +440,8 @@ body {
 .dark
   :where(
     [class~="text-amber-500"],
+    [class~="text-amber-600"],
+    [class~="text-amber-700"],
     [class~="text-orange-500"],
     [class~="text-orange-600"],
     [class~="text-orange-700"]
@@ -356,7 +546,14 @@ body {
   color: var(--flowra-text-strong);
 }
 
-.dark :where(input[type="date"], input[type="datetime-local"], input[type="month"], input[type="time"], input[type="week"])::-webkit-calendar-picker-indicator {
+.dark
+  :where(
+    input[type="date"],
+    input[type="datetime-local"],
+    input[type="month"],
+    input[type="time"],
+    input[type="week"]
+  )::-webkit-calendar-picker-indicator {
   filter: invert(1) opacity(0.72);
 }
 
@@ -382,9 +579,9 @@ body {
   --schedule-text: #d0d0d0;
   --schedule-text-muted: #939393;
   --schedule-text-subtle: #696969;
-  --schedule-emerald-bg: rgba(50, 132, 97, 0.22);
-  --schedule-emerald-bg-strong: rgba(50, 132, 97, 0.32);
-  --schedule-emerald-text: #7ee7bf;
+  --schedule-violet-bg: rgba(124, 58, 237, 0.22);
+  --schedule-violet-bg-strong: rgba(124, 58, 237, 0.32);
+  --schedule-violet-text: #c4b5fd;
   --schedule-rose-bg: rgba(132, 54, 43, 0.36);
   --schedule-rose-bg-strong: rgba(132, 54, 43, 0.5);
   --schedule-rose-text: #f0a398;
@@ -398,12 +595,9 @@ body {
   background-color: var(--schedule-bg);
 }
 
-.dark [data-flowra-schedule-page]
-  :where(
-    [class~="bg-white"],
-    [class~="bg-white/90"],
-    [class~="bg-white/95"]
-  ) {
+.dark
+  [data-flowra-schedule-page]
+  :where([class~="bg-white"], [class~="bg-white/90"], [class~="bg-white/95"]) {
   background-color: var(--schedule-bg);
 }
 
@@ -425,15 +619,18 @@ body {
   background-color: var(--schedule-surface);
 }
 
-.dark [data-flowra-schedule-page]
+.dark
+  [data-flowra-schedule-page]
   :where(
     [class~="bg-slate-50"],
     [class~="bg-slate-50/70"],
     [class~="bg-slate-50/95"]
   ),
-.dark [data-flowra-schedule-controls]
+.dark
+  [data-flowra-schedule-controls]
   :where([class~="bg-slate-50"], [class~="bg-slate-50/70"]),
-.dark [data-flowra-schedule-sidebar]
+.dark
+  [data-flowra-schedule-sidebar]
   :where([class~="bg-slate-50"], [class~="bg-slate-100"]) {
   background-color: var(--schedule-surface-muted);
 }
@@ -444,7 +641,8 @@ body {
   background-color: var(--schedule-grid-soft);
 }
 
-.dark [data-flowra-schedule-page]
+.dark
+  [data-flowra-schedule-page]
   :where(
     [class~="border-slate-100"],
     [class~="border-slate-200"],
@@ -455,75 +653,102 @@ body {
     [class~="border-l"],
     [class~="border-r"]
   ),
-.dark [data-flowra-schedule-controls]
+.dark
+  [data-flowra-schedule-controls]
   :where([class~="border-slate-100"], [class~="border-slate-200"]),
-.dark [data-flowra-schedule-sidebar]
+.dark
+  [data-flowra-schedule-sidebar]
   :where([class~="border-slate-100"], [class~="border-slate-200"]) {
   border-color: var(--schedule-border);
 }
 
-.dark [data-flowra-schedule-page]
+.dark
+  [data-flowra-schedule-page]
   :where([class~="ring-slate-100"], [class~="ring-slate-200"]) {
   --tw-ring-color: var(--schedule-border-strong);
 }
 
-.dark [data-flowra-schedule-page]
+.dark
+  [data-flowra-schedule-page]
   :where([class~="text-slate-950"], [class~="text-slate-900"]),
-.dark [data-flowra-schedule-controls]
+.dark
+  [data-flowra-schedule-controls]
   :where([class~="text-slate-950"], [class~="text-slate-900"]),
-.dark [data-flowra-schedule-sidebar]
+.dark
+  [data-flowra-schedule-sidebar]
   :where([class~="text-slate-950"], [class~="text-slate-900"]) {
   color: var(--schedule-text-strong);
 }
 
-.dark [data-flowra-schedule-page]
+.dark
+  [data-flowra-schedule-page]
   :where([class~="text-slate-800"], [class~="text-slate-700"]),
-.dark [data-flowra-schedule-controls]
+.dark
+  [data-flowra-schedule-controls]
   :where([class~="text-slate-800"], [class~="text-slate-700"]),
-.dark [data-flowra-schedule-sidebar]
+.dark
+  [data-flowra-schedule-sidebar]
   :where([class~="text-slate-800"], [class~="text-slate-700"]) {
   color: var(--schedule-text);
 }
 
-.dark [data-flowra-schedule-page]
+.dark
+  [data-flowra-schedule-page]
   :where([class~="text-slate-600"], [class~="text-slate-500"]),
-.dark [data-flowra-schedule-controls]
+.dark
+  [data-flowra-schedule-controls]
   :where([class~="text-slate-600"], [class~="text-slate-500"]),
-.dark [data-flowra-schedule-sidebar]
+.dark
+  [data-flowra-schedule-sidebar]
   :where([class~="text-slate-600"], [class~="text-slate-500"]) {
   color: var(--schedule-text-muted);
 }
 
-.dark [data-flowra-schedule-page]
+.dark
+  [data-flowra-schedule-page]
   :where([class~="text-slate-400"], [class~="text-slate-300"]),
-.dark [data-flowra-schedule-controls]
+.dark
+  [data-flowra-schedule-controls]
   :where([class~="text-slate-400"], [class~="text-slate-300"]),
-.dark [data-flowra-schedule-sidebar]
+.dark
+  [data-flowra-schedule-sidebar]
   :where([class~="text-slate-400"], [class~="text-slate-300"]) {
   color: var(--schedule-text-subtle);
 }
 
-.dark [data-flowra-schedule-page]
+.dark
+  [data-flowra-schedule-page]
   :where(
-    [class~="bg-emerald-50"],
-    [class~="bg-emerald-50/20"],
-    [class~="bg-emerald-50/35"],
-    [class~="bg-emerald-50/40"],
-    [class~="bg-emerald-50/80"],
-    [class~="bg-emerald-50/95"]
+    [class~="bg-violet-50"],
+    [class~="bg-violet-50/20"],
+    [class~="bg-violet-50/35"],
+    [class~="bg-violet-50/40"],
+    [class~="bg-violet-50/80"],
+    [class~="bg-violet-50/95"]
   ),
-.dark [data-flowra-schedule-controls] :where([class~="bg-emerald-50"]) {
-  background-color: var(--schedule-emerald-bg);
+.dark [data-flowra-schedule-controls] :where([class~="bg-violet-50"]) {
+  background-color: var(--schedule-violet-bg);
 }
 
-.dark [data-flowra-schedule-page]
-  :where([class~="text-emerald-600"], [class~="text-emerald-700"], [class~="text-emerald-800"]),
-.dark [data-flowra-schedule-controls]
-  :where([class~="text-emerald-600"], [class~="text-emerald-700"], [class~="text-emerald-800"]) {
-  color: var(--schedule-emerald-text);
+.dark
+  [data-flowra-schedule-page]
+  :where(
+    [class~="text-violet-600"],
+    [class~="text-violet-700"],
+    [class~="text-violet-800"]
+  ),
+.dark
+  [data-flowra-schedule-controls]
+  :where(
+    [class~="text-violet-600"],
+    [class~="text-violet-700"],
+    [class~="text-violet-800"]
+  ) {
+  color: var(--schedule-violet-text);
 }
 
-.dark [data-flowra-schedule-page]
+.dark
+  [data-flowra-schedule-page]
   :where(
     [class~="bg-rose-50"],
     [class~="bg-rose-50/20"],
@@ -531,19 +756,32 @@ body {
     [class~="bg-rose-50/45"],
     [class~="bg-rose-50/90"]
   ),
-.dark [data-flowra-schedule-sidebar]
+.dark
+  [data-flowra-schedule-sidebar]
   :where([class~="bg-rose-50"], [class~="bg-rose-100"]) {
   background-color: var(--schedule-rose-bg);
 }
 
-.dark [data-flowra-schedule-page]
-  :where([class~="text-rose-500"], [class~="text-rose-600"], [class~="text-rose-700"], [class~="text-rose-800"]),
-.dark [data-flowra-schedule-sidebar]
-  :where([class~="text-rose-500"], [class~="text-rose-600"], [class~="text-rose-700"]) {
+.dark
+  [data-flowra-schedule-page]
+  :where(
+    [class~="text-rose-500"],
+    [class~="text-rose-600"],
+    [class~="text-rose-700"],
+    [class~="text-rose-800"]
+  ),
+.dark
+  [data-flowra-schedule-sidebar]
+  :where(
+    [class~="text-rose-500"],
+    [class~="text-rose-600"],
+    [class~="text-rose-700"]
+  ) {
   color: var(--schedule-rose-text);
 }
 
-.dark [data-flowra-schedule-page]
+.dark
+  [data-flowra-schedule-page]
   :where(
     [class~="bg-sky-50"],
     [class~="bg-sky-50/20"],
@@ -553,26 +791,39 @@ body {
   background-color: var(--schedule-sky-bg);
 }
 
-.dark [data-flowra-schedule-page]
-  :where([class~="text-sky-500"], [class~="text-sky-600"], [class~="text-sky-700"]),
-.dark [data-flowra-schedule-sidebar]
-  :where([class~="text-sky-500"], [class~="text-sky-600"], [class~="text-sky-700"]) {
+.dark
+  [data-flowra-schedule-page]
+  :where(
+    [class~="text-sky-500"],
+    [class~="text-sky-600"],
+    [class~="text-sky-700"]
+  ),
+.dark
+  [data-flowra-schedule-sidebar]
+  :where(
+    [class~="text-sky-500"],
+    [class~="text-sky-600"],
+    [class~="text-sky-700"]
+  ) {
   color: var(--schedule-sky-text);
 }
 
-.dark [data-flowra-schedule-page]
+.dark
+  [data-flowra-schedule-page]
   :where(
     [class~="hover:bg-white"]:hover,
     [class~="hover:bg-slate-50"]:hover,
     [class~="hover:bg-slate-100"]:hover
   ),
-.dark [data-flowra-schedule-controls]
+.dark
+  [data-flowra-schedule-controls]
   :where(
     [class~="hover:bg-white"]:hover,
     [class~="hover:bg-slate-50"]:hover,
     [class~="hover:bg-slate-100"]:hover
   ),
-.dark [data-flowra-schedule-sidebar]
+.dark
+  [data-flowra-schedule-sidebar]
   :where(
     [class~="hover:bg-white"]:hover,
     [class~="hover:bg-slate-50"]:hover,
@@ -581,26 +832,51 @@ body {
   background-color: var(--schedule-grid-soft);
 }
 
-.dark [data-flowra-schedule-page]
-  :where([class~="hover:bg-emerald-50"]:hover, [class~="hover:bg-emerald-50/20"]:hover),
-.dark [data-flowra-schedule-controls]
-  :where([class~="hover:bg-emerald-50"]:hover, [class~="hover:bg-emerald-100"]:hover) {
-  background-color: var(--schedule-emerald-bg-strong);
+.dark
+  [data-flowra-schedule-page]
+  :where(
+    [class~="hover:bg-violet-50"]:hover,
+    [class~="hover:bg-violet-50/20"]:hover
+  ),
+.dark
+  [data-flowra-schedule-controls]
+  :where(
+    [class~="hover:bg-violet-50"]:hover,
+    [class~="hover:bg-violet-100"]:hover
+  ) {
+  background-color: var(--schedule-violet-bg-strong);
 }
 
-.dark [data-flowra-schedule-page]
+.dark
+  [data-flowra-schedule-page]
   :where([class~="hover:bg-rose-50"]:hover, [class~="hover:bg-rose-100"]:hover),
-.dark [data-flowra-schedule-sidebar]
-  :where([class~="hover:bg-rose-50"]:hover, [class~="hover:bg-rose-100"]:hover) {
+.dark
+  [data-flowra-schedule-sidebar]
+  :where(
+    [class~="hover:bg-rose-50"]:hover,
+    [class~="hover:bg-rose-100"]:hover
+  ) {
   background-color: var(--schedule-rose-bg-strong);
 }
 
-.dark [data-flowra-schedule-page]
-  :where([class~="hover:text-slate-950"]:hover, [class~="hover:text-slate-900"]:hover),
-.dark [data-flowra-schedule-controls]
-  :where([class~="hover:text-slate-950"]:hover, [class~="hover:text-slate-900"]:hover),
-.dark [data-flowra-schedule-sidebar]
-  :where([class~="hover:text-slate-950"]:hover, [class~="hover:text-slate-900"]:hover) {
+.dark
+  [data-flowra-schedule-page]
+  :where(
+    [class~="hover:text-slate-950"]:hover,
+    [class~="hover:text-slate-900"]:hover
+  ),
+.dark
+  [data-flowra-schedule-controls]
+  :where(
+    [class~="hover:text-slate-950"]:hover,
+    [class~="hover:text-slate-900"]:hover
+  ),
+.dark
+  [data-flowra-schedule-sidebar]
+  :where(
+    [class~="hover:text-slate-950"]:hover,
+    [class~="hover:text-slate-900"]:hover
+  ) {
   color: var(--schedule-text-strong);
 }
 
@@ -609,8 +885,20 @@ body {
   color: var(--schedule-text-strong);
 }
 
-.dark [data-flowra-schedule-page] :where(input[class~="bg-white"], textarea[class~="bg-white"], select[class~="bg-white"]),
-.dark [data-flowra-schedule-page] :where(input[class~="bg-slate-50"], textarea[class~="bg-slate-50"], select[class~="bg-slate-50"]) {
+.dark
+  [data-flowra-schedule-page]
+  :where(
+    input[class~="bg-white"],
+    textarea[class~="bg-white"],
+    select[class~="bg-white"]
+  ),
+.dark
+  [data-flowra-schedule-page]
+  :where(
+    input[class~="bg-slate-50"],
+    textarea[class~="bg-slate-50"],
+    select[class~="bg-slate-50"]
+  ) {
   background-color: var(--schedule-surface-muted);
 }
 

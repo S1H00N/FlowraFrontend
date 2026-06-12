@@ -135,7 +135,7 @@ export default function ReminderControl({
                 type="datetime-local"
                 value={remindAt}
                 onChange={(e) => setRemindAt(e.target.value)}
-                className="mt-0.5 rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                className="mt-0.5 rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
               />
             </label>
             <label className="flex flex-col text-[11px] text-slate-600">
@@ -145,7 +145,7 @@ export default function ReminderControl({
                 onChange={(e) =>
                   setReminderType(e.target.value as ReminderType)
                 }
-                className="mt-0.5 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                className="mt-0.5 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
               >
                 {REMINDER_TYPES.map((t) => (
                   <option key={t} value={t}>
@@ -158,7 +158,7 @@ export default function ReminderControl({
               type="button"
               onClick={handleAdd}
               disabled={createMutation.isPending}
-              className="self-end rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+              className="self-end rounded-lg border border-violet-600 bg-violet-600 px-3 py-1 text-xs font-medium text-white hover:bg-violet-700 disabled:opacity-60"
             >
               {createMutation.isPending ? "추가 중..." : "알림 추가"}
             </button>

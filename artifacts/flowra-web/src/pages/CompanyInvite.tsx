@@ -9,10 +9,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import {
-  acceptCompanyInvite,
-  getCompanyInvite,
-} from "@/api/companyInvites";
+import { acceptCompanyInvite, getCompanyInvite } from "@/api/companyInvites";
 import { useAuth } from "@/contexts/AuthContext";
 import { getErrorMessage } from "@/lib/error";
 import { toast } from "@/lib/toast";
@@ -72,7 +69,7 @@ export default function CompanyInvite() {
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 py-10">
       <div className="w-full max-w-md">
         <Link to="/" className="mb-6 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-600 text-white shadow-sm">
             <Sparkles className="h-5 w-5" />
           </div>
           <div>
@@ -107,7 +104,7 @@ export default function CompanyInvite() {
             </div>
           ) : accepted ? (
             <div className="text-center">
-              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-lg bg-violet-50 text-violet-700">
                 <CheckCircle2 className="h-5 w-5" />
               </div>
               <h1 className="mt-4 text-xl font-semibold text-slate-950">
@@ -118,7 +115,7 @@ export default function CompanyInvite() {
               </p>
               <Link
                 to="/"
-                className="mt-6 inline-flex h-10 items-center justify-center rounded-lg bg-emerald-600 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
+                className="mt-6 inline-flex h-10 items-center justify-center rounded-lg bg-violet-600 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-violet-700"
               >
                 대시보드로 이동
               </Link>
@@ -126,7 +123,7 @@ export default function CompanyInvite() {
           ) : (
             <>
               <div className="flex items-start gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-700 ring-1 ring-violet-100">
                   <Building2 className="h-5 w-5" />
                 </div>
                 <div className="min-w-0">
@@ -153,7 +150,9 @@ export default function CompanyInvite() {
                   <div className="flex items-center gap-3">
                     <Building2 className="h-4 w-4 text-slate-400" />
                     <div className="min-w-0">
-                      <dt className="text-xs font-medium text-slate-500">부서</dt>
+                      <dt className="text-xs font-medium text-slate-500">
+                        부서
+                      </dt>
                       <dd className="truncate text-sm font-semibold text-slate-900">
                         {invite.department.name}
                       </dd>
@@ -163,7 +162,9 @@ export default function CompanyInvite() {
                 <div className="flex items-center gap-3">
                   <Mail className="h-4 w-4 text-slate-400" />
                   <div className="min-w-0">
-                    <dt className="text-xs font-medium text-slate-500">초대 이메일</dt>
+                    <dt className="text-xs font-medium text-slate-500">
+                      초대 이메일
+                    </dt>
                     <dd className="truncate text-sm font-semibold text-slate-900">
                       {invite.email}
                     </dd>
@@ -172,7 +173,9 @@ export default function CompanyInvite() {
                 <div className="flex items-center gap-3">
                   <CalendarClock className="h-4 w-4 text-slate-400" />
                   <div className="min-w-0">
-                    <dt className="text-xs font-medium text-slate-500">만료 시각</dt>
+                    <dt className="text-xs font-medium text-slate-500">
+                      만료 시각
+                    </dt>
                     <dd className="truncate text-sm font-semibold text-slate-900">
                       {formatInviteDate(invite.expires_at)}
                     </dd>
@@ -184,11 +187,14 @@ export default function CompanyInvite() {
                 type="button"
                 onClick={handleAccept}
                 disabled={acceptMutation.isPending}
-                className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60"
+                className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-violet-600 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60"
               >
                 {acceptMutation.isPending ? (
                   <>
-                    <Spinner size="sm" className="border-white/40 border-t-white" />
+                    <Spinner
+                      size="sm"
+                      className="border-white/40 border-t-white"
+                    />
                     수락 중...
                   </>
                 ) : isAuthenticated ? (

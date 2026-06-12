@@ -16,7 +16,7 @@ export default function NotFound() {
         </p>
         <Link
           to="/"
-          className="mt-6 inline-flex items-center justify-center rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
+          className="mt-6 inline-flex items-center justify-center rounded-lg bg-violet-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-violet-700"
         >
           홈으로 돌아가기
         </Link>

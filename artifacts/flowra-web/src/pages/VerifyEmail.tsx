@@ -42,9 +42,9 @@ export default function VerifyEmail() {
 
   const icon =
     state === "checking" ? (
-      <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
+      <Loader2 className="h-6 w-6 animate-spin text-violet-600" />
     ) : state === "success" ? (
-      <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+      <CheckCircle2 className="h-6 w-6 text-violet-600" />
     ) : (
       <XCircle className="h-6 w-6 text-red-600" />
     );
@@ -63,7 +63,7 @@ export default function VerifyEmail() {
           <div className="mt-6 flex flex-col gap-2">
             <Link
               to="/signup"
-              className="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700"
+              className="rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-700"
             >
               회원가입으로 이동
             </Link>

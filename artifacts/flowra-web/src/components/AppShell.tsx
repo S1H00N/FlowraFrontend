@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import {
   Bell,
   CalendarDays,
@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import {
   useEffect,
-  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -49,19 +48,19 @@ import type { NotificationRecipient } from "@/types";
 const navigation = [
   {
     to: "/",
-    label: "대시보드",
+    label: "홈",
     description: "오늘 해야 할 일을 한눈에 봅니다.",
     icon: LayoutDashboard,
   },
   {
     to: "/tasks",
-    label: "할 일",
+    label: "할일",
     description: "작업의 우선순위와 상태를 관리합니다.",
     icon: CheckSquare2,
   },
   {
     to: "/schedules",
-    label: "일정",
+    label: "캘린더",
     description: "시간표와 약속을 정리합니다.",
     icon: CalendarDays,
   },
@@ -81,7 +80,7 @@ const settingsNavigationItem = {
 };
 
 const sidebarToggleButtonClass =
-  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-transparent text-slate-500 shadow-none transition hover:bg-slate-100 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300";
+  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-transparent text-slate-500 shadow-none transition hover:bg-slate-100 hover:text-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300";
 
 export const SIDEBAR_COLLAPSED_STORAGE_KEY = "flowra-sidebar-collapsed";
 
@@ -95,7 +94,6 @@ function ProfileMenu({
   compact,
   onOpenSettings,
   onLogout,
-  onOpenChange,
 }: {
   variant: "icon" | "card";
   displayName: string;
@@ -106,12 +104,11 @@ function ProfileMenu({
   compact?: boolean;
   onOpenSettings: () => void;
   onLogout: () => void;
-  onOpenChange?: (open: boolean) => void;
 }) {
   const isCard = variant === "card";
 
   return (
-    <DropdownMenu onOpenChange={onOpenChange}>
+    <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
@@ -119,8 +116,8 @@ function ProfileMenu({
           title="프로필 메뉴"
           className={
             isCard
-              ? "flex w-full min-w-0 items-center gap-3 rounded-lg bg-slate-50 px-3 py-2.5 text-left transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
-              : `inline-flex shrink-0 items-center justify-center rounded-lg bg-transparent transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 ${
+              ? "flex w-full min-w-0 items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5 text-left transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
+              : `inline-flex shrink-0 items-center justify-center rounded-lg bg-transparent transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 ${
                   compact ? "h-9 w-9" : "h-10 w-10"
                 }`
           }
@@ -133,7 +130,7 @@ function ProfileMenu({
             {profileImageUrl && (
               <AvatarImage src={profileImageUrl} alt={displayName} />
             )}
-            <AvatarFallback className="rounded-lg bg-emerald-500 text-sm font-semibold text-white">
+            <AvatarFallback className="rounded-lg bg-violet-500 text-sm font-semibold text-white">
               {initials}
             </AvatarFallback>
           </Avatar>
@@ -161,7 +158,7 @@ function ProfileMenu({
           onSelect={() => {
             onOpenSettings();
           }}
-          className="h-10 cursor-pointer gap-2.5 rounded-lg px-3 text-sm font-medium text-slate-700 focus:bg-emerald-50 focus:text-emerald-700"
+          className="h-10 cursor-pointer gap-2.5 rounded-lg px-3 text-sm font-medium text-slate-700 focus:bg-violet-50 focus:text-violet-700"
         >
           <Settings className="h-4 w-4 text-slate-500" />
           설정
@@ -219,7 +216,7 @@ function NotificationCenter() {
           type="button"
           aria-label="알림"
           title="알림"
-          className="relative inline-flex h-9 w-9 items-center justify-center rounded-lg bg-transparent text-slate-500 transition hover:bg-slate-100 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+          className="relative inline-flex h-8 w-8 items-center justify-center rounded-lg bg-transparent text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
         >
           <Bell className="h-4 w-4" />
           {unreadCount > 0 && (
@@ -284,7 +281,7 @@ function NotificationCenter() {
                     >
                       <span
                         className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
-                          unread ? "bg-emerald-500" : "bg-slate-200"
+                          unread ? "bg-violet-500" : "bg-slate-200"
                         }`}
                         aria-hidden
                       />
@@ -316,23 +313,25 @@ function NotificationCenter() {
 export default function AppShell({
   children,
   fullBleed = false,
+  wide = false,
   sidebarExtra,
   titleMeta,
+  greeting,
   headerActions,
   aiChatButtonOffset,
   headerRightOffset,
   onSidebarCollapsedChange,
-  onSidebarPreviewChange,
 }: {
   children: ReactNode;
   fullBleed?: boolean;
+  wide?: boolean;
   sidebarExtra?: ReactNode;
   titleMeta?: ReactNode;
+  greeting?: ReactNode;
   headerActions?: ReactNode;
   aiChatButtonOffset?: string;
   headerRightOffset?: string;
   onSidebarCollapsedChange?: (collapsed: boolean) => void;
-  onSidebarPreviewChange?: (open: boolean) => void;
 }) {
   const { user: cachedUser, logout } = useAuth();
   const meQuery = useMe();
@@ -340,11 +339,7 @@ export default function AppShell({
   const location = useLocation();
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarPreviewOpen, setSidebarPreviewOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
-  const sidebarPreviewCloseTimeoutRef = useRef<number | null>(null);
-  const isHoveringSidebarRef = useRef(false);
-  const isProfileMenuOpenRef = useRef(false);
   const [isDesktop, setIsDesktop] = useState(() => {
     if (typeof window === "undefined") return false;
 
@@ -382,9 +377,7 @@ export default function AppShell({
     : sidebarOpen
       ? "사이드바 닫기"
       : "사이드바 열기";
-  const showSidebarPreview = sidebarCollapsed && sidebarPreviewOpen;
-  const showSidebarIconRail =
-    isDesktop && sidebarCollapsed && !showSidebarPreview;
+  const showSidebarIconRail = isDesktop && sidebarCollapsed;
   const headerRightOffsetStyle = {
     "--flowra-header-right-offset": headerRightOffset ?? "0px",
   } as CSSProperties;
@@ -399,10 +392,6 @@ export default function AppShell({
     );
     onSidebarCollapsedChange?.(sidebarCollapsed);
   }, [onSidebarCollapsedChange, sidebarCollapsed]);
-
-  useEffect(() => {
-    onSidebarPreviewChange?.(showSidebarPreview);
-  }, [onSidebarPreviewChange, showSidebarPreview]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(min-width: 600px)");
@@ -424,45 +413,6 @@ export default function AppShell({
     }
   };
 
-  const clearSidebarPreviewClose = () => {
-    if (sidebarPreviewCloseTimeoutRef.current === null) return;
-    window.clearTimeout(sidebarPreviewCloseTimeoutRef.current);
-    sidebarPreviewCloseTimeoutRef.current = null;
-  };
-
-  const openSidebarPreview = () => {
-    if (!sidebarCollapsed) return;
-    isHoveringSidebarRef.current = true;
-    clearSidebarPreviewClose();
-    setSidebarPreviewOpen(true);
-  };
-
-  const scheduleSidebarPreviewClose = () => {
-    if (!sidebarCollapsed) return;
-    isHoveringSidebarRef.current = false;
-    if (isProfileMenuOpenRef.current) return; // 프로필 메뉴가 열려있으면 닫지 않음
-
-    clearSidebarPreviewClose();
-    sidebarPreviewCloseTimeoutRef.current = window.setTimeout(() => {
-      setSidebarPreviewOpen(false);
-      sidebarPreviewCloseTimeoutRef.current = null;
-    }, 420);
-  };
-
-  const handleProfileMenuOpenChange = (open: boolean) => {
-    isProfileMenuOpenRef.current = open;
-    if (!open && !isHoveringSidebarRef.current) {
-      scheduleSidebarPreviewClose(); // 메뉴가 닫혔을 때 호버 상태가 아니라면 사이드바도 닫음
-    }
-  };
-
-  useEffect(
-    () => () => {
-      clearSidebarPreviewClose();
-    },
-    [],
-  );
-
   useEffect(() => {
     setSettingsDialogOpen(false);
   }, [location.pathname]);
@@ -474,8 +424,6 @@ export default function AppShell({
   const handleHeaderSidebarToggle = () => {
     if (isDesktop) {
       setSidebarCollapsed((collapsed) => !collapsed);
-      clearSidebarPreviewClose();
-      setSidebarPreviewOpen(false);
       return;
     }
 
@@ -483,7 +431,7 @@ export default function AppShell({
   };
 
   return (
-    <div className="min-h-screen bg-[#f7f8f5] text-slate-900">
+    <div className="flowra-app-shell min-h-screen">
       {sidebarOpen && (
         <button
           type="button"
@@ -495,26 +443,28 @@ export default function AppShell({
 
       <aside
         className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-slate-200/80 bg-white/95 shadow-xl backdrop-blur transition-[transform,width,border-color] duration-200 ease-out ${
-          showSidebarPreview
-            ? "min-[600px]:w-64 min-[600px]:translate-x-0 min-[600px]:shadow-2xl"
-            : sidebarCollapsed
-              ? "min-[600px]:w-16 min-[600px]:translate-x-0 min-[600px]:shadow-none"
-              : "min-[600px]:w-64 min-[600px]:translate-x-0 min-[600px]:shadow-none"
-        } ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-        onMouseEnter={openSidebarPreview}
-        onMouseLeave={scheduleSidebarPreviewClose}
+          sidebarCollapsed
+            ? "min-[600px]:w-16 min-[600px]:translate-x-0 min-[600px]:shadow-none"
+            : "min-[600px]:w-64 min-[600px]:translate-x-0 min-[600px]:shadow-none"
+        } ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
       >
         <div
-          className={`flex h-16 items-center gap-3 border-b border-slate-200 transition-all ${
+          className={`flex h-16 items-center border-b border-slate-200 transition-all ${
             showSidebarIconRail
               ? "px-4 min-[600px]:justify-center min-[600px]:px-0"
-              : fullBleed
-                ? "px-4 sm:px-5 lg:px-6"
-                : "px-4 sm:px-6 lg:px-8"
+              : "justify-between gap-3 px-4 sm:px-6 lg:px-8"
           }`}
         >
+          {!showSidebarIconRail && (
+            <Link to="/" className="flex min-w-0 items-center gap-2">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 text-xs font-bold text-white">
+                T
+              </span>
+              <span className="truncate text-sm font-bold text-slate-700">
+                TodoAI
+              </span>
+            </Link>
+          )}
           <button
             type="button"
             aria-label={headerSidebarLabel}
@@ -523,7 +473,6 @@ export default function AppShell({
             onClick={() => {
               if (isDesktop) {
                 setSidebarCollapsed((collapsed) => !collapsed);
-                setSidebarPreviewOpen(false);
                 return;
               }
 
@@ -560,14 +509,14 @@ export default function AppShell({
                 aria-label={item.label}
                 title={item.label}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
+                  `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
                     showSidebarIconRail
                       ? "min-[600px]:h-10 min-[600px]:justify-center min-[600px]:gap-0 min-[600px]:px-0"
                       : ""
                   } ${
                     isActive
-                      ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100"
-                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
+                      ? "bg-violet-50 text-violet-700"
+                      : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
                   }`
                 }
               >
@@ -586,7 +535,9 @@ export default function AppShell({
 
         <div
           className={`border-t border-slate-100 p-3 transition-all ${
-            showSidebarIconRail ? "min-[600px]:flex min-[600px]:justify-center" : ""
+            showSidebarIconRail
+              ? "min-[600px]:flex min-[600px]:justify-center"
+              : ""
           }`}
         >
           <ProfileMenu
@@ -598,7 +549,6 @@ export default function AppShell({
             initials={initials}
             onOpenSettings={openSettingsDialog}
             onLogout={handleLogout}
-            onOpenChange={handleProfileMenuOpenChange}
           />
         </div>
       </aside>
@@ -615,7 +565,7 @@ export default function AppShell({
         }
       >
         <header
-          className={`sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur ${
+          className={`sticky top-0 z-30 border-b border-slate-200/80 bg-slate-50/90 backdrop-blur ${
             fullBleed ? "h-12 min-[600px]:h-16" : "h-14 min-[600px]:h-16"
           }`}
         >
@@ -626,25 +576,21 @@ export default function AppShell({
                 : "px-4 py-2 sm:px-6 lg:px-8"
             }`}
           >
-            <div
-              className="relative z-10 flex min-w-0 flex-1 items-center gap-3 overflow-hidden"
-            >
+            <div className="relative z-10 flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
               {(!splitSummaryHeader || !isDesktop || sidebarCollapsed) &&
                 !(isDesktop && sidebarCollapsed) && (
-                <button
-                  type="button"
-                  aria-label={headerSidebarLabel}
-                  title={headerSidebarLabel}
-                  className={`${sidebarToggleButtonClass} ${
-                    sidebarCollapsed ? "" : "min-[600px]:hidden"
-                  }`}
-                  onMouseEnter={openSidebarPreview}
-                  onMouseLeave={scheduleSidebarPreviewClose}
-                  onClick={handleHeaderSidebarToggle}
-                >
-                  <PanelLeft className="h-4 w-4" />
-                </button>
-              )}
+                  <button
+                    type="button"
+                    aria-label={headerSidebarLabel}
+                    title={headerSidebarLabel}
+                    className={`${sidebarToggleButtonClass} ${
+                      sidebarCollapsed ? "" : "min-[600px]:hidden"
+                    }`}
+                    onClick={handleHeaderSidebarToggle}
+                  >
+                    <PanelLeft className="h-4 w-4" />
+                  </button>
+                )}
               {splitSummaryHeader ? (
                 <div className="min-w-0 max-w-full overflow-hidden">
                   {summaryParts ? (
@@ -661,6 +607,10 @@ export default function AppShell({
                       {titleMeta}
                     </span>
                   )}
+                </div>
+              ) : greeting ? (
+                <div className="min-w-0 max-w-full overflow-hidden">
+                  {greeting}
                 </div>
               ) : (
                 <div className="min-w-0 max-w-full overflow-hidden">
@@ -715,14 +665,16 @@ export default function AppShell({
           className={
             fullBleed
               ? "h-[calc(100dvh-7rem)] w-full overflow-hidden min-[600px]:h-[calc(100dvh-4rem)]"
-              : "mx-auto w-full max-w-7xl px-4 py-5 pb-24 min-[600px]:pb-6 sm:px-6 lg:px-8 lg:py-6"
+              : wide
+                ? "w-full px-4 py-5 pb-24 min-[600px]:pb-6 sm:px-6 lg:px-8 lg:py-6"
+                : "mx-auto w-full max-w-7xl px-4 py-5 pb-24 min-[600px]:pb-6 sm:px-6 lg:px-8 lg:py-6"
           }
         >
           {children}
         </main>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-slate-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] pt-1 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur min-[600px]:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-slate-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] pt-1 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur min-[600px]:hidden">
         {navigation.map((item) => {
           const Icon = item.icon;
           return (
@@ -732,7 +684,7 @@ export default function AppShell({
               end={item.to === "/"}
               className={({ isActive }) =>
                 `flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg text-[11px] font-medium ${
-                  isActive ? "text-emerald-700" : "text-slate-500"
+                  isActive ? "text-violet-700" : "text-slate-500"
                 }`
               }
             >

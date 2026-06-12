@@ -88,7 +88,7 @@ type MemoWorkspaceMode = "read" | "create";
 const MEMO_AI_PANEL_WIDTH = "380px";
 
 const parseStatusBadge: Record<ParseStatus, string> = {
-  pending: "bg-gray-100 text-gray-500",
+  pending: "bg-slate-100 text-slate-500",
   processing: "bg-sky-100 text-sky-700",
   completed: "bg-violet-100 text-violet-700",
   failed: "bg-red-50 text-red-600",
@@ -104,7 +104,7 @@ const detectedTypeLabels: Record<DetectedType, string> = {
 const priorityDot: Record<string, string> = {
   high: "bg-red-500",
   medium: "bg-amber-400",
-  low: "bg-gray-300",
+  low: "bg-slate-300",
 };
 
 type AppliedResourceRef = {
@@ -464,7 +464,7 @@ function MemoListPanel({
   return (
     <aside
       className={cn(
-        "relative z-10 flex shrink-0 flex-col overflow-visible border-r border-gray-100 bg-white transition-[width,border-color] duration-200",
+        "relative z-10 flex shrink-0 flex-col overflow-visible border-r border-slate-100 bg-white transition-[width,border-color] duration-200",
         leftOpen ? "w-[208px]" : "w-0 border-transparent",
       )}
     >
@@ -477,7 +477,7 @@ function MemoListPanel({
         className={cn(
           "absolute top-1/2 z-30 flex -translate-y-1/2 items-center justify-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200",
           leftOpen
-            ? "-right-1.5 h-6 w-3 rounded-full bg-gray-200 text-gray-400 hover:bg-gray-300 hover:text-gray-600"
+            ? "-right-1.5 h-6 w-3 rounded-full bg-slate-200 text-slate-400 hover:bg-slate-300 hover:text-slate-600"
             : "left-0 h-11 w-5 rounded-r-lg bg-violet-600 text-white shadow-lg shadow-violet-500/25 hover:bg-violet-700",
         )}
         aria-label={leftOpen ? "메모 목록 접기" : "메모 목록 열기"}
@@ -492,14 +492,14 @@ function MemoListPanel({
 
       {leftOpen && (
         <>
-          <div className="flex h-10 items-center gap-2 border-b border-gray-100 px-3">
-            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-800">
+          <div className="flex h-10 items-center gap-2 border-b border-slate-100 px-3">
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">
               메모
             </span>
             <button
               type="button"
               onClick={onCreate}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-700"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-700"
               aria-label="새 메모"
               title="새 메모"
             >
@@ -508,14 +508,14 @@ function MemoListPanel({
           </div>
 
           <div className="px-3 py-2.5">
-            <label className="flex h-[30px] items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5">
-              <Search className="h-3 w-3 shrink-0 text-gray-400" />
+            <label className="flex h-[30px] items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5">
+              <Search className="h-3 w-3 shrink-0 text-slate-400" />
               <input
                 value={search}
                 onChange={(event) => onSearchChange(event.target.value)}
                 placeholder="검색..."
                 aria-label="메모 검색"
-                className="min-w-0 flex-1 bg-transparent text-xs text-gray-700 outline-none placeholder:text-gray-400"
+                className="min-w-0 flex-1 bg-transparent text-xs text-slate-700 outline-none placeholder:text-slate-400"
               />
             </label>
           </div>
@@ -536,10 +536,10 @@ function MemoListPanel({
               </div>
             ) : items.length === 0 ? (
               <div className="px-2 py-8 text-center">
-                <p className="text-sm font-semibold text-gray-500">
+                <p className="text-sm font-semibold text-slate-500">
                   표시할 메모가 없습니다
                 </p>
-                <p className="mt-1 text-xs leading-5 text-gray-400">
+                <p className="mt-1 text-xs leading-5 text-slate-400">
                   새 메모를 만들거나 검색어를 바꿔보세요.
                 </p>
               </div>
@@ -559,18 +559,18 @@ function MemoListPanel({
                           "block w-full rounded-md px-2.5 py-2 pr-7 text-left transition-colors",
                           selected
                             ? "bg-violet-50 text-violet-700"
-                            : "text-gray-700 hover:bg-gray-100",
+                            : "text-slate-700 hover:bg-slate-100",
                         )}
                       >
                         <span
                           className={cn(
                             "block min-w-0 truncate text-xs font-semibold",
-                            selected ? "text-violet-700" : "text-gray-700",
+                            selected ? "text-violet-700" : "text-slate-700",
                           )}
                         >
                           {getMemoTitle(memo)}
                         </span>
-                        <span className="mt-1 block truncate text-[11px] font-medium text-gray-400">
+                        <span className="mt-1 block truncate text-[11px] font-medium text-slate-400">
                           {formatCompactDateTime(
                             memo.updated_at ?? memo.created_at,
                           )}
@@ -583,7 +583,7 @@ function MemoListPanel({
                           event.stopPropagation();
                           onRequestDelete(memo.memo_id);
                         }}
-                        className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded text-gray-300 opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
+                        className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded text-slate-300 opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
                         aria-label="메모 삭제"
                         title="메모 삭제"
                       >
@@ -596,7 +596,7 @@ function MemoListPanel({
                           style={{ top: "calc(100% + 2px)" }}
                           onClick={(event) => event.stopPropagation()}
                         >
-                          <p className="mb-2 flex items-center gap-1 text-[11px] font-medium text-gray-700">
+                          <p className="mb-2 flex items-center gap-1 text-[11px] font-medium text-slate-700">
                             <AlertTriangle className="h-3 w-3 shrink-0 text-red-500" />
                             메모를 삭제할까요?
                           </p>
@@ -611,7 +611,7 @@ function MemoListPanel({
                             <button
                               type="button"
                               onClick={onCancelDelete}
-                              className="flex-1 rounded-md bg-gray-100 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:bg-gray-200"
+                              className="flex-1 rounded-md bg-slate-100 py-1 text-[11px] font-medium text-slate-700 transition-colors hover:bg-slate-200"
                             >
                               취소
                             </button>
@@ -691,7 +691,7 @@ function MemoCreatePanel({
           <button
             type="button"
             onClick={onCancel}
-            className="h-8 rounded-lg px-2.5 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+            className="h-8 rounded-lg px-2.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
           >
             취소
           </button>
@@ -710,10 +710,10 @@ function MemoCreatePanel({
         <div
           className={cn(
             "mx-auto flex min-h-[410px] w-full max-w-[920px] flex-col overflow-hidden rounded-2xl border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05),0_14px_36px_rgba(15,23,42,0.04)] sm:min-h-[442px]",
-            errors.raw_text ? "border-red-200" : "border-gray-200",
+            errors.raw_text ? "border-red-200" : "border-slate-200",
           )}
         >
-          <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-2.5 sm:px-5">
+          <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-2.5 sm:px-5">
             <label className="relative inline-flex">
               <select
                 {...register("memo_type")}
@@ -739,7 +739,7 @@ function MemoCreatePanel({
                   type="memo"
                   value={field.value as number | "" | undefined}
                   onChange={field.onChange}
-                  className="h-7 min-w-[108px] max-w-[150px] rounded-lg border-gray-200 px-2.5 py-1 text-[11px] shadow-none"
+                  className="h-7 min-w-[108px] max-w-[150px] rounded-lg border-slate-200 px-2.5 py-1 text-[11px] shadow-none"
                 />
               )}
             />
@@ -769,16 +769,16 @@ function MemoCreatePanel({
             placeholder="메모를 입력하세요..."
             {...register("raw_text")}
             aria-invalid={!!errors.raw_text}
-            className="scrollbar-none min-h-[310px] flex-1 resize-none border-0 bg-white px-5 py-5 text-[15px] leading-[1.85] text-gray-700 outline-none placeholder:text-gray-300 focus:ring-0"
+            className="scrollbar-none min-h-[310px] flex-1 resize-none border-0 bg-white px-5 py-5 text-[15px] leading-[1.85] text-slate-700 outline-none placeholder:text-slate-300 focus:ring-0"
           />
 
-          <div className="flex h-9 shrink-0 items-center gap-1 border-t border-gray-100 px-4 text-gray-300 sm:px-5">
+          <div className="flex h-9 shrink-0 items-center gap-1 border-t border-slate-100 px-4 text-slate-300 sm:px-5">
             <button
               type="button"
               disabled
               aria-label="표 삽입"
               title="표 삽입"
-              className="flex h-6 w-6 items-center justify-center rounded-md text-gray-300 disabled:cursor-not-allowed disabled:opacity-80"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-slate-300 disabled:cursor-not-allowed disabled:opacity-80"
             >
               <Table2 className="h-3.5 w-3.5" />
             </button>
@@ -787,11 +787,11 @@ function MemoCreatePanel({
               disabled
               aria-label="파일 첨부"
               title="파일 첨부"
-              className="flex h-6 w-6 items-center justify-center rounded-md text-gray-300 disabled:cursor-not-allowed disabled:opacity-80"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-slate-300 disabled:cursor-not-allowed disabled:opacity-80"
             >
               <Paperclip className="h-3.5 w-3.5" />
             </button>
-            <span className="ml-auto text-[11px] font-medium text-gray-300">
+            <span className="ml-auto text-[11px] font-medium text-slate-300">
               {rawText.length}자
             </span>
           </div>
@@ -801,7 +801,7 @@ function MemoCreatePanel({
             {errors.raw_text.message}
           </p>
         )}
-        <p className="mx-auto mt-2 w-full max-w-[920px] text-[11px] font-medium text-gray-400">
+        <p className="mx-auto mt-2 w-full max-w-[920px] text-[11px] font-medium text-slate-400">
           ✦ 저장 후 AI가 메모를 분석하고 태그를 추천합니다
         </p>
       </div>
@@ -895,16 +895,16 @@ function MemoReaderPanel({
 
   return (
     <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-gray-100 px-6">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-slate-100 px-6">
         <div className="flex min-w-0 items-center gap-2">
           <ParseStatusPill status={status} />
-          <span className="truncate text-xs text-gray-400">
+          <span className="truncate text-xs text-slate-400">
             {formatCompactDateTime(memo.updated_at ?? memo.created_at)}
           </span>
           {category && (
             <>
-              <span className="h-1 w-1 rounded-full bg-gray-300" />
-              <span className="truncate text-xs text-gray-400">
+              <span className="h-1 w-1 rounded-full bg-slate-300" />
+              <span className="truncate text-xs text-slate-400">
                 {category.name}
               </span>
             </>
@@ -916,7 +916,7 @@ function MemoReaderPanel({
             <button
               type="button"
               onClick={() => setIsEditing(true)}
-              className="flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800"
+              className="flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
             >
               <Pencil className="h-3.5 w-3.5" />
               편집
@@ -927,7 +927,7 @@ function MemoReaderPanel({
                 type="button"
                 onClick={() => void handleSave()}
                 disabled={updateMutation.isPending}
-                className="h-7 rounded-lg bg-gray-900 px-3 text-xs font-medium text-white transition-colors hover:bg-gray-700 disabled:opacity-60"
+                className="h-7 rounded-lg bg-slate-900 px-3 text-xs font-medium text-white transition-colors hover:bg-slate-700 disabled:opacity-60"
               >
                 {updateMutation.isPending ? "저장 중..." : "저장"}
               </button>
@@ -939,7 +939,7 @@ function MemoReaderPanel({
                   setMemoType(memo.memo_type);
                   setCategoryId(memo.category_id ?? "");
                 }}
-                className="h-7 rounded-lg px-2.5 text-xs text-gray-500 transition-colors hover:bg-gray-100"
+                className="h-7 rounded-lg px-2.5 text-xs text-slate-500 transition-colors hover:bg-slate-100"
               >
                 취소
               </button>
@@ -950,7 +950,7 @@ function MemoReaderPanel({
             type="button"
             onClick={handleDelete}
             disabled={deleteMutation.isPending}
-            className="flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs text-gray-500 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-60"
+            className="flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs text-slate-500 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-60"
             aria-label="메모 삭제"
             title="메모 삭제"
           >
@@ -982,13 +982,13 @@ function MemoReaderPanel({
         onSubmit={handleSave}
         className="scrollbar-none min-h-0 flex-1 overflow-y-auto px-10 py-8"
       >
-        <h1 className="mb-6 text-2xl font-bold leading-snug text-gray-900">
+        <h1 className="mb-6 text-2xl font-bold leading-snug text-slate-900">
           {getMemoTitle(memo, latestResult)}
         </h1>
 
         {isEditing ? (
-          <div className="flex min-h-[420px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-            <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-2.5">
+          <div className="flex min-h-[420px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-2.5">
               <label className="relative inline-flex">
                 <select
                   value={memoType}
@@ -1012,20 +1012,20 @@ function MemoReaderPanel({
                 type="memo"
                 value={categoryId}
                 onChange={setCategoryId}
-                className="h-7 min-w-[108px] max-w-[150px] rounded-lg border-gray-200 px-2.5 py-1 text-[11px] shadow-none"
+                className="h-7 min-w-[108px] max-w-[150px] rounded-lg border-slate-200 px-2.5 py-1 text-[11px] shadow-none"
               />
             </div>
             <textarea
               ref={textareaRef}
               value={text}
               onChange={(event) => setText(event.target.value)}
-              className="scrollbar-none min-h-[320px] flex-1 resize-none border-0 bg-white px-5 py-5 text-[15px] leading-[1.85] text-gray-700 outline-none placeholder:text-gray-300 focus:ring-0"
+              className="scrollbar-none min-h-[320px] flex-1 resize-none border-0 bg-white px-5 py-5 text-[15px] leading-[1.85] text-slate-700 outline-none placeholder:text-slate-300 focus:ring-0"
               placeholder="메모를 입력하세요..."
             />
           </div>
         ) : (
           <div
-            className="max-w-none cursor-text whitespace-pre-wrap text-[15px] leading-[1.85] text-gray-700"
+            className="max-w-none cursor-text whitespace-pre-wrap text-[15px] leading-[1.85] text-slate-700"
             onDoubleClick={() => setIsEditing(true)}
             title="더블클릭하여 편집"
           >
@@ -1047,17 +1047,17 @@ function EmptyMemoPanel({ onCreate }: { onCreate: () => void }) {
           <FileText className="h-5 w-5" />
         </div>
         <div>
-          <p className="text-sm font-semibold text-gray-900">
+          <p className="text-sm font-semibold text-slate-900">
             아직 메모가 없습니다
           </p>
-          <p className="mt-1 text-xs leading-6 text-gray-500">
+          <p className="mt-1 text-xs leading-6 text-slate-500">
             새 메모를 남기면 AI가 일정과 할 일을 추출합니다.
           </p>
         </div>
         <button
           type="button"
           onClick={onCreate}
-          className="flex h-8 items-center gap-1 rounded-lg bg-gray-900 px-3 text-xs font-medium text-white transition-colors hover:bg-gray-700"
+          className="flex h-8 items-center gap-1 rounded-lg bg-slate-900 px-3 text-xs font-medium text-white transition-colors hover:bg-slate-700"
         >
           <Plus className="h-3.5 w-3.5" />
           새 메모
@@ -1069,7 +1069,7 @@ function EmptyMemoPanel({ onCreate }: { onCreate: () => void }) {
 
 function PendingPanel() {
   return (
-    <div className="rounded-xl border border-dashed border-gray-200 bg-white px-3 py-4 text-center text-xs text-gray-400">
+    <div className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-4 text-center text-xs text-slate-400">
       AI 분석 대기열에 들어갔습니다.
     </div>
   );
@@ -1597,7 +1597,7 @@ function AiResultContent({
     return (
       <>
         {meta.length > 0 && (
-          <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
+          <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
             {meta.map((item) => (
               <span key={String(item)} className="flex items-center gap-0.5">
                 {String(item).includes("마감") ? (
@@ -1648,7 +1648,7 @@ function AiResultContent({
         "flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors",
         addedLink
           ? "text-indigo-400 hover:bg-indigo-50 hover:text-indigo-600"
-          : "cursor-not-allowed text-gray-200",
+          : "cursor-not-allowed text-slate-200",
       );
 
       return (
@@ -1706,7 +1706,7 @@ function AiResultContent({
           addedLabel
             ? "h-6 gap-1 px-2 text-[11px] font-medium"
             : "h-6 w-6",
-          "text-gray-300 hover:bg-indigo-50 hover:text-indigo-500",
+          "text-slate-300 hover:bg-indigo-50 hover:text-indigo-500",
           !canApply && "cursor-not-allowed opacity-40",
         )}
       >
@@ -1719,8 +1719,8 @@ function AiResultContent({
   return (
     <div className="space-y-2">
       {visibleEntries.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 py-10 text-gray-400">
-          <Sparkles className="h-6 w-6 text-gray-300" />
+        <div className="flex flex-col items-center gap-2 py-10 text-slate-400">
+          <Sparkles className="h-6 w-6 text-slate-300" />
           <p className="text-center text-xs">
             추출된 일정과 할 일이 없습니다.
           </p>
@@ -1758,11 +1758,11 @@ function AiResultContent({
             return (
               <div
                 key={`${action.type}-${index}`}
-                className="group/card overflow-hidden rounded-xl border border-gray-200 bg-white"
+                className="group/card overflow-hidden rounded-xl border border-slate-200 bg-white"
               >
                 <div
                   className={cn(
-                    "border-b border-gray-100 px-3 py-2.5",
+                    "border-b border-slate-100 px-3 py-2.5",
                     scheduleAdded ? "bg-indigo-50/60" : "bg-white",
                   )}
                 >
@@ -1770,7 +1770,7 @@ function AiResultContent({
                     <Calendar
                       className={cn(
                         "mt-0.5 h-3.5 w-3.5 shrink-0",
-                        scheduleAdded ? "text-indigo-500" : "text-gray-400",
+                        scheduleAdded ? "text-indigo-500" : "text-slate-400",
                       )}
                     />
                     <div className="min-w-0 flex-1">
@@ -1781,7 +1781,7 @@ function AiResultContent({
                             priorityDot[getActionPriority(action)],
                           )}
                         />
-                        <p className="truncate text-xs font-semibold leading-tight text-gray-900">
+                        <p className="truncate text-xs font-semibold leading-tight text-slate-900">
                           {getActionTitle(action)}
                         </p>
                       </div>
@@ -1793,7 +1793,7 @@ function AiResultContent({
                         onClick={() =>
                           setRemoved((prev) => new Set(prev).add(index))
                         }
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-gray-200 opacity-0 transition-all hover:bg-red-50 hover:text-red-400 group-hover/card:opacity-100"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-200 opacity-0 transition-all hover:bg-red-50 hover:text-red-400 group-hover/card:opacity-100"
                         aria-label="일정 후보 삭제"
                         title="일정 후보 삭제"
                       >
@@ -1808,7 +1808,7 @@ function AiResultContent({
                         type="button"
                         onClick={() => void handleApplyBundle(bundleIndexes)}
                         disabled={applyMutation.isPending}
-                        className="rounded px-1.5 py-0.5 text-[11px] text-gray-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600 disabled:opacity-50"
+                        className="rounded px-1.5 py-0.5 text-[11px] text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600 disabled:opacity-50"
                       >
                         전체 추가
                       </button>
@@ -1818,7 +1818,7 @@ function AiResultContent({
                       <button
                         type="button"
                         onClick={() => toggleExpanded(index)}
-                        className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                        className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
                         aria-label={isExpanded ? "연결 할 일 접기" : "연결 할 일 펼치기"}
                         title={isExpanded ? "연결 할 일 접기" : "연결 할 일 펼치기"}
                       >
@@ -1834,10 +1834,10 @@ function AiResultContent({
 
                 {linkedTasks.length > 0 &&
                   (isExpanded ? (
-                    <div className="divide-y divide-gray-50">
+                    <div className="divide-y divide-slate-50">
                       <div className="flex items-center gap-1 px-3 py-1.5">
-                        <Link2 className="h-3 w-3 text-gray-300" />
-                        <span className="text-[10px] text-gray-400">
+                        <Link2 className="h-3 w-3 text-slate-300" />
+                        <span className="text-[10px] text-slate-400">
                           연결된 할 일 {linkedTasks.length}개
                         </span>
                       </div>
@@ -1848,17 +1848,17 @@ function AiResultContent({
                             <div
                               key={`${taskAction.type}-${taskIndex}`}
                               className={cn(
-                                "group/todo flex items-center gap-2 px-3 py-2 transition-colors hover:bg-gray-50",
+                                "group/todo flex items-center gap-2 px-3 py-2 transition-colors hover:bg-slate-50",
                                 isAdded && "bg-indigo-50/30",
                               )}
                             >
                               <div className="ml-2 flex w-2 shrink-0 flex-col items-center self-stretch">
-                                <div className="w-px flex-1 bg-gray-200" />
+                                <div className="w-px flex-1 bg-slate-200" />
                                 {idx === linkedTasks.length - 1 && (
                                   <div className="w-px flex-1 bg-transparent" />
                                 )}
                               </div>
-                              <div className="-ml-0.5 h-px w-1.5 shrink-0 bg-gray-200" />
+                              <div className="-ml-0.5 h-px w-1.5 shrink-0 bg-slate-200" />
                               <div
                                 className={cn(
                                   "h-3.5 w-1 shrink-0 rounded-full",
@@ -1871,12 +1871,12 @@ function AiResultContent({
                                     "truncate text-xs",
                                     isAdded
                                       ? "font-medium text-indigo-800"
-                                      : "text-gray-700",
+                                      : "text-slate-700",
                                   )}
                                 >
                                   {getActionTitle(taskAction)}
                                 </p>
-                                <p className="mt-0.5 flex items-center gap-0.5 text-[10px] text-gray-400">
+                                <p className="mt-0.5 flex items-center gap-0.5 text-[10px] text-slate-400">
                                   <Clock className="h-2.5 w-2.5" />
                                   {getActionDateLabel(taskAction) || "시간 미정"}
                                   {isAdded && (
@@ -1894,7 +1894,7 @@ function AiResultContent({
                                       new Set(prev).add(taskIndex),
                                     )
                                   }
-                                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-200 opacity-0 transition-all hover:bg-red-50 hover:text-red-400 group-hover/todo:opacity-100"
+                                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-200 opacity-0 transition-all hover:bg-red-50 hover:text-red-400 group-hover/todo:opacity-100"
                                   aria-label="할 일 후보 삭제"
                                   title="할 일 후보 삭제"
                                 >
@@ -1911,10 +1911,10 @@ function AiResultContent({
                     <button
                       type="button"
                       onClick={() => toggleExpanded(index)}
-                      className="flex w-full items-center gap-1.5 px-3 py-2 transition-colors hover:bg-gray-50"
+                      className="flex w-full items-center gap-1.5 px-3 py-2 transition-colors hover:bg-slate-50"
                     >
-                      <Link2 className="h-3 w-3 text-gray-300" />
-                      <span className="text-[11px] text-gray-400">
+                      <Link2 className="h-3 w-3 text-slate-300" />
+                      <span className="text-[11px] text-slate-400">
                         연결된 할 일 {linkedTasks.length}개
                         {addedTodoCount > 0 && (
                           <span className="ml-1 text-indigo-500">
@@ -1922,7 +1922,7 @@ function AiResultContent({
                           </span>
                         )}
                       </span>
-                      <ChevronDown className="ml-auto h-3 w-3 text-gray-300" />
+                      <ChevronDown className="ml-auto h-3 w-3 text-slate-300" />
                     </button>
                   ))}
               </div>
@@ -1930,13 +1930,13 @@ function AiResultContent({
           })}
 
           {independentTasks.length > 0 && (
-            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-              <div className="flex items-center gap-1.5 border-b border-gray-100 bg-white px-3 py-2">
-                <CheckSquare className="h-3.5 w-3.5 text-gray-400" />
-                <span className="text-xs font-semibold text-gray-700">
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+              <div className="flex items-center gap-1.5 border-b border-slate-100 bg-white px-3 py-2">
+                <CheckSquare className="h-3.5 w-3.5 text-slate-400" />
+                <span className="text-xs font-semibold text-slate-700">
                   독립 할 일
                 </span>
-                <span className="ml-auto rounded-full bg-gray-100 px-1.5 py-0 text-[10px] text-gray-500">
+                <span className="ml-auto rounded-full bg-slate-100 px-1.5 py-0 text-[10px] text-slate-500">
                   {independentTasks.length}
                 </span>
               </div>
@@ -1946,7 +1946,7 @@ function AiResultContent({
                   <div
                     key={`${action.type}-${index}`}
                     className={cn(
-                      "group/stodo flex items-center gap-2 border-b border-gray-50 px-3 py-2.5 transition-colors last:border-0 hover:bg-gray-50",
+                      "group/stodo flex items-center gap-2 border-b border-slate-50 px-3 py-2.5 transition-colors last:border-0 hover:bg-slate-50",
                       isAdded && "bg-indigo-50/30",
                     )}
                   >
@@ -1962,12 +1962,12 @@ function AiResultContent({
                           "truncate text-xs",
                           isAdded
                             ? "font-medium text-indigo-800"
-                            : "text-gray-700",
+                            : "text-slate-700",
                         )}
                       >
                         {getActionTitle(action)}
                       </p>
-                      <p className="mt-0.5 flex items-center gap-0.5 text-[10px] text-gray-400">
+                      <p className="mt-0.5 flex items-center gap-0.5 text-[10px] text-slate-400">
                         <Clock className="h-2.5 w-2.5" />
                         {getActionDateLabel(action) || "시간 미정"}
                         {isAdded && (
@@ -1983,7 +1983,7 @@ function AiResultContent({
                         onClick={() =>
                           setRemoved((prev) => new Set(prev).add(index))
                         }
-                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-200 opacity-0 transition-all hover:bg-red-50 hover:text-red-400 group-hover/stodo:opacity-100"
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-200 opacity-0 transition-all hover:bg-red-50 hover:text-red-400 group-hover/stodo:opacity-100"
                         aria-label="할 일 후보 삭제"
                         title="할 일 후보 삭제"
                       >
@@ -2076,7 +2076,7 @@ function MemoAiPanel({
       <button
         type="button"
         onClick={onToggleOpen}
-        className="fixed right-0 top-20 z-40 flex h-11 w-6 items-center justify-center rounded-l-lg border border-r-0 border-gray-200 bg-white text-gray-500 shadow-lg shadow-gray-900/10 transition-colors hover:text-violet-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 min-[600px]:top-1/2 min-[600px]:-translate-y-1/2"
+        className="fixed right-0 top-20 z-40 flex h-11 w-6 items-center justify-center rounded-l-lg border border-r-0 border-slate-200 bg-white text-slate-500 shadow-lg shadow-slate-900/10 transition-colors hover:text-violet-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 min-[600px]:top-1/2 min-[600px]:-translate-y-1/2"
         aria-label="AI 추출 결과 열기"
         title="AI 추출 결과 열기"
       >
@@ -2086,13 +2086,13 @@ function MemoAiPanel({
   }
 
   return (
-    <aside className="fixed inset-y-0 right-0 z-40 flex w-[min(380px,100vw)] shrink-0 flex-col border-l border-gray-100 bg-gray-50/95 shadow-2xl shadow-gray-900/10 backdrop-blur transition-transform duration-200">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-gray-100 px-3 min-[600px]:h-16">
+    <aside className="fixed inset-y-0 right-0 z-40 flex w-[min(380px,100vw)] shrink-0 flex-col border-l border-slate-100 bg-slate-50/95 shadow-2xl shadow-slate-900/10 backdrop-blur transition-transform duration-200">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-100 px-3 min-[600px]:h-16">
         <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-500" />
-        <span className="min-w-0 flex-1 truncate text-xs font-semibold text-gray-700">
+        <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-700">
           AI 추출 결과
         </span>
-        <span className="whitespace-nowrap text-[10px] text-gray-400">
+        <span className="whitespace-nowrap text-[10px] text-slate-400">
           일정 {scheduleCount} · 할 일 {taskCount}
         </span>
         <button
@@ -2100,7 +2100,7 @@ function MemoAiPanel({
           onClick={onToggleOpen}
           aria-label="AI 추출 결과 접기"
           title="AI 추출 결과 접기"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200"
         >
           <PanelRightClose className="h-4 w-4" />
         </button>
@@ -2108,7 +2108,7 @@ function MemoAiPanel({
 
       <div className="scrollbar-none flex-1 space-y-2 overflow-y-auto px-3 py-3">
         {!memo ? (
-          <div className="rounded-xl border border-gray-200 bg-white px-3 py-8 text-center text-xs text-gray-400">
+          <div className="rounded-xl border border-slate-200 bg-white px-3 py-8 text-center text-xs text-slate-400">
             메모를 선택하세요.
           </div>
         ) : isLoading ? (
@@ -2132,8 +2132,8 @@ function MemoAiPanel({
         ) : result ? (
           <AiResultContent memoId={memo.memo_id} result={result} />
         ) : (
-          <div className="flex flex-col items-center gap-2 py-10 text-gray-400">
-            <Sparkles className="h-6 w-6 text-gray-300" />
+          <div className="flex flex-col items-center gap-2 py-10 text-slate-400">
+            <Sparkles className="h-6 w-6 text-slate-300" />
             <p className="text-center text-xs">
               추출된 일정과 할 일이 없습니다.
               <br />
@@ -2258,7 +2258,7 @@ export default function Memos() {
     >
       <div
         className={cn(
-          "relative flex h-full overflow-hidden bg-white font-sans text-gray-950 transition-[padding] duration-200",
+          "relative flex h-full overflow-hidden bg-white font-sans text-slate-950 transition-[padding] duration-200",
           aiPanelOpen && "min-[600px]:pr-[380px]",
         )}
         onClick={() => setConfirmDeleteId(null)}

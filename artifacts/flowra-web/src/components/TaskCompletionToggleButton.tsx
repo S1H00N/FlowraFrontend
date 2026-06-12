@@ -28,8 +28,8 @@ export default function TaskCompletionToggleButton({
         "inline-flex shrink-0 items-center justify-center rounded-full border transition focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-60",
         compact ? "mt-0.5 h-5 w-5" : "h-6 w-6",
         completed
-          ? "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600 focus:ring-emerald-100"
-          : "border-slate-400 bg-white text-transparent hover:border-emerald-500 focus:ring-emerald-100",
+          ? "border-violet-500 bg-violet-500 text-white hover:bg-violet-600 focus:ring-violet-100"
+          : "border-slate-400 bg-white text-transparent hover:border-violet-500 focus:ring-violet-100",
         className,
       )}
     >

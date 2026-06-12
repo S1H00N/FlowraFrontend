@@ -20,7 +20,7 @@ export default function Spinner({
     <span
       role="status"
       aria-label={label ?? "로딩 중"}
-      className={`inline-block animate-spin rounded-full border-slate-200 border-t-emerald-600 ${sizeMap[size]} ${className}`}
+      className={`inline-block animate-spin rounded-full border-slate-200 border-t-violet-600 ${sizeMap[size]} ${className}`}
     />
   );
 }

@@ -161,7 +161,7 @@ function TaskItemBase({
         id={`task-${task.task_id}`}
         className={`rounded-lg border bg-white p-4 shadow-sm ${
           highlighted
-            ? "border-emerald-300 ring-2 ring-emerald-100"
+            ? "border-violet-300 ring-2 ring-violet-100"
             : "border-slate-200"
         }`}
       >
@@ -178,7 +178,7 @@ function TaskItemBase({
                 className={`w-full rounded-lg border px-3 py-3 text-sm shadow-sm outline-none transition focus:ring-2 ${
                   errors.title
                     ? "border-red-400 focus:border-red-500 focus:ring-red-200"
-                    : "border-slate-200 bg-white focus:border-emerald-500 focus:ring-emerald-100"
+                    : "border-slate-200 bg-white focus:border-violet-500 focus:ring-violet-100"
                 }`}
               />
               {errors.title && (
@@ -241,7 +241,7 @@ function TaskItemBase({
             <button
               type="submit"
               disabled={updateMutation.isPending}
-              className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60"
+              className="rounded-lg bg-violet-600 px-3 py-2 text-xs font-medium text-white shadow-sm hover:bg-violet-700 disabled:opacity-60"
             >
               저장
             </button>
@@ -256,7 +256,7 @@ function TaskItemBase({
       id={`task-${task.task_id}`}
       className={`group rounded-lg border bg-white p-4 shadow-sm ${
         highlighted
-          ? "border-emerald-300 ring-2 ring-emerald-100"
+          ? "border-violet-300 ring-2 ring-violet-100"
           : "border-slate-200"
       }`}
     >

@@ -131,8 +131,7 @@ function getInitial(name: string) {
 
 function isCustomCategoryColor(color: string) {
   return (
-    hexPattern.test(color) &&
-    !defaultCategoryColorSet.has(color.toLowerCase())
+    hexPattern.test(color) && !defaultCategoryColorSet.has(color.toLowerCase())
   );
 }
 
@@ -169,7 +168,7 @@ function SettingsCard({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-lg bg-slate-50/80 p-4">
+    <section className="flowra-subtle-panel p-4">
       <p className="text-xs font-semibold text-slate-400">{title}</p>
       <div className="mt-3">{children}</div>
     </section>
@@ -192,7 +191,7 @@ function ChoiceButton({
       className={cn(
         "inline-flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border px-3 text-sm font-semibold transition",
         selected
-          ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+          ? "border-violet-500 bg-violet-50 text-violet-700"
           : "border-slate-200 bg-white text-slate-600 shadow-sm hover:border-slate-300 hover:bg-slate-50",
       )}
     >
@@ -216,15 +215,13 @@ function ToggleRow({
     <div className="flex items-center justify-between gap-5 border-b border-slate-100 px-5 py-4 last:border-b-0">
       <div className="min-w-0">
         <p className="text-sm font-semibold text-slate-950">{title}</p>
-        <p className="mt-1 text-xs font-medium text-slate-400">
-          {description}
-        </p>
+        <p className="mt-1 text-xs font-medium text-slate-400">{description}</p>
       </div>
       <Switch
         checked={checked}
         onCheckedChange={onCheckedChange}
         aria-label={title}
-        className="data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-slate-200"
+        className="data-[state=checked]:bg-violet-500 data-[state=unchecked]:bg-slate-200"
       />
     </div>
   );
@@ -247,10 +244,7 @@ function GeneralSection() {
 
   return (
     <div className="space-y-6">
-      <SectionHeader
-        title="일반"
-        description="앱의 기본 동작을 설정합니다."
-      />
+      <SectionHeader title="일반" description="앱의 기본 동작을 설정합니다." />
 
       <SettingsCard title="테마">
         <div className="grid gap-2 sm:grid-cols-3">
@@ -301,7 +295,7 @@ function GeneralSection() {
             selected={settings.defaultCalendarView === "month"}
             onClick={() => setDefaultView("month")}
           >
-            <CalendarDays className="h-4 w-4 text-blue-500" />
+            <CalendarDays className="h-4 w-4 text-violet-500" />
             월간
           </ChoiceButton>
           <ChoiceButton
@@ -395,14 +389,14 @@ function PushStatusPill({
       className={cn(
         "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-semibold",
         active
-          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+          ? "border-violet-200 bg-violet-50 text-violet-700"
           : "border-slate-200 bg-white text-slate-500",
       )}
     >
       <span
         className={cn(
           "h-1.5 w-1.5 rounded-full",
-          active ? "bg-emerald-500" : "bg-slate-300",
+          active ? "bg-violet-500" : "bg-slate-300",
         )}
       />
       {children}
@@ -477,7 +471,10 @@ function NotificationsSection() {
       setStoredBrowserPushToken(issuedToken);
       refreshLocalState();
     } catch (error) {
-      const message = getErrorMessage(error, "브라우저 알림을 켜지 못했습니다.");
+      const message = getErrorMessage(
+        error,
+        "브라우저 알림을 켜지 못했습니다.",
+      );
       setLocalError(message);
       if (!issuedToken) toast.error(message);
       refreshLocalState();
@@ -534,7 +531,7 @@ function NotificationsSection() {
         ? "브라우저 주소창의 사이트 설정에서 알림 권한을 허용으로 바꾼 뒤 다시 시도하세요."
         : permissionNeedsPrompt && supportReady
           ? "버튼을 누르면 브라우저 권한 요청 창이 열립니다."
-          : support?.reason ?? "필요할 때 다시 알림을 켤 수 있습니다.";
+          : (support?.reason ?? "필요할 때 다시 알림을 켤 수 있습니다.");
 
   const needsAttention =
     permissionBlocked || (!supportChecking && !supportReady);
@@ -546,12 +543,12 @@ function NotificationsSection() {
         ? "상태 확인 중"
         : "꺼짐";
   const statusSurfaceClass = browserNotificationsEnabled
-    ? "border-emerald-200 bg-emerald-50/40"
+    ? "border-violet-200 bg-violet-50/40"
     : needsAttention
       ? "border-amber-200 bg-amber-50"
       : "border-slate-200 bg-slate-50/70";
   const statusToneClass = browserNotificationsEnabled
-    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+    ? "border-violet-200 bg-violet-50 text-violet-700"
     : needsAttention
       ? "border-amber-200 bg-amber-50 text-amber-700"
       : "border-slate-200 bg-white text-slate-500";
@@ -638,7 +635,7 @@ function NotificationsSection() {
               "inline-flex h-10 w-full shrink-0 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto",
               browserNotificationsEnabled
                 ? "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                : "bg-emerald-500 text-white hover:bg-emerald-600",
+                : "bg-violet-500 text-white hover:bg-violet-600",
             )}
           >
             {actionPending ? (
@@ -685,7 +682,7 @@ function CategoryColorPicker({
               className={cn(
                 "flex h-8 w-8 items-center justify-center rounded-full border-2 transition",
                 selected
-                  ? "border-blue-400 ring-2 ring-blue-100"
+                  ? "border-violet-400 ring-2 ring-violet-100"
                   : "border-transparent hover:ring-2 hover:ring-slate-200",
               )}
               style={{ backgroundColor: candidate }}
@@ -698,8 +695,8 @@ function CategoryColorPicker({
           className={cn(
             "relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-2 border-dashed transition",
             customSelected
-              ? "border-blue-400 ring-2 ring-blue-100"
-              : "border-slate-300 bg-white text-slate-400 hover:border-emerald-400 hover:text-emerald-600",
+              ? "border-violet-400 ring-2 ring-violet-100"
+              : "border-slate-300 bg-white text-slate-400 hover:border-violet-400 hover:text-violet-600",
           )}
           style={customSelected ? { backgroundColor: safeColor } : undefined}
           title="사용자 지정 색상"
@@ -723,7 +720,7 @@ function CategoryColorPicker({
         className={cn(
           "flex min-h-9 items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold",
           customSelected
-            ? "border-blue-200 bg-blue-50 text-blue-700"
+            ? "border-violet-200 bg-violet-50 text-violet-700"
             : "border-slate-200 bg-slate-50 text-slate-500",
         )}
         aria-live="polite"
@@ -784,7 +781,7 @@ function CategoryForm({
             {formatColor(draft.color)}
           </span>
           {customColor && (
-            <span className="rounded-md bg-blue-100 px-2 py-1 text-[11px] font-semibold text-blue-700">
+            <span className="rounded-md bg-violet-100 px-2 py-1 text-[11px] font-semibold text-violet-700">
               사용자 지정
             </span>
           )}
@@ -811,7 +808,9 @@ function CategoryForm({
 
       <div className="mt-4 grid gap-4">
         <label className="grid gap-1.5">
-          <span className="text-xs font-semibold text-slate-500">분류 이름</span>
+          <span className="text-xs font-semibold text-slate-500">
+            분류 이름
+          </span>
           <input
             type="text"
             value={draft.name}
@@ -821,7 +820,7 @@ function CategoryForm({
               "h-11 rounded-lg border bg-white px-3 text-sm font-medium text-slate-900 outline-none transition placeholder:text-slate-400 focus:ring-2",
               error
                 ? "border-red-300 focus:border-red-400 focus:ring-red-100"
-                : "border-slate-200 focus:border-blue-400 focus:ring-blue-100",
+                : "border-slate-200 focus:border-violet-400 focus:ring-violet-100",
             )}
           />
         </label>
@@ -845,7 +844,7 @@ function CategoryForm({
                 className={cn(
                   "h-8 rounded-lg border px-3 text-xs font-semibold transition disabled:cursor-not-allowed",
                   draft.type === type
-                    ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                    ? "border-violet-500 bg-violet-50 text-violet-700"
                     : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50",
                   mode === "edit" && draft.type !== type && "opacity-50",
                 )}
@@ -860,7 +859,7 @@ function CategoryForm({
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="text-xs font-semibold text-slate-500">색상</p>
             {customColor && (
-              <span className="text-[11px] font-semibold text-blue-600">
+              <span className="text-[11px] font-semibold text-violet-600">
                 + 버튼으로 선택됨
               </span>
             )}
@@ -889,7 +888,7 @@ function CategoryForm({
             type="button"
             onClick={onSubmit}
             disabled={pending}
-            className="h-10 rounded-lg bg-blue-500 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-600 disabled:opacity-60"
+            className="h-10 rounded-lg bg-violet-500 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-600 disabled:opacity-60"
           >
             {pending ? "저장 중..." : mode === "create" ? "추가" : "저장"}
           </button>
@@ -922,9 +921,9 @@ function CategoryRow({
       className={cn(
         "rounded-lg border px-4 py-3 transition",
         highlighted
-          ? "border-emerald-200 bg-emerald-50 shadow-sm shadow-emerald-100"
+          ? "border-violet-200 bg-violet-50 shadow-sm shadow-violet-100"
           : selected
-            ? "border-blue-200 bg-blue-50/60"
+            ? "border-violet-200 bg-violet-50/60"
             : "border-transparent bg-slate-50/80",
       )}
     >
@@ -953,7 +952,7 @@ function CategoryRow({
               </span>
             )}
             {highlighted && (
-              <span className="rounded-md bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-700">
+              <span className="rounded-md bg-violet-100 px-2 py-1 text-[11px] font-semibold text-violet-700">
                 방금 추가됨
               </span>
             )}
@@ -1124,10 +1123,9 @@ function ClassificationSection() {
         <button
           type="button"
           onClick={startCreate}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-600"
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-violet-500 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-600"
         >
-          <Plus className="h-4 w-4" />
-          새 카테고리
+          <Plus className="h-4 w-4" />새 카테고리
         </button>
       </div>
 
@@ -1253,9 +1251,7 @@ function AccountAction({
         >
           {title}
         </p>
-        <p className="mt-1 text-xs font-medium text-slate-400">
-          {description}
-        </p>
+        <p className="mt-1 text-xs font-medium text-slate-400">{description}</p>
       </div>
       <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
     </button>
@@ -1305,7 +1301,7 @@ function CompanyInviteInboxSection() {
           </p>
         </div>
         {invites.length > 0 && (
-          <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
+          <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-violet-700 ring-1 ring-violet-100">
             {invites.length}건
           </span>
         )}
@@ -1338,7 +1334,7 @@ function CompanyInviteInboxSection() {
             return (
               <li key={invite.company_invite_id} className="px-5 py-4">
                 <div className="flex min-w-0 items-start gap-3">
-                  <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-700 ring-1 ring-emerald-100">
+                  <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-violet-700 ring-1 ring-violet-100">
                     <Building2 className="h-4 w-4" />
                   </span>
                   <div className="min-w-0 flex-1">
@@ -1371,7 +1367,7 @@ function CompanyInviteInboxSection() {
                   type="button"
                   onClick={() => void acceptInvite(invite.company_invite_id)}
                   disabled={acceptInviteMutation.isPending}
-                  className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-600 disabled:opacity-60"
+                  className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-violet-500 px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-600 disabled:opacity-60"
                 >
                   {accepting ? (
                     <Spinner
@@ -1454,7 +1450,7 @@ function AccountSection() {
               {profileImageUrl && (
                 <AvatarImage src={profileImageUrl} alt={displayName} />
               )}
-              <AvatarFallback className="rounded-lg bg-emerald-500 text-xl font-semibold text-white">
+              <AvatarFallback className="rounded-lg bg-violet-500 text-xl font-semibold text-white">
                 {getInitial(displayName)}
               </AvatarFallback>
             </Avatar>
@@ -1466,7 +1462,7 @@ function AccountSection() {
                 {displayEmail}
               </p>
               {affiliationLabel && (
-                <p className="mt-1 truncate text-xs font-semibold text-emerald-700">
+                <p className="mt-1 truncate text-xs font-semibold text-violet-700">
                   {affiliationLabel}
                 </p>
               )}
@@ -1492,7 +1488,7 @@ function AccountSection() {
                 type="text"
                 value={nameDraft}
                 onChange={(event) => setNameDraft(event.target.value)}
-                className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
               />
             </label>
             <label className="grid gap-1.5">
@@ -1504,7 +1500,7 @@ function AccountSection() {
                 value={imageDraft}
                 onChange={(event) => setImageDraft(event.target.value)}
                 placeholder="https://example.com/image.png"
-                className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
               />
             </label>
             <label className="grid gap-1.5">
@@ -1516,7 +1512,7 @@ function AccountSection() {
                 value={timezoneDraft}
                 onChange={(event) => setTimezoneDraft(event.target.value)}
                 placeholder="Asia/Seoul"
-                className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
               />
             </label>
             <div className="flex justify-end gap-2">
@@ -1530,7 +1526,7 @@ function AccountSection() {
               <button
                 type="submit"
                 disabled={updateMeMutation.isPending}
-                className="h-9 rounded-lg bg-emerald-500 px-4 text-sm font-semibold text-white shadow-sm hover:bg-emerald-600 disabled:opacity-60"
+                className="h-9 rounded-lg bg-violet-500 px-4 text-sm font-semibold text-white shadow-sm hover:bg-violet-600 disabled:opacity-60"
               >
                 {updateMeMutation.isPending ? "저장 중..." : "저장"}
               </button>
@@ -1596,15 +1592,13 @@ export function SettingsPanel({
     <div
       className={cn(
         "flex min-h-0 overflow-hidden bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100",
-        compact
-          ? "h-full"
-          : "min-h-[680px] rounded-lg border border-slate-200 shadow-sm dark:border-slate-800",
+        compact ? "h-full" : "flowra-surface min-h-[680px]",
         className,
       )}
     >
       <aside className="hidden w-[200px] shrink-0 flex-col border-r border-slate-100 bg-slate-50/70 sm:flex">
         <div className="flex h-[72px] items-center gap-3 border-b border-slate-100 px-5">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500 text-white">
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500 text-white">
             <Settings2 className="h-4 w-4" />
           </span>
           <span className="text-sm font-semibold text-slate-950">설정</span>
@@ -1622,7 +1616,7 @@ export function SettingsPanel({
                 className={cn(
                   "flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold transition",
                   selected
-                    ? "bg-emerald-50 text-emerald-700"
+                    ? "bg-violet-50 text-violet-700"
                     : "text-slate-500 hover:bg-white hover:text-slate-900",
                 )}
               >
@@ -1639,7 +1633,7 @@ export function SettingsPanel({
               {profileImageUrl && (
                 <AvatarImage src={profileImageUrl} alt={displayName} />
               )}
-              <AvatarFallback className="rounded-lg bg-emerald-500 text-sm font-semibold text-white">
+              <AvatarFallback className="rounded-lg bg-violet-500 text-sm font-semibold text-white">
                 {getInitial(displayName)}
               </AvatarFallback>
             </Avatar>
@@ -1666,7 +1660,7 @@ export function SettingsPanel({
                   className={cn(
                     "inline-flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-semibold",
                     selected
-                      ? "bg-emerald-50 text-emerald-700"
+                      ? "bg-violet-50 text-violet-700"
                       : "text-slate-500 hover:bg-slate-50",
                   )}
                 >

@@ -44,7 +44,7 @@ export default function ResetPassword() {
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 py-10">
       <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
         <div className="mb-5 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-600 text-white">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-600 text-white">
             <KeyRound className="h-5 w-5" />
           </div>
           <div>
@@ -56,14 +56,21 @@ export default function ResetPassword() {
         </div>
 
         {done ? (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-800">
+          <div className="rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm leading-6 text-violet-800">
             <p className="font-medium">비밀번호가 변경되었습니다.</p>
             <p className="mt-1">새 비밀번호로 다시 로그인해 주세요.</p>
           </div>
         ) : (
-          <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
+          <form
+            onSubmit={handleSubmit(onSubmit)}
+            noValidate
+            className="space-y-4"
+          >
             <div>
-              <label className="block text-sm font-medium text-slate-700" htmlFor="new_password">
+              <label
+                className="block text-sm font-medium text-slate-700"
+                htmlFor="new_password"
+              >
                 새 비밀번호
               </label>
               <input
@@ -72,7 +79,7 @@ export default function ResetPassword() {
                 autoComplete="new-password"
                 {...register("new_password")}
                 aria-invalid={!!errors.new_password}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
               />
               {errors.new_password && (
                 <p className="mt-1 text-xs text-red-600">
@@ -81,7 +88,10 @@ export default function ResetPassword() {
               )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700" htmlFor="new_password_confirm">
+              <label
+                className="block text-sm font-medium text-slate-700"
+                htmlFor="new_password_confirm"
+              >
                 새 비밀번호 확인
               </label>
               <input
@@ -90,7 +100,7 @@ export default function ResetPassword() {
                 autoComplete="new-password"
                 {...register("new_password_confirm")}
                 aria-invalid={!!errors.new_password_confirm}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
               />
               {errors.new_password_confirm && (
                 <p className="mt-1 text-xs text-red-600">
@@ -101,19 +111,21 @@ export default function ResetPassword() {
             <button
               type="submit"
               disabled={isSubmitting || !token}
-              className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+              className="w-full rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-60"
             >
               {isSubmitting ? "변경 중..." : "비밀번호 변경"}
             </button>
             {!token && (
-              <p className="text-xs text-red-600">재설정 링크가 올바르지 않습니다.</p>
+              <p className="text-xs text-red-600">
+                재설정 링크가 올바르지 않습니다.
+              </p>
             )}
           </form>
         )}
 
         <Link
           to="/login"
-          className="mt-6 block text-center text-sm font-medium text-emerald-700 hover:underline"
+          className="mt-6 block text-center text-sm font-medium text-violet-700 hover:underline"
         >
           로그인으로 이동
         </Link>

@@ -87,7 +87,7 @@ function ColorField({
             aria-label={`색상 ${candidate}`}
             className={`flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 ring-2 transition ${
               color.toLowerCase() === candidate.toLowerCase()
-                ? "ring-emerald-200"
+                ? "ring-violet-200"
                 : "ring-transparent"
             }`}
             style={{ backgroundColor: candidate }}
@@ -111,7 +111,7 @@ function ColorField({
           value={color}
           onChange={(event) => onChange(event.target.value)}
           placeholder="#10B981"
-          className="h-10 rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+          className="h-10 rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
           aria-label="HEX 색상값"
         />
       </div>
@@ -171,8 +171,7 @@ function CategoryForm({ compact = false }: { compact?: boolean }) {
       )}
     >
       <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-        <Tags className="h-4 w-4 text-emerald-600" />
-        새 카테고리
+        <Tags className="h-4 w-4 text-violet-600" />새 카테고리
       </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_auto]">
@@ -187,7 +186,7 @@ function CategoryForm({ compact = false }: { compact?: boolean }) {
             className={`h-11 w-full rounded-lg border px-3 text-sm shadow-sm outline-none transition focus:ring-2 ${
               errors.name
                 ? "border-red-400 focus:border-red-500 focus:ring-red-100"
-                : "border-slate-200 focus:border-emerald-500 focus:ring-emerald-100"
+                : "border-slate-200 focus:border-violet-500 focus:ring-violet-100"
             }`}
           />
           {errors.name && (
@@ -197,7 +196,7 @@ function CategoryForm({ compact = false }: { compact?: boolean }) {
 
         <select
           {...register("type")}
-          className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+          className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
           aria-label="카테고리 대상"
         >
           {CATEGORY_TYPES.map((type) => (
@@ -210,7 +209,7 @@ function CategoryForm({ compact = false }: { compact?: boolean }) {
         <button
           type="submit"
           disabled={createMutation.isPending}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60"
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-violet-600 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60"
         >
           <Plus className="h-4 w-4" />
           {createMutation.isPending ? "추가 중..." : "추가"}
@@ -302,7 +301,7 @@ function CategoryRow({ category }: { category: Category }) {
             type="text"
             value={name}
             onChange={(event) => setName(event.target.value)}
-            className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+            className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
           />
           <div className="flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-600">
             {CATEGORY_TYPE_LABELS[category.type]}
@@ -320,7 +319,7 @@ function CategoryRow({ category }: { category: Category }) {
               type="button"
               onClick={handleSave}
               disabled={updateMutation.isPending}
-              className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+              className="rounded-lg bg-violet-600 px-3 py-2 text-xs font-medium text-white hover:bg-violet-700 disabled:opacity-60"
             >
               저장
             </button>
@@ -389,11 +388,11 @@ function ClassificationSettingsPanel({
     defaultOnly: true,
   });
 
-  const updateOption = (
-    key: string,
-    patch: Partial<ClassificationOption>,
-  ) => {
-    const groupSettings = settings[group] as Record<string, ClassificationOption>;
+  const updateOption = (key: string, patch: Partial<ClassificationOption>) => {
+    const groupSettings = settings[group] as Record<
+      string,
+      ClassificationOption
+    >;
     onChange({
       ...settings,
       [group]: {
@@ -422,7 +421,9 @@ function ClassificationSettingsPanel({
 
   const handleDrop = (targetIndex: number) => {
     if (!draggedKey) return;
-    onChange(reorderClassificationOption(settings, group, draggedKey, targetIndex));
+    onChange(
+      reorderClassificationOption(settings, group, draggedKey, targetIndex),
+    );
     setDraggedKey(null);
   };
 
@@ -438,7 +439,9 @@ function ClassificationSettingsPanel({
   const handleReset = () => {
     const next = resetClassificationSettings(group);
     onChange(next);
-    toast.success(`${CLASSIFICATION_GROUP_LABELS[group]} 기본값으로 되돌렸습니다.`);
+    toast.success(
+      `${CLASSIFICATION_GROUP_LABELS[group]} 기본값으로 되돌렸습니다.`,
+    );
   };
 
   return (
@@ -454,7 +457,8 @@ function ClassificationSettingsPanel({
             {CLASSIFICATION_GROUP_LABELS[group]} 설정
           </h2>
           <p className="mt-0.5 text-xs text-slate-500">
-            기본값은 API 명세 enum으로 저장되고, 추가 항목은 현재 명세 안의 저장값에 매핑됩니다.
+            기본값은 API 명세 enum으로 저장되고, 추가 항목은 현재 명세 안의
+            저장값에 매핑됩니다.
           </p>
         </div>
         <div className="flex gap-2">
@@ -469,7 +473,7 @@ function ClassificationSettingsPanel({
           <button
             type="button"
             onClick={handleSave}
-            className="h-9 rounded-lg bg-emerald-600 px-3 text-xs font-medium text-white shadow-sm hover:bg-emerald-700"
+            className="h-9 rounded-lg bg-violet-600 px-3 text-xs font-medium text-white shadow-sm hover:bg-violet-700"
           >
             저장
           </button>
@@ -488,7 +492,7 @@ function ClassificationSettingsPanel({
             }
           }}
           placeholder={`${CLASSIFICATION_GROUP_LABELS[group]} 추가`}
-          className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+          className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
         />
         <button
           type="button"
@@ -513,7 +517,7 @@ function ClassificationSettingsPanel({
               handleDrop(index);
             }}
             className={`grid gap-3 px-5 py-4 transition xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_160px_100px_128px] xl:items-center ${
-              draggedKey === option.key ? "bg-emerald-50" : "bg-white"
+              draggedKey === option.key ? "bg-violet-50" : "bg-white"
             }`}
           >
             <div>
@@ -539,7 +543,7 @@ function ClassificationSettingsPanel({
                   className={`rounded-md border px-2 py-1 text-[11px] font-medium ${
                     option.isDefault
                       ? "border-slate-200 bg-white text-slate-500"
-                      : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-violet-200 bg-violet-50 text-violet-700"
                   }`}
                 >
                   {option.isDefault ? "기본" : "추가"}
@@ -550,14 +554,16 @@ function ClassificationSettingsPanel({
               </p>
             </div>
             <label className="block">
-              <span className="text-xs font-medium text-slate-600">표시 이름</span>
+              <span className="text-xs font-medium text-slate-600">
+                표시 이름
+              </span>
               <input
                 type="text"
                 value={option.label}
                 onChange={(event) =>
                   updateOption(option.key, { label: event.target.value })
                 }
-                className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
               />
             </label>
             <label className="block">
@@ -570,7 +576,7 @@ function ClassificationSettingsPanel({
                     value: event.target.value,
                   })
                 }
-                className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-50 disabled:text-slate-500"
+                className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100 disabled:bg-slate-50 disabled:text-slate-500"
               >
                 {defaultOptions.map((defaultOption) => (
                   <option key={defaultOption.key} value={defaultOption.value}>
@@ -586,7 +592,7 @@ function ClassificationSettingsPanel({
                 onChange={(event) =>
                   updateOption(option.key, { enabled: event.target.checked })
                 }
-                className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                className="h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
               />
               사용
             </label>
@@ -750,7 +756,10 @@ export function ClassificationManager({
     const sync = () => setSettings(readClassificationSettings());
     window.addEventListener("flowra:classification-settings-changed", sync);
     return () =>
-      window.removeEventListener("flowra:classification-settings-changed", sync);
+      window.removeEventListener(
+        "flowra:classification-settings-changed",
+        sync,
+      );
   }, []);
 
   return (
@@ -765,7 +774,8 @@ export function ClassificationManager({
               분류 관리
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              카테고리와 기본 분류값을 한 곳에서 관리합니다. 새 사용자는 시스템 기본값으로 시작합니다.
+              카테고리와 기본 분류값을 한 곳에서 관리합니다. 새 사용자는 시스템
+              기본값으로 시작합니다.
             </p>
           </div>
         </section>
@@ -780,7 +790,7 @@ export function ClassificationManager({
               onClick={() => setActiveTab(tab.key)}
               className={`inline-flex h-10 items-center gap-2 rounded-md px-3 text-sm font-medium transition ${
                 activeTab === tab.key
-                  ? "bg-emerald-600 text-white shadow-sm"
+                  ? "bg-violet-600 text-white shadow-sm"
                   : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
               }`}
             >

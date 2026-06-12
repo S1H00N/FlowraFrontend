@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { CalendarClock, Check, CheckSquare2, Plus } from "lucide-react";
-import { useCreateTask, useSetTaskCompletion, useTasks } from "@/hooks/useTasks";
+import {
+  useCreateTask,
+  useSetTaskCompletion,
+  useTasks,
+} from "@/hooks/useTasks";
 import {
   getClassificationLabel,
   getClassificationOptions,
@@ -38,14 +42,14 @@ interface ScheduleLinkedTasksProps {
 
 const priorityDotClass: Record<TaskPriority, string> = {
   low: "bg-slate-300",
-  medium: "bg-indigo-400",
+  medium: "bg-violet-400",
   high: "bg-amber-400",
   urgent: "bg-rose-500",
 };
 
 const priorityDotColor: Record<TaskPriority, string> = {
   low: "#94a3b8",
-  medium: "#6366f1",
+  medium: "#8b5cf6",
   high: "#f59e0b",
   urgent: "#f43f5e",
 };
@@ -107,7 +111,7 @@ function LinkedTaskListItem({
   const titleClass = cn(
     "block truncate text-sm font-bold",
     isDone ? "text-slate-400 line-through" : "text-slate-800",
-    linkTask && !isDone && "hover:text-emerald-700",
+    linkTask && !isDone && "hover:text-violet-700",
   );
   const title = linkTask ? (
     <Link
@@ -125,7 +129,7 @@ function LinkedTaskListItem({
       className={cn(
         "flex items-start gap-3 rounded-lg border p-3 transition-colors duration-300",
         highlighted
-          ? "border-indigo-300 bg-indigo-50 ring-2 ring-indigo-100"
+          ? "border-violet-300 bg-violet-50 ring-2 ring-violet-100"
           : "border-slate-200 bg-white",
       )}
     >
@@ -136,7 +140,10 @@ function LinkedTaskListItem({
         onCompletedChange={onCompletionChange}
       />
       <span
-        className={cn("mt-2 h-1.5 w-1.5 shrink-0 rounded-full", priorityDotClass[task.priority])}
+        className={cn(
+          "mt-2 h-1.5 w-1.5 shrink-0 rounded-full",
+          priorityDotClass[task.priority],
+        )}
         aria-hidden
       />
       <div className="min-w-0 flex-1">
@@ -343,7 +350,7 @@ export default function ScheduleLinkedTasks({
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-              <CheckSquare2 className="h-4 w-4 text-emerald-600" />
+              <CheckSquare2 className="h-4 w-4 text-violet-600" />
               연결된 할 일
             </div>
             <p className="mt-1 text-xs text-slate-500">
@@ -370,7 +377,7 @@ export default function ScheduleLinkedTasks({
                 onChange={(event) => setTitle(event.target.value)}
                 placeholder="새 할 일 입력"
                 enterKeyHint="done"
-                className="mt-1 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                className="mt-1 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
               />
             </label>
             <button
@@ -378,7 +385,7 @@ export default function ScheduleLinkedTasks({
               disabled={createTask.isPending}
               aria-label={createTask.isPending ? "할 일 추가 중" : "할 일 추가"}
               title={createTask.isPending ? "추가 중..." : "할 일 추가"}
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-indigo-500 text-white transition hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:opacity-60"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-violet-500 text-white transition hover:bg-violet-600 focus:outline-none focus:ring-2 focus:ring-violet-100 disabled:opacity-60"
             >
               <Plus
                 className={cn(
@@ -420,7 +427,7 @@ export default function ScheduleLinkedTasks({
             className={cn(
               "inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border px-3 text-xs font-bold transition",
               syncDueToSchedule
-                ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                ? "border-violet-200 bg-violet-50 text-violet-700"
                 : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900",
             )}
           >
@@ -490,7 +497,10 @@ export default function ScheduleLinkedTasks({
 
   return (
     <section
-      className={cn("rounded-lg border border-slate-200 bg-slate-50 p-3", className)}
+      className={cn(
+        "rounded-lg border border-slate-200 bg-slate-50 p-3",
+        className,
+      )}
     >
       {content}
     </section>

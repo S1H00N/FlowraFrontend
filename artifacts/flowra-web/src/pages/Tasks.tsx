@@ -1,14 +1,9 @@
-import {
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Clock3,
   Plus,
+  RotateCcw,
   Search,
   X,
 } from "lucide-react";
@@ -19,6 +14,8 @@ import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import TaskCompletionToggleButton from "@/components/TaskCompletionToggleButton";
 import { useCategories } from "@/hooks/useCategories";
+import { useCompanySchedules } from "@/hooks/useCompanySchedules";
+import { useHolidaysInRange } from "@/hooks/useHolidays";
 import { useSchedules, useCreateSchedules } from "@/hooks/useSchedules";
 import { useSetTaskCompletion, useTasks } from "@/hooks/useTasks";
 import {
@@ -27,11 +24,16 @@ import {
 } from "@/hooks/useCompanyAdmin";
 import {
   ScheduleFormPanel,
+  companyScheduleToSchedule,
   emptyFormForDate,
   defaultSchedulePanelFloatingStyle,
+  groupHolidaysByDate,
+  mergeSchedules,
   toPayload,
+  type DayMeta,
 } from "@/pages/Schedules";
 import {
+  type Holiday,
   type Schedule,
   type ScheduleType,
   type Task,
@@ -66,7 +68,7 @@ const scheduleTypeColor: Record<ScheduleType, string> = {
 
 const taskPriorityDot: Record<TaskPriority, string> = {
   low: "bg-slate-300",
-  medium: "bg-indigo-400",
+  medium: "bg-violet-400",
   high: "bg-amber-400",
   urgent: "bg-rose-500",
 };
@@ -182,8 +184,11 @@ function scheduleOverlapsDate(schedule: Schedule, date: Date) {
 function buildMonthCells(month: Date, weekStart: WeekStartDay) {
   const first = startOfMonth(month);
   const cursor = addDays(first, -daysSinceWeekStart(first, weekStart));
+  const totalDays = endOfMonth(month).getDate();
+  const totalCells =
+    Math.ceil((daysSinceWeekStart(first, weekStart) + totalDays) / 7) * 7;
 
-  return Array.from({ length: 42 }, (_, index) => {
+  return Array.from({ length: totalCells }, (_, index) => {
     const date = addDays(cursor, index);
     return {
       date,
@@ -212,7 +217,11 @@ function sortSchedules(a: Schedule, b: Schedule) {
   );
 }
 
-function groupSchedules(schedules: Schedule[], selectedDate: Date, exact: boolean) {
+function groupSchedules(
+  schedules: Schedule[],
+  selectedDate: Date,
+  exact: boolean,
+) {
   if (exact) {
     return [
       {
@@ -255,21 +264,29 @@ function MiniCalendar({
   visibleMonth,
   selectedDateKey,
   dateMode,
-  countsByDate,
+  dateMeta,
+  holidaysByDate,
   weekStart,
   onMoveMonth,
+  onResetMonth,
   onSelectDate,
   onShowAll,
 }: {
   visibleMonth: Date;
   selectedDateKey: string;
   dateMode: boolean;
-  countsByDate: Map<string, number>;
+  dateMeta: Map<string, DayMeta>;
+  holidaysByDate: Map<string, Holiday[]>;
   weekStart: WeekStartDay;
   onMoveMonth: (amount: number) => void;
+  onResetMonth: () => void;
   onSelectDate: (date: Date) => void;
   onShowAll: () => void;
 }) {
+  const today = new Date();
+  const isCurrentMonth =
+    visibleMonth.getFullYear() === today.getFullYear() &&
+    visibleMonth.getMonth() === today.getMonth();
   const weekdayHeaders = useMemo(
     () => orderedWeekdayLabels(weekStart),
     [weekStart],
@@ -279,93 +296,136 @@ function MiniCalendar({
     [visibleMonth, weekStart],
   );
   const todayKey = toDateKey(new Date());
+  const selectedWeekSet = useMemo(() => {
+    const now = new Date();
+    const start = addDays(now, -daysSinceWeekStart(now, weekStart));
+    return new Set(
+      Array.from({ length: 7 }, (_, offset) => toDateKey(addDays(start, offset))),
+    );
+  }, [weekStart]);
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-bold text-slate-950">
-          {formatMonthTitle(visibleMonth)}
-        </h2>
-        <div className="flex items-center gap-1">
+    <aside className="w-full px-3 pb-3 pt-2">
+      <div className="mb-1 flex h-7 items-center justify-between gap-2">
+        {isCurrentMonth ? (
+          <span aria-hidden="true" />
+        ) : (
+          <h2 className="min-w-0 truncate text-sm font-bold text-slate-950">
+            {formatMonthTitle(visibleMonth)}
+          </h2>
+        )}
+        <div className="flex shrink-0 items-center gap-1">
+          {!isCurrentMonth && (
+            <button
+              type="button"
+              onClick={onResetMonth}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              aria-label="이번 달로 이동"
+              title="이번 달로 이동"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => onMoveMonth(-1)}
             aria-label="이전 달"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-900"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
           >
-            <ChevronLeft className="h-3.5 w-3.5" />
+            <ChevronDown className="h-3.5 w-3.5 rotate-180" />
           </button>
           <button
             type="button"
             onClick={() => onMoveMonth(1)}
             aria-label="다음 달"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-900"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
           >
-            <ChevronRight className="h-3.5 w-3.5" />
+            <ChevronDown className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-slate-400">
-        {weekdayHeaders.map(({ day, label }) => (
-          <span
-            key={day}
-            className={
-              day === 0
-                ? "text-rose-500"
-                : day === 6
-                  ? "text-indigo-500"
-                  : undefined
-            }
-          >
-            {label}
-          </span>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-7 gap-y-1 text-center">
-        {cells.map(({ date, key, currentMonth }) => {
-          const selected = dateMode && selectedDateKey === key;
-          const today = todayKey === key;
-          const count = countsByDate.get(key) ?? 0;
-
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => onSelectDate(date)}
-              className={`relative mx-auto flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium transition ${
-                selected
-                  ? "bg-indigo-500 text-white shadow-sm"
-                  : today
-                    ? "bg-indigo-50 text-indigo-700"
-                    : currentMonth
-                      ? "text-slate-700 hover:bg-slate-100"
-                      : "text-slate-300 hover:bg-slate-50"
-              }`}
-              aria-label={`${formatFullDate(date)} 일정 ${count}개`}
+      <div className="mt-2">
+        <div className="grid grid-cols-7 text-center text-[10px] font-semibold text-slate-400">
+          {weekdayHeaders.map(({ day, label }) => (
+            <span
+              key={day}
+              className={
+                day === 0
+                  ? "text-rose-500"
+                  : day === 6
+                    ? "text-sky-500"
+                    : undefined
+              }
             >
-              {date.getDate()}
-              {count > 0 && (
-                <span
-                  className={`absolute bottom-0.5 h-1 w-1 rounded-full ${
-                    selected ? "bg-white" : "bg-indigo-500"
-                  }`}
-                />
-              )}
-            </button>
-          );
-        })}
+              {label}
+            </span>
+          ))}
+        </div>
+
+        <div className="mt-2 grid grid-cols-7 gap-y-1 overflow-hidden rounded-xl text-center">
+          {cells.map(({ date, key, currentMonth }, index) => {
+            const selected = dateMode && selectedDateKey === key;
+            const today = currentMonth && todayKey === key;
+            const highlight = selected || today;
+            const meta = dateMeta.get(key);
+            const count = meta?.count ?? 0;
+            const isHoliday = (holidaysByDate.get(key)?.length ?? 0) > 0;
+            const selectedWeek = selectedWeekSet.has(key);
+            const column = index % 7;
+
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => onSelectDate(date)}
+                className={`relative flex h-8 items-center justify-center text-xs font-semibold leading-none transition ${
+                  selectedWeek && !highlight && column === 0
+                    ? "rounded-l-xl"
+                    : ""
+                } ${
+                  selectedWeek && !highlight && column === 6
+                    ? "rounded-r-xl"
+                    : ""
+                } ${selectedWeek && !highlight ? "bg-slate-100" : ""} ${
+                  highlight
+                    ? "z-10 rounded-lg bg-red-500! text-white! shadow-sm"
+                    : currentMonth
+                      ? isHoliday
+                        ? "rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700"
+                        : "text-slate-700 hover:bg-slate-100 hover:text-slate-950"
+                      : "text-slate-300 hover:bg-slate-100 hover:text-slate-500"
+                }`}
+                aria-label={`${formatFullDate(date)} 일정 ${count}개`}
+              >
+                {date.getDate()}
+                {count > 0 && (
+                  <span className="pointer-events-none absolute inset-x-0 bottom-1 flex items-center justify-center">
+                    <span
+                      className={`h-1 w-1 rounded-full ${
+                        highlight
+                          ? "bg-white"
+                          : meta?.hasDeadline
+                            ? "bg-rose-500"
+                            : "bg-violet-500"
+                      }`}
+                    />
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <button
         type="button"
         onClick={onShowAll}
-        className="inline-flex h-8 w-full items-center justify-center rounded-md border border-slate-200 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-slate-950"
+        className="mt-3 inline-flex h-8 w-full items-center justify-center rounded-md border border-slate-200 bg-white text-xs font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-slate-950"
       >
         전체 일정 보기
       </button>
-    </div>
+    </aside>
   );
 }
 
@@ -423,7 +483,7 @@ function ScheduleCard({
   };
 
   return (
-    <li className="overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-slate-200/80">
+    <li className="flowra-list-card overflow-hidden transition">
       <div className="relative">
         <span
           className="absolute inset-y-4 left-4 w-1 rounded-full"
@@ -468,7 +528,7 @@ function ScheduleCard({
             <div className="hidden items-center gap-2 sm:flex">
               <div className="h-1 w-16 overflow-hidden rounded-full bg-slate-100">
                 <span
-                  className="block h-full rounded-full bg-indigo-500"
+                  className="block h-full rounded-full bg-violet-500"
                   style={{ width: `${progress.percent}%` }}
                 />
               </div>
@@ -540,10 +600,9 @@ function ScheduleCard({
               <button
                 type="button"
                 onClick={onOpenAddTaskPanel}
-                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 text-sm font-bold text-slate-500 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700 sm:w-auto sm:px-4"
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 text-sm font-bold text-slate-500 transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 sm:w-auto sm:px-4"
               >
-                <Plus className="h-4 w-4" />
-                할 일 추가
+                <Plus className="h-4 w-4" />할 일 추가
               </button>
             </div>
 
@@ -676,7 +735,7 @@ function FilterButton({
       onClick={onClick}
       className={`inline-flex h-8 items-center justify-center rounded-lg px-3 text-xs font-bold transition ${
         active
-          ? "bg-indigo-50 text-indigo-700"
+          ? "flowra-filter-active"
           : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
       }`}
     >
@@ -686,7 +745,7 @@ function FilterButton({
 }
 
 export default function Tasks() {
-  const { weekStart } = useUserSettings();
+  const { weekStart, showHolidays } = useUserSettings();
   const [selectedDateKey, setSelectedDateKey] = useState(() =>
     toDateKey(new Date()),
   );
@@ -718,11 +777,25 @@ export default function Tasks() {
   const schedulesQuery = useSchedules(queryRange);
   const createSchedulesMutation = useCreateSchedules();
   const companyAdminMeQuery = useCompanyAdminMe();
+  const hasCompanyMembership = companyAdminMeQuery.isSuccess;
+  const companySchedulesQuery = useCompanySchedules(queryRange, {
+    enabled: hasCompanyMembership,
+  });
   const createCompanyScheduleMutation = useCreateCompanyAdminSchedule();
   const tasksQuery = useTasks();
   const categoriesQuery = useCategories("schedule");
   const classificationSettings = useClassificationSettings();
-  const schedules = schedulesQuery.data ?? [];
+  const companySchedules = useMemo(
+    () =>
+      (companySchedulesQuery.data ?? []).map((schedule) =>
+        companyScheduleToSchedule(schedule),
+      ),
+    [companySchedulesQuery.data],
+  );
+  const schedules = useMemo(
+    () => mergeSchedules(schedulesQuery.data ?? [], companySchedules),
+    [schedulesQuery.data, companySchedules],
+  );
   const tasks = tasksQuery.data ?? [];
   const categoryById = useMemo(
     () =>
@@ -759,16 +832,43 @@ export default function Tasks() {
   const taskPanelTasks = taskPanelSchedule
     ? (tasksByScheduleId.get(taskPanelSchedule.schedule_id) ?? [])
     : [];
-  const countsByDate = useMemo(() => {
-    const map = new Map<string, number>();
+  const dateMeta = useMemo(() => {
+    const map = new Map<string, DayMeta>();
     buildMonthCells(visibleMonth, weekStart).forEach(({ date, key }) => {
-      const count = schedules.filter((schedule) =>
+      const matching = schedules.filter((schedule) =>
         scheduleOverlapsDate(schedule, date),
-      ).length;
-      if (count > 0) map.set(key, count);
+      );
+      if (matching.length > 0) {
+        map.set(key, {
+          count: matching.length,
+          hasDeadline: matching.some(
+            (schedule) => schedule.schedule_type === "deadline",
+          ),
+        });
+      }
     });
     return map;
   }, [schedules, visibleMonth, weekStart]);
+  const holidayRange = useMemo(() => {
+    const cells = buildMonthCells(visibleMonth, weekStart);
+    const first = cells[0]?.date ?? visibleMonth;
+    const last = cells[cells.length - 1]?.date ?? visibleMonth;
+    return {
+      start_date: toDateKey(first),
+      end_date: toDateKey(last),
+      public_only: true,
+    };
+  }, [visibleMonth, weekStart]);
+  const holidaysQuery = useHolidaysInRange(holidayRange, {
+    enabled: showHolidays,
+  });
+  const holidaysByDate = useMemo(
+    () =>
+      showHolidays
+        ? groupHolidaysByDate(holidaysQuery.data ?? [])
+        : new Map<string, Holiday[]>(),
+    [holidaysQuery.data, showHolidays],
+  );
   const filteredSchedules = useMemo(() => {
     const today = new Date();
     const keyword = search.trim().toLowerCase();
@@ -783,7 +883,10 @@ export default function Tasks() {
         if (useExactDate && !scheduleOverlapsDate(schedule, targetDate)) {
           return false;
         }
-        if (!useExactDate && new Date(schedule.start_datetime) < startOfDay(today)) {
+        if (
+          !useExactDate &&
+          new Date(schedule.start_datetime) < startOfDay(today)
+        ) {
           return false;
         }
         if (filter === "active" && progress.completed) return false;
@@ -824,7 +927,12 @@ export default function Tasks() {
     tasksByScheduleId,
   ]);
   const groups = useMemo(
-    () => groupSchedules(filteredSchedules, selectedDate, dateMode || filter === "today"),
+    () =>
+      groupSchedules(
+        filteredSchedules,
+        selectedDate,
+        dateMode || filter === "today",
+      ),
     [dateMode, filter, filteredSchedules, selectedDate],
   );
   const visibleTasks = useMemo(
@@ -842,10 +950,20 @@ export default function Tasks() {
     visibleTaskCount > 0
       ? Math.round((visibleDoneCount / visibleTaskCount) * 100)
       : 0;
-  const isLoading = schedulesQuery.isLoading || tasksQuery.isLoading;
-  const error = schedulesQuery.error ?? tasksQuery.error;
-  const isError = schedulesQuery.isError || tasksQuery.isError;
-  const isFetching = schedulesQuery.isFetching || tasksQuery.isFetching;
+  const isLoading =
+    schedulesQuery.isLoading ||
+    tasksQuery.isLoading ||
+    companySchedulesQuery.isLoading;
+  const error =
+    schedulesQuery.error ?? tasksQuery.error ?? companySchedulesQuery.error;
+  const isError =
+    schedulesQuery.isError ||
+    tasksQuery.isError ||
+    companySchedulesQuery.isError;
+  const isFetching =
+    schedulesQuery.isFetching ||
+    tasksQuery.isFetching ||
+    companySchedulesQuery.isFetching;
   const sidePanelOpen = scheduleAddPanelOpen || taskPanelScheduleId !== null;
 
   const selectDate = (date: Date) => {
@@ -903,14 +1021,14 @@ export default function Tasks() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="일정 또는 할 일 검색..."
-              className="h-9 w-64 rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
+              className="flowra-input h-9 w-64 pl-9 pr-3 text-sm"
             />
           </label>
           {!sidePanelOpen && (
             <button
               type="button"
               onClick={openScheduleAddPanel}
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-indigo-500 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-600"
+              className="flowra-primary-button inline-flex h-9 items-center justify-center gap-2 rounded-lg px-4 text-sm font-bold transition disabled:opacity-60"
             >
               <Plus className="h-4 w-4" />새 일정
             </button>
@@ -922,17 +1040,19 @@ export default function Tasks() {
           visibleMonth={visibleMonth}
           selectedDateKey={selectedDateKey}
           dateMode={dateMode || filter === "today"}
-          countsByDate={countsByDate}
+          dateMeta={dateMeta}
+          holidaysByDate={holidaysByDate}
           weekStart={weekStart}
           onMoveMonth={(amount) =>
             setVisibleMonth((prev) => addMonths(prev, amount))
           }
+          onResetMonth={() => setVisibleMonth(startOfMonth(new Date()))}
           onSelectDate={selectDate}
           onShowAll={showAll}
         />
       }
     >
-      <div className="flex h-full min-h-0 flex-col bg-[#f7f8fb] dark:bg-slate-950">
+      <div className="flowra-workspace flex h-full min-h-0 flex-col">
         <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
           <div className="flex flex-col gap-3 min-[900px]:flex-row min-[900px]:items-center min-[900px]:justify-between">
             <div className="flex min-w-0 flex-wrap items-center gap-4">
@@ -941,7 +1061,7 @@ export default function Tasks() {
                 <div className="flex items-center gap-2">
                   <div className="h-1.5 w-28 overflow-hidden rounded-full bg-slate-100">
                     <span
-                      className="block h-full rounded-full bg-indigo-500"
+                      className="block h-full rounded-full bg-violet-500"
                       style={{ width: `${progressPercent}%` }}
                     />
                   </div>
@@ -952,7 +1072,10 @@ export default function Tasks() {
               </div>
 
               <div className="flex items-center gap-1">
-                <FilterButton active={filter === "all" && !dateMode} onClick={showAll}>
+                <FilterButton
+                  active={filter === "all" && !dateMode}
+                  onClick={showAll}
+                >
                   전체
                 </FilterButton>
                 <FilterButton
@@ -988,19 +1111,19 @@ export default function Tasks() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="일정 또는 할 일 검색..."
-                className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
+                className="flowra-input h-10 w-full pl-9 pr-3 text-sm"
               />
             </label>
           </div>
 
           {dateMode && filter !== "today" && (
-            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700">
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-violet-100 bg-violet-50 px-3 py-1 text-xs font-bold text-violet-700">
               {formatFullDate(selectedDate)}
               <button
                 type="button"
                 onClick={showAll}
                 aria-label="날짜 선택 해제"
-                className="rounded-full p-0.5 hover:bg-indigo-100"
+                className="rounded-full p-0.5 hover:bg-violet-100"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -1020,6 +1143,7 @@ export default function Tasks() {
                   onRetry={() => {
                     void schedulesQuery.refetch();
                     void tasksQuery.refetch();
+                    void companySchedulesQuery.refetch();
                   }}
                   retrying={isFetching}
                 />
@@ -1046,7 +1170,10 @@ export default function Tasks() {
                           const tasksForSchedule =
                             tasksByScheduleId.get(schedule.schedule_id) ?? [];
                           return (
-                            <div key={schedule.schedule_id} className="relative">
+                            <div
+                              key={schedule.schedule_id}
+                              className="relative"
+                            >
                               <ScheduleCard
                                 schedule={schedule}
                                 category={category}

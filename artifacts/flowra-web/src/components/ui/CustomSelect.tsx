@@ -225,7 +225,8 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
       const target = event.target;
       if (
         target instanceof Node &&
-        (triggerRef.current?.contains(target) || menuRef.current?.contains(target))
+        (triggerRef.current?.contains(target) ||
+          menuRef.current?.contains(target))
       ) {
         return;
       }
@@ -415,15 +416,15 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
                     "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm outline-none transition disabled:cursor-not-allowed disabled:opacity-50",
                     darkMenu
                       ? "text-zinc-200 hover:bg-white/10 hover:text-white focus:bg-white/10 focus:text-white"
-                      : "hover:bg-emerald-50/70 focus:bg-emerald-50/70 focus:text-slate-950",
+                      : "hover:bg-violet-50/70 focus:bg-violet-50/70 focus:text-slate-950",
                     active &&
                       (darkMenu
                         ? "bg-white/10 text-white"
-                        : "bg-emerald-50/70 text-slate-950"),
+                        : "bg-violet-50/70 text-slate-950"),
                     selected &&
                       (darkMenu
                         ? "bg-white/10 text-white"
-                        : "bg-emerald-50 text-emerald-700"),
+                        : "bg-violet-50 text-violet-700"),
                   )}
                 >
                   <OptionMarker option={option} />
@@ -445,7 +446,7 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
                   <span
                     className={cn(
                       "flex h-5 w-5 shrink-0 items-center justify-center",
-                      darkMenu ? "text-emerald-400" : "text-emerald-600",
+                      darkMenu ? "text-violet-400" : "text-violet-600",
                     )}
                   >
                     {selected ? <Check className="h-4 w-4" /> : null}
@@ -474,8 +475,8 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
         className={cn(
           "group flex h-11 w-full cursor-pointer items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3.5 text-left text-sm shadow-sm shadow-slate-200/40 outline-none transition",
           "hover:border-slate-300 hover:shadow-md hover:shadow-slate-200/50",
-          "focus-visible:border-emerald-400 focus-visible:ring-2 focus-visible:ring-emerald-100",
-          "data-[state=open]:border-emerald-400 data-[state=open]:ring-2 data-[state=open]:ring-emerald-100",
+          "focus-visible:border-violet-400 focus-visible:ring-2 focus-visible:ring-violet-100",
+          "data-[state=open]:border-violet-400 data-[state=open]:ring-2 data-[state=open]:ring-violet-100",
           "disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400 disabled:shadow-none",
           className,
         )}
@@ -483,7 +484,9 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
         <span
           className={cn(
             "flex min-w-0 flex-1",
-            fieldLabel ? "flex-col items-start gap-0.5" : "items-center gap-2.5",
+            fieldLabel
+              ? "flex-col items-start gap-0.5"
+              : "items-center gap-2.5",
           )}
         >
           {fieldLabel ? (
@@ -521,7 +524,7 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
             </span>
           </span>
         </span>
-        <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition group-data-[state=open]:rotate-180 group-data-[state=open]:text-emerald-500" />
+        <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition group-data-[state=open]:rotate-180 group-data-[state=open]:text-violet-500" />
       </button>
       {menu}
     </>

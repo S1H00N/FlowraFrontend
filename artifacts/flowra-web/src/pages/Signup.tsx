@@ -24,7 +24,9 @@ function getSignupErrorMessage(err: unknown) {
 
 export default function Signup() {
   const { signup } = useAuth();
-  const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
+  const [verificationEmail, setVerificationEmail] = useState<string | null>(
+    null,
+  );
   const [verificationExpiresAt, setVerificationExpiresAt] = useState<
     string | null
   >(null);
@@ -69,14 +71,14 @@ export default function Signup() {
     `mt-1 w-full rounded-lg border px-3 py-2.5 text-sm shadow-sm outline-none transition focus:ring-2 ${
       hasError
         ? "border-red-400 focus:border-red-500 focus:ring-red-100"
-        : "border-slate-300 focus:border-emerald-500 focus:ring-emerald-100"
+        : "border-slate-300 focus:border-violet-500 focus:ring-violet-100"
     }`;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-600 text-white shadow-sm">
             <Sparkles className="h-5 w-5" />
           </div>
           <div>
@@ -94,19 +96,22 @@ export default function Signup() {
           </p>
 
           {verificationEmail ? (
-            <div className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-800">
+            <div className="mt-6 rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm leading-6 text-violet-800">
               <p className="font-medium">인증 메일을 보냈습니다.</p>
-              <p className="mt-1">{verificationEmail} 주소의 인증 링크를 확인해 주세요.</p>
+              <p className="mt-1">
+                {verificationEmail} 주소의 인증 링크를 확인해 주세요.
+              </p>
               {verificationExpiresAt && (
-                <p className="mt-2 text-xs text-emerald-700">
-                  링크 만료: {new Date(verificationExpiresAt).toLocaleString("ko-KR")}
+                <p className="mt-2 text-xs text-violet-700">
+                  링크 만료:{" "}
+                  {new Date(verificationExpiresAt).toLocaleString("ko-KR")}
                 </p>
               )}
               <button
                 type="button"
                 onClick={handleResend}
                 disabled={resending}
-                className="mt-4 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+                className="mt-4 rounded-lg border border-violet-300 bg-white px-3 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-60"
               >
                 {resending ? "재발송 요청 중..." : "인증 메일 다시 받기"}
               </button>
@@ -117,81 +122,81 @@ export default function Signup() {
               noValidate
               className="mt-6 space-y-4"
             >
-            <div>
-              <label
-                className="block text-sm font-medium text-slate-700"
-                htmlFor="name"
-              >
-                이름
-              </label>
-              <input
-                id="name"
-                type="text"
-                {...register("name")}
-                aria-invalid={!!errors.name}
-                className={inputClass(!!errors.name)}
-                placeholder="홍길동"
-              />
-              {errors.name && (
-                <p className="mt-1 text-xs text-red-600">
-                  {errors.name.message}
-                </p>
-              )}
-            </div>
+              <div>
+                <label
+                  className="block text-sm font-medium text-slate-700"
+                  htmlFor="name"
+                >
+                  이름
+                </label>
+                <input
+                  id="name"
+                  type="text"
+                  {...register("name")}
+                  aria-invalid={!!errors.name}
+                  className={inputClass(!!errors.name)}
+                  placeholder="홍길동"
+                />
+                {errors.name && (
+                  <p className="mt-1 text-xs text-red-600">
+                    {errors.name.message}
+                  </p>
+                )}
+              </div>
 
-            <div>
-              <label
-                className="block text-sm font-medium text-slate-700"
-                htmlFor="email"
-              >
-                이메일
-              </label>
-              <input
-                id="email"
-                type="email"
-                autoComplete="email"
-                {...register("email")}
-                aria-invalid={!!errors.email}
-                className={inputClass(!!errors.email)}
-                placeholder="user@example.com"
-              />
-              {errors.email && (
-                <p className="mt-1 text-xs text-red-600">
-                  {errors.email.message}
-                </p>
-              )}
-            </div>
+              <div>
+                <label
+                  className="block text-sm font-medium text-slate-700"
+                  htmlFor="email"
+                >
+                  이메일
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  {...register("email")}
+                  aria-invalid={!!errors.email}
+                  className={inputClass(!!errors.email)}
+                  placeholder="user@example.com"
+                />
+                {errors.email && (
+                  <p className="mt-1 text-xs text-red-600">
+                    {errors.email.message}
+                  </p>
+                )}
+              </div>
 
-            <div>
-              <label
-                className="block text-sm font-medium text-slate-700"
-                htmlFor="password"
-              >
-                비밀번호
-              </label>
-              <input
-                id="password"
-                type="password"
-                autoComplete="new-password"
-                {...register("password")}
-                aria-invalid={!!errors.password}
-                className={inputClass(!!errors.password)}
-                placeholder="영문+숫자 포함 8자 이상"
-              />
-              {errors.password && (
-                <p className="mt-1 text-xs text-red-600">
-                  {errors.password.message}
-                </p>
-              )}
-            </div>
+              <div>
+                <label
+                  className="block text-sm font-medium text-slate-700"
+                  htmlFor="password"
+                >
+                  비밀번호
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  autoComplete="new-password"
+                  {...register("password")}
+                  aria-invalid={!!errors.password}
+                  className={inputClass(!!errors.password)}
+                  placeholder="영문+숫자 포함 8자 이상"
+                />
+                {errors.password && (
+                  <p className="mt-1 text-xs text-red-600">
+                    {errors.password.message}
+                  </p>
+                )}
+              </div>
 
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60"
-            >
-              {isSubmitting ? "가입 중..." : "회원가입"}
-            </button>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60"
+              >
+                {isSubmitting ? "가입 중..." : "회원가입"}
+              </button>
             </form>
           )}
 
@@ -199,7 +204,7 @@ export default function Signup() {
             이미 계정이 있으신가요?{" "}
             <Link
               to="/login"
-              className="font-medium text-emerald-700 hover:underline"
+              className="font-medium text-violet-700 hover:underline"
             >
               로그인
             </Link>
