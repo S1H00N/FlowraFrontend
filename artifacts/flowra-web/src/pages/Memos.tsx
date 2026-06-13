@@ -984,7 +984,11 @@ function MemoReaderPanel({
         onSubmit={handleSave}
         className="scrollbar-none min-h-0 flex-1 overflow-y-auto px-10 py-8"
       >
-        <h1 className="mb-6 text-2xl font-bold leading-snug text-slate-900">
+        <h1
+          className={`mb-6 text-2xl font-bold leading-snug text-slate-900 ${
+            isEditing ? "" : "border-b border-slate-200 pb-4"
+          }`}
+        >
           {getMemoTitle(memo, latestResult)}
         </h1>
 
