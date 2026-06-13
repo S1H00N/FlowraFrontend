@@ -27,6 +27,19 @@ const Settings = lazy(() => import("@/pages/Settings"));
 const CompanyInvite = lazy(() => import("@/pages/CompanyInvite"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
+function normalizeLeadingPathSlashes() {
+  const normalizedPath = window.location.pathname.replace(/^\/{2,}/, "/");
+  if (normalizedPath === window.location.pathname) return;
+
+  window.history.replaceState(
+    window.history.state,
+    "",
+    `${normalizedPath}${window.location.search}${window.location.hash}`,
+  );
+}
+
+normalizeLeadingPathSlashes();
+
 interface MutationMeta {
   successMessage?: string;
   errorMessage?: string;
