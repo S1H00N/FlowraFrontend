@@ -304,6 +304,57 @@ export function useDeleteTask() {
   });
 }
 
+export function useDeleteTasks() {
+  const invalidate = useInvalidateTasks();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (taskIds: number[]) => {
+      const results = await Promise.all(
+        taskIds.map(async (taskId) => {
+          try {
+            const res = await deleteTask(taskId);
+            return {
+              taskId,
+              success: res.success,
+              message: res.message,
+            };
+          } catch (error) {
+            return {
+              taskId,
+              success: false,
+              message: error instanceof Error ? error.message : undefined,
+            };
+          }
+        }),
+      );
+      const deletedIds = results
+        .filter((result) => result.success)
+        .map((result) => result.taskId);
+      const failedIds = results
+        .filter((result) => !result.success)
+        .map((result) => result.taskId);
+
+      if (deletedIds.length === 0) {
+        const message = results.find((result) => result.message)?.message;
+        throw new Error(message || "선택한 할 일 삭제에 실패했습니다.");
+      }
+
+      return { deletedIds, failedIds };
+    },
+    onSuccess: ({ deletedIds }) => {
+      deletedIds.forEach((taskId) => {
+        removeTaskFromListCaches(queryClient, taskId);
+        queryClient.removeQueries({ queryKey: taskDetailKey(taskId) });
+      });
+      invalidate();
+    },
+    meta: {
+      errorMessage: "선택한 할 일 삭제에 실패했습니다.",
+    },
+  });
+}
+
 export function useCompleteTask() {
   const invalidate = useInvalidateTasks();
   return useMutation({
@@ -337,8 +388,8 @@ export function useSetTaskCompletion() {
         throw new Error(res.message || "완료 상태 변경에 실패했습니다.");
       return res.data.task;
     },
-    onMutate: async ({ taskId, completed }) => {
-      await queryClient.cancelQueries({ queryKey: TASKS_QUERY_KEY });
+    onMutate: ({ taskId, completed }) => {
+      void queryClient.cancelQueries({ queryKey: TASKS_QUERY_KEY });
       updateTaskCompletionInListCaches(queryClient, taskId, completed);
     },
     onSuccess: (task) => {

@@ -1,5 +1,6 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  CheckSquare2,
   ChevronDown,
   Clock3,
   Plus,
@@ -13,6 +14,7 @@ import ScheduleLinkedTasks from "@/components/ScheduleLinkedTasks";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
+import { Checkbox } from "@/components/ui/checkbox";
 import TaskCompletionToggleButton from "@/components/TaskCompletionToggleButton";
 import { useCategories } from "@/hooks/useCategories";
 import {
@@ -27,6 +29,7 @@ import {
 } from "@/hooks/useSchedules";
 import {
   useDeleteTask,
+  useDeleteTasks,
   useSetTaskCompletion,
   useTasks,
 } from "@/hooks/useTasks";
@@ -57,6 +60,7 @@ import {
   useClassificationSettings,
 } from "@/lib/classificationSettings";
 import { getErrorMessage } from "@/lib/error";
+import { toast } from "@/lib/toast";
 import { useUserSettings, type WeekStartDay } from "@/lib/userSettings";
 import { toOffsetISOString } from "@/utils/dateUtils";
 
@@ -461,8 +465,11 @@ function ScheduleCard({
   tasks,
   expanded,
   deleting,
+  taskSelectionMode,
+  selectedTaskIds,
   onToggle,
   onDelete,
+  onToggleTaskSelection,
   onOpenAddTaskPanel,
 }: {
   schedule: Schedule;
@@ -470,8 +477,11 @@ function ScheduleCard({
   tasks: Task[];
   expanded: boolean;
   deleting: boolean;
+  taskSelectionMode: boolean;
+  selectedTaskIds: Set<number>;
   onToggle: () => void;
   onDelete: () => Promise<void>;
+  onToggleTaskSelection: (taskId: number) => void;
   onOpenAddTaskPanel: () => void;
 }) {
   const classificationSettings = useClassificationSettings();
@@ -622,22 +632,39 @@ function ScheduleCard({
               <ul className="space-y-3">
                 {sortedTasks.map((task) => {
                   const done = task.status === "done";
+                  const selected = selectedTaskIds.has(task.task_id);
                   const deletingTask =
                     deleteTaskMutation.isPending &&
                     deleteTaskMutation.variables === task.task_id;
+                  const updatingTask =
+                    completionMutation.isPending &&
+                    completionMutation.variables?.taskId === task.task_id;
                   return (
                     <li
                       key={task.task_id}
-                      className="group flex items-start gap-3"
+                      className={`group flex items-start gap-3 rounded-lg transition-colors ${
+                        selected ? "bg-violet-50/70" : ""
+                      }`}
                     >
-                      <TaskCompletionToggleButton
-                        completed={done}
-                        disabled={completionMutation.isPending || deletingTask}
-                        compact
-                        onCompletedChange={(completed) =>
-                          handleCompletionChange(task, completed)
-                        }
-                      />
+                      {taskSelectionMode ? (
+                        <Checkbox
+                          checked={selected}
+                          onCheckedChange={() =>
+                            onToggleTaskSelection(task.task_id)
+                          }
+                          aria-label={`${task.title} 선택`}
+                          className="mt-0.5 h-5 w-5 rounded-full"
+                        />
+                      ) : (
+                        <TaskCompletionToggleButton
+                          completed={done}
+                          disabled={updatingTask || deletingTask}
+                          compact
+                          onCompletedChange={(completed) =>
+                            handleCompletionChange(task, completed)
+                          }
+                        />
+                      )}
                       <span
                         className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${
                           taskPriorityDot[task.priority]
@@ -658,16 +685,18 @@ function ScheduleCard({
                           {formatTaskDue(task.due_datetime)}
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteTask(task)}
-                        disabled={deleteTaskMutation.isPending}
-                        aria-label={`${task.title} 삭제`}
-                        title="할 일 삭제"
-                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-300 opacity-100 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {!taskSelectionMode && (
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteTask(task)}
+                          disabled={deleteTaskMutation.isPending}
+                          aria-label={`${task.title} 삭제`}
+                          title="할 일 삭제"
+                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-300 opacity-100 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
                     </li>
                   );
                 })}
@@ -700,7 +729,17 @@ function ScheduleCard({
   );
 }
 
-function IndependentTasksSection({ tasks }: { tasks: Task[] }) {
+function IndependentTasksSection({
+  tasks,
+  taskSelectionMode,
+  selectedTaskIds,
+  onToggleTaskSelection,
+}: {
+  tasks: Task[];
+  taskSelectionMode: boolean;
+  selectedTaskIds: Set<number>;
+  onToggleTaskSelection: (taskId: number) => void;
+}) {
   const completionMutation = useSetTaskCompletion();
   const deleteMutation = useDeleteTask();
   const [expanded, setExpanded] = useState(true);
@@ -756,22 +795,39 @@ function IndependentTasksSection({ tasks }: { tasks: Task[] }) {
           <ul className="flowra-list-card mt-3 divide-y divide-slate-100 overflow-hidden">
             {tasks.map((task) => {
               const done = task.status === "done";
+              const selected = selectedTaskIds.has(task.task_id);
               const deleting =
                 deleteMutation.isPending &&
                 deleteMutation.variables === task.task_id;
+              const updating =
+                completionMutation.isPending &&
+                completionMutation.variables?.taskId === task.task_id;
               return (
                 <li
                   key={task.task_id}
-                  className="group flex items-start gap-3 px-5 py-4"
+                  className={`group flex items-start gap-3 px-5 py-4 transition-colors ${
+                    selected ? "bg-violet-50/70" : ""
+                  }`}
                 >
-                  <TaskCompletionToggleButton
-                    completed={done}
-                    disabled={completionMutation.isPending || deleting}
-                    compact
-                    onCompletedChange={(completed) =>
-                      void handleCompletionChange(task, completed)
-                    }
-                  />
+                  {taskSelectionMode ? (
+                    <Checkbox
+                      checked={selected}
+                      onCheckedChange={() =>
+                        onToggleTaskSelection(task.task_id)
+                      }
+                      aria-label={`${task.title} 선택`}
+                      className="mt-0.5 h-5 w-5 rounded-full"
+                    />
+                  ) : (
+                    <TaskCompletionToggleButton
+                      completed={done}
+                      disabled={updating || deleting}
+                      compact
+                      onCompletedChange={(completed) =>
+                        void handleCompletionChange(task, completed)
+                      }
+                    />
+                  )}
                   <span
                     className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${
                       taskPriorityDot[task.priority]
@@ -795,16 +851,18 @@ function IndependentTasksSection({ tasks }: { tasks: Task[] }) {
                       </p>
                     )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleDelete(task)}
-                    disabled={deleteMutation.isPending}
-                    aria-label={`${task.title} 삭제`}
-                    title="삭제"
-                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-300 opacity-100 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  {!taskSelectionMode && (
+                    <button
+                      type="button"
+                      onClick={() => void handleDelete(task)}
+                      disabled={deleteMutation.isPending}
+                      aria-label={`${task.title} 삭제`}
+                      title="삭제"
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-300 opacity-100 transition hover:bg-red-50 hover:text-red-600 focus:opacity-100 disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
                 </li>
               );
             })}
@@ -957,6 +1015,10 @@ export default function Tasks() {
   );
   const [filter, setFilter] = useState<BoardFilter>("all");
   const [search, setSearch] = useState("");
+  const [taskSelectionMode, setTaskSelectionMode] = useState(false);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<number>>(
+    () => new Set(),
+  );
   const [expandedScheduleIds, setExpandedScheduleIds] = useState<Set<number>>(
     () => new Set(),
   );
@@ -987,6 +1049,7 @@ export default function Tasks() {
   const createCompanyScheduleMutation = useCreateCompanyAdminSchedule();
   const deleteCompanyScheduleMutation = useDeleteCompanySchedule();
   const tasksQuery = useTasks();
+  const deleteTasksMutation = useDeleteTasks();
   const categoriesQuery = useCategories("schedule");
   const classificationSettings = useClassificationSettings();
   const companySchedules = useMemo(
@@ -1173,6 +1236,41 @@ export default function Tasks() {
     ],
     [filteredIndependentTasks, filteredSchedules, tasksByScheduleId],
   );
+  const selectableTaskIds = useMemo(
+    () => [
+      ...filteredIndependentTasks.map((task) => task.task_id),
+      ...filteredSchedules
+        .filter((schedule) => expandedScheduleIds.has(schedule.schedule_id))
+        .flatMap((schedule) =>
+          (tasksByScheduleId.get(schedule.schedule_id) ?? []).map(
+            (task) => task.task_id,
+          ),
+        ),
+    ],
+    [
+      expandedScheduleIds,
+      filteredIndependentTasks,
+      filteredSchedules,
+      tasksByScheduleId,
+    ],
+  );
+  const selectedTaskCount = selectedTaskIds.size;
+  const allSelectableTasksSelected =
+    selectableTaskIds.length > 0 &&
+    selectableTaskIds.every((taskId) => selectedTaskIds.has(taskId));
+
+  useEffect(() => {
+    if (!taskSelectionMode) return;
+
+    const selectableIds = new Set(selectableTaskIds);
+    setSelectedTaskIds((current) => {
+      const next = new Set(
+        [...current].filter((taskId) => selectableIds.has(taskId)),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [selectableTaskIds, taskSelectionMode]);
+
   const visibleDoneCount = visibleTasks.filter(
     (task) => task.status === "done",
   ).length;
@@ -1196,6 +1294,54 @@ export default function Tasks() {
     tasksQuery.isFetching ||
     companySchedulesQuery.isFetching;
   const sidePanelOpen = scheduleAddPanelOpen || taskPanelScheduleId !== null;
+
+  const toggleTaskSelection = (taskId: number) => {
+    setSelectedTaskIds((current) => {
+      const next = new Set(current);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  };
+
+  const selectAllTasks = () => {
+    setSelectedTaskIds(new Set(selectableTaskIds));
+  };
+
+  const clearTaskSelection = () => {
+    setSelectedTaskIds(new Set());
+  };
+
+  const closeTaskSelectionMode = () => {
+    clearTaskSelection();
+    setTaskSelectionMode(false);
+  };
+
+  const deleteSelectedTasks = async () => {
+    if (selectedTaskIds.size === 0) return;
+    if (!confirm(`선택한 할 일 ${selectedTaskIds.size}개를 삭제할까요?`)) {
+      return;
+    }
+
+    try {
+      const result = await deleteTasksMutation.mutateAsync([
+        ...selectedTaskIds,
+      ]);
+
+      if (result.failedIds.length > 0) {
+        setSelectedTaskIds(new Set(result.failedIds));
+        toast.error(
+          `할 일 ${result.deletedIds.length}개 삭제, ${result.failedIds.length}개 실패`,
+        );
+        return;
+      }
+
+      toast.success(`할 일 ${result.deletedIds.length}개를 삭제했습니다.`);
+      closeTaskSelectionMode();
+    } catch {
+      // The shared mutation error handler shows the failure message.
+    }
+  };
 
   const selectDate = (date: Date) => {
     const key = toDateKey(date);
@@ -1355,6 +1501,70 @@ export default function Tasks() {
                     완료됨
                   </FilterButton>
                 </div>
+
+                {visibleTaskCount > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 min-[900px]:ml-auto">
+                    {taskSelectionMode ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={selectAllTasks}
+                          disabled={
+                            selectableTaskIds.length === 0 ||
+                            allSelectableTasksSelected ||
+                            deleteTasksMutation.isPending
+                          }
+                          title="현재 펼쳐진 할 일을 모두 선택합니다."
+                          className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          전체 선택
+                        </button>
+                        <button
+                          type="button"
+                          onClick={clearTaskSelection}
+                          disabled={
+                            selectedTaskCount === 0 ||
+                            deleteTasksMutation.isPending
+                          }
+                          className="inline-flex h-8 items-center justify-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          선택 해제
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deleteSelectedTasks()}
+                          disabled={
+                            selectedTaskCount === 0 ||
+                            deleteTasksMutation.isPending
+                          }
+                          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          {deleteTasksMutation.isPending
+                            ? "삭제 중..."
+                            : `선택 삭제 ${selectedTaskCount || ""}`.trim()}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={closeTaskSelectionMode}
+                          disabled={deleteTasksMutation.isPending}
+                          className="inline-flex h-8 items-center justify-center rounded-lg px-2.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-100 disabled:opacity-50"
+                        >
+                          취소
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setTaskSelectionMode(true)}
+                        className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
+                      >
+                        <CheckSquare2 className="h-3.5 w-3.5" />
+                        여러 개 삭제
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               <label className="relative block min-[760px]:hidden">
@@ -1410,7 +1620,12 @@ export default function Tasks() {
               ) : (
                 <div className="mx-auto max-w-[82rem] space-y-6">
                   {filteredIndependentTasks.length > 0 && (
-                    <IndependentTasksSection tasks={filteredIndependentTasks} />
+                    <IndependentTasksSection
+                      tasks={filteredIndependentTasks}
+                      taskSelectionMode={taskSelectionMode}
+                      selectedTaskIds={selectedTaskIds}
+                      onToggleTaskSelection={toggleTaskSelection}
+                    />
                   )}
                   {filteredSchedules.length > 0 &&
                     groups.map((group) => (
@@ -1449,12 +1664,15 @@ export default function Tasks() {
                                         deleteScheduleMutation.variables ===
                                           schedule.schedule_id
                                   }
+                                  taskSelectionMode={taskSelectionMode}
+                                  selectedTaskIds={selectedTaskIds}
                                   onToggle={() =>
                                     toggleSchedule(schedule.schedule_id)
                                   }
                                   onDelete={() =>
                                     deleteScheduleFromBoard(schedule)
                                   }
+                                  onToggleTaskSelection={toggleTaskSelection}
                                   onOpenAddTaskPanel={() =>
                                     openTaskPanel(schedule.schedule_id)
                                   }

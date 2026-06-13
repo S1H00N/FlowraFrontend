@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
+  Building2,
+  CalendarDays,
+  Clock3,
   Flame,
+  MapPin,
   PanelRight,
   Rocket,
   Search,
@@ -20,14 +24,18 @@ import { useTodayHome } from "@/hooks/useTodayHome";
 import ErrorState from "@/components/ui/ErrorState";
 import Spinner from "@/components/ui/Spinner";
 import { cn } from "@/lib/utils";
-import type {
-  Category,
-  HomeAiInsights,
-  HomeCompletionStreak,
-  HomeCompletionStreakDay,
-  HomeInsightData,
-  HomeTask,
-  TaskPriority,
+import {
+  SCHEDULE_TYPE_LABELS,
+  type Category,
+  type HomeAiInsights,
+  type HomeCompletionStreak,
+  type HomeCompletionStreakDay,
+  type HomeInsightData,
+  type HomeOrganizationSchedule,
+  type HomeSchedule,
+  type HomeTask,
+  type ScheduleType,
+  type TaskPriority,
 } from "@/types";
 
 type DashboardFilter = "all" | "urgent" | "high";
@@ -36,6 +44,18 @@ type DashboardTask = HomeTask & {
   dueLabel: string;
   overdue: boolean;
   tag: string;
+};
+
+type DashboardSchedule = {
+  key: string;
+  title: string;
+  scheduleType: ScheduleType;
+  startDatetime: string;
+  endDatetime?: string | null;
+  allDay: boolean;
+  location?: string | null;
+  companyName?: string | null;
+  link: string;
 };
 
 const weekDayLabels = ["월", "화", "수", "목", "금", "토", "일"];
@@ -172,6 +192,32 @@ const tagColorByName: Record<string, string> = {
   할일: "bg-slate-100 text-slate-500 border-slate-200",
 };
 
+const scheduleTypeStyle: Record<
+  ScheduleType,
+  { dot: string; badge: string }
+> = {
+  personal: {
+    dot: "bg-violet-500",
+    badge: "border-violet-200 bg-violet-50 text-violet-700",
+  },
+  meeting: {
+    dot: "bg-blue-500",
+    badge: "border-blue-200 bg-blue-50 text-blue-700",
+  },
+  fieldwork: {
+    dot: "bg-emerald-500",
+    badge: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  },
+  deadline: {
+    dot: "bg-rose-500",
+    badge: "border-rose-200 bg-rose-50 text-rose-700",
+  },
+  other: {
+    dot: "bg-slate-400",
+    badge: "border-slate-200 bg-slate-50 text-slate-600",
+  },
+};
+
 function taskLink(task: HomeTask) {
   const params = new URLSearchParams({
     task_id: String(task.task_id ?? task.id),
@@ -242,6 +288,71 @@ function formatKoreanDate(input?: string) {
     month: "long",
     day: "numeric",
     weekday: "long",
+  });
+}
+
+function formatScheduleTime(schedule: DashboardSchedule) {
+  if (schedule.allDay) return "하루 종일";
+
+  const start = new Date(schedule.startDatetime);
+  if (Number.isNaN(start.getTime())) return "시간 미정";
+  const startLabel = start.toLocaleTimeString("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  if (!schedule.endDatetime) return startLabel;
+  const end = new Date(schedule.endDatetime);
+  if (Number.isNaN(end.getTime())) return startLabel;
+  const endLabel = end.toLocaleTimeString("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${startLabel} - ${endLabel}`;
+}
+
+function scheduleStartTime(schedule: DashboardSchedule) {
+  const time = new Date(schedule.startDatetime).getTime();
+  return Number.isNaN(time) ? Number.MAX_SAFE_INTEGER : time;
+}
+
+function toDashboardSchedules(
+  date: string,
+  personalSchedules: HomeSchedule[],
+  organizationSchedules: HomeOrganizationSchedule[],
+) {
+  const dateParam = encodeURIComponent(date);
+  return [
+    ...personalSchedules.map(
+      (schedule): DashboardSchedule => ({
+        key: `personal-${schedule.id}`,
+        title: schedule.title,
+        scheduleType: schedule.schedule_type,
+        startDatetime: schedule.start_datetime,
+        endDatetime: schedule.end_datetime,
+        allDay: schedule.all_day,
+        location: schedule.location,
+        link: schedule.schedule_id
+          ? `/schedules?date=${dateParam}&schedule_id=${schedule.schedule_id}`
+          : `/schedules?date=${dateParam}`,
+      }),
+    ),
+    ...organizationSchedules.map(
+      (schedule): DashboardSchedule => ({
+        key: `company-${schedule.company_id}-${schedule.id}`,
+        title: schedule.title,
+        scheduleType: schedule.schedule_type,
+        startDatetime: schedule.start_datetime,
+        endDatetime: schedule.end_datetime,
+        allDay: schedule.all_day,
+        location: schedule.location,
+        companyName: schedule.company_name,
+        link: `/schedules?date=${dateParam}`,
+      }),
+    ),
+  ].sort((left, right) => {
+    if (left.allDay !== right.allDay) return left.allDay ? -1 : 1;
+    return scheduleStartTime(left) - scheduleStartTime(right);
   });
 }
 
@@ -448,6 +559,118 @@ function StatCard({
 
   return (
     <div className={cn("rounded-xl border p-4 shadow-sm", tone)}>{content}</div>
+  );
+}
+
+function TodaySchedulePanel({
+  schedules,
+  date,
+}: {
+  schedules: DashboardSchedule[];
+  date: string;
+}) {
+  const visibleSchedules = schedules.slice(0, 6);
+  const remainingCount = schedules.length - visibleSchedules.length;
+  const calendarLink = `/schedules?date=${encodeURIComponent(date)}`;
+
+  return (
+    <section className="mb-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3.5">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600">
+            <CalendarDays className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-slate-800">오늘 일정</h2>
+            <p className="text-xs text-slate-400">총 {schedules.length}개</p>
+          </div>
+        </div>
+        <Link
+          to={calendarLink}
+          className="shrink-0 rounded-lg px-3 py-2 text-xs font-semibold text-violet-600 transition hover:bg-violet-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200"
+        >
+          캘린더에서 보기
+        </Link>
+      </div>
+
+      {visibleSchedules.length > 0 ? (
+        <div className="grid gap-2 p-3 sm:grid-cols-2">
+          {visibleSchedules.map((schedule) => {
+            const style = scheduleTypeStyle[schedule.scheduleType];
+            return (
+              <Link
+                key={schedule.key}
+                to={schedule.link}
+                className="group min-w-0 rounded-xl border border-slate-100 bg-slate-50/70 p-3 transition hover:border-violet-200 hover:bg-violet-50/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200"
+              >
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <span
+                    className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", style.dot)}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-start justify-between gap-2">
+                      <p className="truncate text-sm font-semibold text-slate-800 transition group-hover:text-violet-700">
+                        {schedule.title}
+                      </p>
+                      <span
+                        className={cn(
+                          "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                          style.badge,
+                        )}
+                      >
+                        {SCHEDULE_TYPE_LABELS[schedule.scheduleType]}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                      <span className="inline-flex items-center gap-1">
+                        <Clock3 className="h-3.5 w-3.5 text-slate-400" />
+                        {formatScheduleTime(schedule)}
+                      </span>
+                      {schedule.location && (
+                        <span className="inline-flex min-w-0 items-center gap-1">
+                          <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                          <span className="max-w-40 truncate">
+                            {schedule.location}
+                          </span>
+                        </span>
+                      )}
+                      {schedule.companyName && (
+                        <span className="inline-flex min-w-0 items-center gap-1 text-blue-600">
+                          <Building2 className="h-3.5 w-3.5 shrink-0" />
+                          <span className="max-w-40 truncate">
+                            {schedule.companyName}
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+          {remainingCount > 0 && (
+            <Link
+              to={calendarLink}
+              className="flex min-h-16 items-center justify-center rounded-xl border border-dashed border-slate-200 text-xs font-semibold text-slate-500 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 sm:col-span-2"
+            >
+              나머지 일정 {remainingCount}개 더 보기
+            </Link>
+          )}
+        </div>
+      ) : (
+        <div className="px-4 py-10 text-center">
+          <p className="text-sm font-semibold text-slate-500">
+            오늘 등록된 일정이 없습니다
+          </p>
+          <Link
+            to={`${calendarLink}&create=1`}
+            className="mt-3 inline-flex rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-violet-700"
+          >
+            일정 추가하기
+          </Link>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -967,6 +1190,20 @@ export default function Home() {
   const displayName = meQuery.data?.name ?? cachedUser?.name ?? "사용자";
   const rawTasks = homeQuery.data?.due_today_tasks ?? [];
   const categories = categoriesQuery.data ?? [];
+  const homeDate = homeQuery.data?.date ?? new Date().toISOString().slice(0, 10);
+  const schedules = useMemo(
+    () =>
+      toDashboardSchedules(
+        homeDate,
+        homeQuery.data?.today_schedules ?? [],
+        homeQuery.data?.organization_schedules ?? [],
+      ),
+    [
+      homeDate,
+      homeQuery.data?.organization_schedules,
+      homeQuery.data?.today_schedules,
+    ],
+  );
 
   useEffect(() => {
     setCheckedOverrides((current) => {
@@ -1151,6 +1388,8 @@ export default function Home() {
                 tone="border-slate-100 bg-white"
               />
             </section>
+
+            <TodaySchedulePanel schedules={schedules} date={homeDate} />
 
             {setTaskCompletion.isPending && (
               <div className="mb-3 flex items-center gap-2 text-xs font-medium text-slate-400">
