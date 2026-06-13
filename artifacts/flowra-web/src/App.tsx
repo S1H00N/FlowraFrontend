@@ -85,6 +85,16 @@ function App() {
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
               <Route path="/verify-email" element={<VerifyEmail />} />
+              <Route path="/verify-email/:token" element={<VerifyEmail />} />
+              <Route path="/auth/verify-email" element={<VerifyEmail />} />
+              <Route
+                path="/auth/verify-email/:token"
+                element={<VerifyEmail />}
+              />
+              <Route
+                path="/api/v1/auth/verify-email"
+                element={<VerifyEmail />}
+              />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="/company-invites/:token" element={<CompanyInvite />} />

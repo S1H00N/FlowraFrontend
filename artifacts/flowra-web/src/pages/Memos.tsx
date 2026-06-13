@@ -1174,6 +1174,7 @@ function AiResultContent({
       ({ action: taskAction, index: taskIndex }) => {
         const linked =
           taskAction.type === "create_task" &&
+          !taskAction.linked_existing_schedule_id &&
           (taskAction.related_action_index === index ||
             taskAction.related_schedule_title === scheduleTitle);
         if (linked) linkedTaskIndexes.add(taskIndex);
@@ -1455,6 +1456,7 @@ function AiResultContent({
   const getRelatedScheduleIndexForTaskAction = (taskActionIndex: number) => {
     const action = rawActions[taskActionIndex];
     if (action?.type !== "create_task") return null;
+    if (action.linked_existing_schedule_id) return null;
 
     const relatedActionIndex = toNonNegativeNumber(action.related_action_index);
     if (

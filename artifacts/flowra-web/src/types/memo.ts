@@ -118,6 +118,7 @@ export type AiAppliedResultStatus =
 export interface AiSuggestedAction {
   type: AiSuggestedActionType;
   related_action_index?: number | null;
+  linked_existing_schedule_id?: string | null;
   title?: string;
   description?: string | null;
   schedule_type?: Schedule["schedule_type"] | null;

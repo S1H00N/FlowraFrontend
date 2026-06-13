@@ -1,5 +1,10 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { getErrorMessage } from "@/lib/error";
@@ -9,12 +14,13 @@ type VerifyState = "checking" | "success" | "error";
 export default function VerifyEmail() {
   const { verifyEmail } = useAuth();
   const navigate = useNavigate();
+  const { token: pathToken } = useParams<{ token?: string }>();
   const [searchParams] = useSearchParams();
   const [state, setState] = useState<VerifyState>("checking");
   const [message, setMessage] = useState("이메일 인증을 확인하고 있습니다.");
 
   useEffect(() => {
-    const token = searchParams.get("token");
+    const token = searchParams.get("token")?.trim() || pathToken;
     if (!token) {
       setState("error");
       setMessage("인증 토큰이 없습니다.");
@@ -38,7 +44,7 @@ export default function VerifyEmail() {
     return () => {
       active = false;
     };
-  }, [navigate, searchParams, verifyEmail]);
+  }, [navigate, pathToken, searchParams, verifyEmail]);
 
   const icon =
     state === "checking" ? (

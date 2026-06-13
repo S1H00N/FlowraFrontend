@@ -96,7 +96,9 @@ export function getAiSuggestedActionSummaryMeta(action: AiSuggestedAction) {
     action.location,
     action.related_schedule_title
       ? `연결 일정 ${action.related_schedule_title}`
-      : null,
+      : action.linked_existing_schedule_id
+        ? "기존 일정 연결"
+        : null,
   ].filter((item): item is string => Boolean(item));
 }
 
@@ -122,6 +124,8 @@ export function getAiSuggestedActionChatMeta(action: AiSuggestedAction) {
   if (action.location) meta.push(action.location);
   if (action.related_schedule_title) {
     meta.push(`연결 일정 ${action.related_schedule_title}`);
+  } else if (action.linked_existing_schedule_id) {
+    meta.push("기존 일정 연결");
   }
   if (action.recurrence?.repeat_interval_days) {
     meta.push(`${action.recurrence.repeat_interval_days}일마다 반복`);

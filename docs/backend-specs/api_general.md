@@ -2300,6 +2300,7 @@ Response data:
 - `apply_type=all`은 생성 가능한 `create_schedule`, `create_task`만 적용하며 `pending_item`은 제외합니다.
 - `suggested_actions[].related_action_index`는 같은 파싱 결과 안에서 할 일이 속한 일정 액션의 0-based index입니다.
 - `apply_type=all`에서 `create_task.related_action_index`가 같은 결과 안의 `create_schedule`을 가리키면 생성된 할 일의 `schedule_id`가 해당 일정으로 자동 연결됩니다.
+- `suggested_actions[].linked_existing_schedule_id`는 기존 일정 후보와 강하게 매칭된 할 일에만 설정되며, 적용 시 해당 기존 일정으로 `schedule_id`가 자동 연결됩니다. 사용자가 apply 요청에 `schedule_id`를 직접 넘기면 그 값이 우선합니다.
 - 단일 액션 적용 후에도 `remaining_action_indexes`가 남아 있으면 같은 AI 결과의 나머지 액션을 계속 적용할 수 있습니다.
 - `apply_type=all`은 이미 적용된 액션을 오류로 처리하지 않고 `skipped_action_indexes`에 담아 건너뜁니다.
 - 반복 일정은 여러 일정으로 생성되고 같은 `recurrence_group_id`로 묶입니다.

@@ -78,6 +78,7 @@ AI 파싱 결과의 주 데이터입니다. 일정/할 일 제안은 모두 `sug
   {
     "type": "create_schedule",
     "related_action_index": null,
+    "linked_existing_schedule_id": null,
     "title": "러닝",
     "description": "한강 러닝",
     "schedule_type": "personal",
@@ -116,6 +117,7 @@ AI 파싱 결과의 주 데이터입니다. 일정/할 일 제안은 모두 `sug
   {
     "type": "create_task",
     "related_action_index": 0,
+    "linked_existing_schedule_id": null,
     "title": "러닝화 준비",
     "description": null,
     "schedule_type": null,
@@ -141,6 +143,7 @@ AI 파싱 결과의 주 데이터입니다. 일정/할 일 제안은 모두 `sug
   {
     "type": "pending_item",
     "related_action_index": null,
+    "linked_existing_schedule_id": null,
     "title": "리허설 시간 확정",
     "description": "수요일 오전 10시 또는 오후 1시 중 가능한 시간으로 추후 확정",
     "schedule_type": null,
@@ -170,6 +173,7 @@ AI 파싱 결과의 주 데이터입니다. 일정/할 일 제안은 모두 `sug
 
 - 복수 일정/할 일 액션
 - `related_action_index`: 같은 `suggested_actions` 배열 안의 일정 액션에 속한 할 일일 때, 연결 대상 `create_schedule` 액션의 0-based index입니다. 없으면 `null`입니다.
+- `linked_existing_schedule_id`: 메모 밖의 기존 일정과 연결해야 하는 할 일로 판단되고 후보 일정과 강하게 매칭된 경우, 기존 일정 ID 문자열입니다. 없거나 확신이 낮으면 `null`입니다.
 - `pending_item`: 보류/확정 필요 항목. 실제 일정/할 일 생성 대상은 아니며 UI에서 확인 필요 항목으로 표시합니다.
 - `pending_item`은 `/memos/:memo_id/apply`로 직접 적용할 수 없습니다. 사용자가 날짜/시간/타입을 확정한 뒤 일반 일정 생성 API(`/schedules`) 또는 할 일 생성 API(`/tasks`)로 새로 생성해야 합니다.
 - 확인 필요 메타데이터: `needs_review`, `review_reason`, `date_uncertain`, `time_uncertain`, `auto_filled`, `source_text`, `due_datetime_source`, `related_schedule_title`, `confidence`
