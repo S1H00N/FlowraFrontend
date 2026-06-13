@@ -369,6 +369,7 @@ function CompactDateInput({
   value,
   onChange,
   required = false,
+  disabled = false,
   ariaLabel,
   inputRef,
   onCommit,
@@ -380,6 +381,7 @@ function CompactDateInput({
   value: string;
   onChange: (value: string) => void;
   required?: boolean;
+  disabled?: boolean;
   ariaLabel: string;
   inputRef?: Ref<HTMLInputElement>;
   onCommit?: () => void;
@@ -429,6 +431,12 @@ function CompactDateInput({
       setVisibleMonth(new Date(date.getFullYear(), date.getMonth(), 1));
     }
   }, [effectiveValue]);
+
+  useEffect(() => {
+    if (!disabled) return;
+    setOpen(false);
+    setCalendarReady(false);
+  }, [disabled]);
 
   const updateCalendarPosition = useCallback(() => {
     const container = containerRef.current;
@@ -583,7 +591,11 @@ function CompactDateInput({
   return (
     <label
       ref={containerRef}
-      className={`relative flex h-9 min-w-0 items-center gap-2 rounded-md border border-transparent bg-transparent px-2 text-sm font-medium text-slate-900 transition hover:border-slate-200 hover:bg-white focus-within:border-violet-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-violet-100 ${className}`}
+      className={`relative flex h-9 min-w-0 items-center gap-2 rounded-md border border-transparent bg-transparent px-2 text-sm font-medium text-slate-900 transition ${
+        disabled
+          ? "cursor-not-allowed text-slate-400"
+          : "hover:border-slate-200 hover:bg-white focus-within:border-violet-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-violet-100"
+      } ${className}`}
       onBlur={(event) => {
         if (closingFromOutsidePointerRef.current) return;
         if (event.currentTarget.contains(event.relatedTarget)) return;
@@ -597,6 +609,7 @@ function CompactDateInput({
         name="flowra_date_input"
         autoComplete="none"
         required={required}
+        disabled={disabled}
         value={draft}
         onChange={(event) => {
           const nextDraft = event.target.value;
@@ -648,10 +661,10 @@ function CompactDateInput({
           }
         }}
         aria-label={ariaLabel}
-        aria-expanded={open}
-        className="h-full min-w-0 flex-1 bg-transparent p-0 text-sm font-medium text-slate-900 outline-none"
+        aria-expanded={open && !disabled}
+        className="h-full min-w-0 flex-1 bg-transparent p-0 text-sm font-medium text-slate-900 outline-none disabled:cursor-not-allowed disabled:text-slate-400"
       />
-      {open
+      {open && !disabled
         ? renderFloatingPortal(
             <div
               ref={calendarRef}
@@ -6341,6 +6354,7 @@ export function ScheduleFormPanel({
                   </span>
                   <CompactDateInput
                     required
+                    disabled={repeatEnabled}
                     value={formStartDateKey}
                     ariaLabel="시작 날짜"
                     inputRef={startDateInputRef}
@@ -6357,6 +6371,7 @@ export function ScheduleFormPanel({
                   </span>
                   <div className="flex min-w-0 items-center gap-1.5">
                     <CompactDateInput
+                      disabled={repeatEnabled}
                       value={formEndDateKey}
                       ariaLabel="종료 날짜"
                       inputRef={endDateInputRef}
