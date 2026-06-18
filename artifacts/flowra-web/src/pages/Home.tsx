@@ -470,12 +470,12 @@ function AiBriefingCard({
   ].filter((tip): tip is string => Boolean(tip));
 
   return (
-    <section className="mb-5 overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 via-violet-600 to-indigo-600 shadow-lg shadow-violet-200/50">
+    <section className="mb-5 overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 via-violet-600 to-indigo-600 shadow-lg shadow-violet-200/50 dark:border dark:border-violet-400/15 dark:from-[#282336] dark:via-[#262337] dark:to-[#202637] dark:shadow-none">
       <div className="relative p-5">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,rgba(255,255,255,0.12),transparent_55%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,rgba(255,255,255,0.12),transparent_55%)] dark:bg-[radial-gradient(ellipse_at_bottom_right,rgba(196,181,253,0.08),transparent_58%)]" />
         <div className="relative">
           <div className="mb-3 flex items-center gap-2">
-            <div className="flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1">
+            <div className="flex items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1 dark:bg-white/10">
               <span className="h-1.5 w-1.5 rounded-full bg-white" />
               <span className="text-xs font-medium text-white">
                 AI 데일리 브리핑
@@ -485,7 +485,7 @@ function AiBriefingCard({
 
           <p className="mb-3 whitespace-pre-line text-sm leading-relaxed text-white/95">
             {urgentCount > 0 && (
-              <span className="mr-1 rounded bg-white/15 px-1.5 py-0.5 font-semibold">
+              <span className="mr-1 rounded bg-white/15 px-1.5 py-0.5 font-semibold dark:bg-white/10">
                 긴급 {urgentCount}개
               </span>
             )}
@@ -497,7 +497,7 @@ function AiBriefingCard({
               {tips.map((tip) => (
                 <span
                   key={tip}
-                  className="rounded-full bg-white/15 px-2.5 py-1 text-xs text-white/85"
+                  className="rounded-full bg-white/15 px-2.5 py-1 text-xs text-white/85 dark:bg-white/10"
                 >
                   {tip}
                 </span>
@@ -506,7 +506,7 @@ function AiBriefingCard({
           )}
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 bg-black/10 px-5 py-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 bg-black/10 px-5 py-3 dark:bg-black/20">
         <span className="text-xs text-white/60">오늘 마감 미완료</span>
         <span className="text-xs font-semibold text-white">
           {dueTodayCount}개
@@ -697,10 +697,10 @@ function TaskTabs({
           type="button"
           onClick={() => onChange(tab.key)}
           className={cn(
-            "rounded-lg px-3 py-1.5 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300",
+            "rounded-lg px-3 py-1.5 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 dark:focus-visible:ring-violet-400/20",
             active === tab.key
-              ? "bg-violet-100 text-violet-700"
-              : "text-slate-400 hover:text-slate-600",
+              ? "bg-violet-100 text-violet-700 dark:bg-violet-500/10 dark:text-violet-200"
+              : "text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:bg-white/5 dark:hover:text-slate-300",
           )}
         >
           {tab.label}
@@ -885,7 +885,7 @@ function TaskListPanel({
           <PriorityGroup
             label="긴급 · 즉시 처리"
             dotColor="bg-rose-500"
-            headerBg="border-rose-100 bg-rose-50"
+            headerBg="border-slate-100 bg-rose-50"
             labelColor="text-rose-600"
             pulse
             tasks={searchedTasks.filter(
@@ -896,7 +896,7 @@ function TaskListPanel({
           <PriorityGroup
             label="높은 우선순위"
             dotColor="bg-orange-400"
-            headerBg="border-orange-100 bg-orange-50"
+            headerBg="border-slate-100 bg-orange-50"
             labelColor="text-orange-600"
             tasks={searchedTasks.filter(
               (task) => !task.overdue && task.priority === "high",
@@ -1356,7 +1356,7 @@ export default function Home() {
                 value={urgentCount}
                 sub="즉시 처리"
                 accent="text-rose-600"
-                tone="border-rose-100 bg-rose-50"
+                tone="border-slate-100 bg-rose-50"
                 onClick={() => setFilter("urgent")}
               />
               <StatCard
@@ -1364,7 +1364,7 @@ export default function Home() {
                 value={highCount}
                 sub="오늘 내 완료"
                 accent="text-orange-600"
-                tone="border-orange-100 bg-orange-50"
+                tone="border-slate-100 bg-orange-50"
                 onClick={() => setFilter("high")}
               />
               <StatCard

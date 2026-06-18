@@ -6,6 +6,10 @@ type CompanyMembershipsListData = Partial<ApiListData<CompanyMembership>> & {
   company_memberships?: CompanyMembership[];
 };
 
+interface LeaveCompanyMembershipData {
+  member: CompanyMembership;
+}
+
 export async function listCompanyMemberships() {
   const res = await apiClient.get<ApiResponse<CompanyMembershipsListData>>(
     "/company-memberships",
@@ -24,7 +28,7 @@ export async function listCompanyMemberships() {
 }
 
 export async function leaveCompanyMembership(companyMemberId: number) {
-  const res = await apiClient.post<ApiResponse<Record<string, never>>>(
+  const res = await apiClient.post<ApiResponse<LeaveCompanyMembershipData>>(
     `/company-memberships/${companyMemberId}/leave`,
   );
   return res.data;

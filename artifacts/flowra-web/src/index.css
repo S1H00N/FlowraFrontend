@@ -926,6 +926,224 @@ body {
   background-color: rgba(255, 255, 255, 0.2);
 }
 
+.dark [data-flowra-memo-ai-result] {
+  --memo-ai-bg: rgba(18, 18, 20, 0.96);
+  --memo-ai-surface: #202024;
+  --memo-ai-surface-elevated: #25252a;
+  --memo-ai-surface-soft: #2c2c33;
+  --memo-ai-border: rgba(255, 255, 255, 0.11);
+  --memo-ai-border-soft: rgba(255, 255, 255, 0.075);
+  --memo-ai-text-strong: #f4f4f5;
+  --memo-ai-text: #d6d6dc;
+  --memo-ai-text-muted: #a7a7b0;
+  --memo-ai-text-subtle: #777783;
+  --memo-ai-accent-bg: rgba(129, 140, 248, 0.17);
+  --memo-ai-accent-bg-strong: rgba(129, 140, 248, 0.25);
+  --memo-ai-accent-text: #c4b5fd;
+  background-color: var(--memo-ai-bg);
+  border-color: var(--memo-ai-border);
+  color: var(--memo-ai-text);
+}
+
+.dark [data-flowra-memo-ai-result] :where([class~="bg-white"]) {
+  background-color: var(--memo-ai-surface-elevated);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where([class~="bg-slate-50"], [class~="bg-slate-50/95"]) {
+  background-color: var(--memo-ai-surface);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where([class~="bg-slate-100"], [class~="bg-slate-200"]) {
+  background-color: var(--memo-ai-surface-soft);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where(
+    [class~="border-slate-50"],
+    [class~="border-slate-100"],
+    [class~="border-slate-200"],
+    [class~="border-slate-200/80"]
+  ) {
+  border-color: var(--memo-ai-border);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where([class~="divide-slate-50"])
+  > :not([hidden])
+  ~ :not([hidden]) {
+  border-color: var(--memo-ai-border-soft);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where([class~="text-slate-950"], [class~="text-slate-900"]) {
+  color: var(--memo-ai-text-strong);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where([class~="text-slate-800"], [class~="text-slate-700"]) {
+  color: var(--memo-ai-text);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where([class~="text-slate-600"], [class~="text-slate-500"]) {
+  color: var(--memo-ai-text-muted);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where(
+    [class~="text-slate-400"],
+    [class~="text-slate-300"],
+    [class~="text-slate-200"]
+  ) {
+  color: var(--memo-ai-text-subtle);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where(
+    [class~="bg-violet-50"],
+    [class~="bg-indigo-50"],
+    [class~="bg-indigo-50/30"],
+    [class~="bg-indigo-50/60"]
+  ) {
+  background-color: var(--memo-ai-accent-bg);
+}
+
+.dark [data-flowra-memo-ai-result] :where([class~="bg-indigo-100"]) {
+  background-color: var(--memo-ai-accent-bg-strong);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where(
+    [class~="border-violet-100"],
+    [class~="border-indigo-100"],
+    [class~="border-indigo-200"]
+  ) {
+  border-color: rgba(165, 180, 252, 0.3);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where(
+    [class~="text-violet-500"],
+    [class~="text-violet-900"],
+    [class~="text-indigo-400"],
+    [class~="text-indigo-500"],
+    [class~="text-indigo-600"],
+    [class~="text-indigo-700"],
+    [class~="text-indigo-800"]
+  ) {
+  color: var(--memo-ai-accent-text);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where([class~="bg-amber-50"], [class~="bg-amber-50/60"]) {
+  background-color: rgba(245, 158, 11, 0.14);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where([class~="border-amber-100"], [class~="border-amber-100/70"]) {
+  border-color: rgba(251, 191, 36, 0.27);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where(
+    [class~="text-amber-700"],
+    [class~="text-amber-800"],
+    [class~="text-amber-900"]
+  ) {
+  color: #fcd34d;
+}
+
+.dark [data-flowra-memo-ai-result] :where([class~="bg-red-50"]) {
+  background-color: rgba(239, 68, 68, 0.15);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where([class~="border-red-100"], [class~="border-red-200"]) {
+  border-color: rgba(248, 113, 113, 0.3);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where([class~="text-red-500"], [class~="text-red-600"]) {
+  color: #fca5a5;
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where(
+    [class~="hover:bg-slate-50"]:hover,
+    [class~="hover:bg-slate-100"]:hover
+  ) {
+  background-color: var(--memo-ai-surface-soft);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where(
+    [class~="hover:bg-indigo-50"]:hover,
+    [class~="hover:bg-indigo-200"]:hover
+  ) {
+  background-color: var(--memo-ai-accent-bg-strong);
+}
+
+.dark [data-flowra-memo-ai-result] :where([class~="hover:bg-red-50"]:hover) {
+  background-color: rgba(239, 68, 68, 0.18);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where(
+    [class~="hover:text-slate-600"]:hover,
+    [class~="hover:text-slate-700"]:hover,
+    [class~="hover:text-slate-800"]:hover
+  ) {
+  color: var(--memo-ai-text-strong);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where(
+    [class~="hover:text-indigo-600"]:hover,
+    [class~="hover:text-violet-700"]:hover
+  ) {
+  color: var(--memo-ai-accent-text);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where([class~="hover:text-red-500"]:hover, [class~="hover:text-red-600"]:hover) {
+  color: #fca5a5;
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where([class~="hover:border-indigo-200"]:hover) {
+  border-color: rgba(165, 180, 252, 0.34);
+}
+
+.dark
+  [data-flowra-memo-ai-result]
+  :where([class~="hover:border-red-100"]:hover) {
+  border-color: rgba(248, 113, 113, 0.34);
+}
+
 .scrollbar-none {
   scrollbar-width: none;
   -ms-overflow-style: none;

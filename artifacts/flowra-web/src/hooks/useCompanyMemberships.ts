@@ -33,11 +33,22 @@ export function useLeaveCompanyMembership() {
       }
       return res.data;
     },
-    onSuccess: () => {
+    onSuccess: (_data, companyMemberId) => {
+      queryClient.setQueryData<CompanyMembership[]>(
+        [...COMPANY_MEMBERSHIPS_QUERY_KEY, "list"],
+        (memberships) =>
+          memberships?.filter(
+            (membership) => membership.company_member_id !== companyMemberId,
+          ) ?? [],
+      );
       void queryClient.invalidateQueries({
         queryKey: COMPANY_MEMBERSHIPS_QUERY_KEY,
       });
       void queryClient.invalidateQueries({ queryKey: COMPANY_ADMIN_QUERY_KEY });
+    },
+    meta: {
+      successMessage: "회사에서 탈퇴했습니다.",
+      errorMessage: "회사 탈퇴에 실패했습니다.",
     },
   });
 }

@@ -25,6 +25,7 @@ import {
   updateSchedule,
 } from "@/api/schedules";
 import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
+import { toOffsetISOString } from "@/utils/dateUtils";
 import type {
   CreateRecurringScheduleRequest,
   CreateScheduleFriendShareRequest,
@@ -215,6 +216,90 @@ function removeScheduleFromListCaches(
     });
 }
 
+function syncUpdatedScheduleToListCaches(
+  queryClient: QueryClient,
+  schedule: Schedule,
+) {
+  queryClient
+    .getQueryCache()
+    .findAll({ queryKey: SCHEDULES_QUERY_KEY })
+    .forEach((query) => {
+      const listQuery = scheduleListQueryFromKey(query.queryKey);
+      if (!listQuery) return;
+
+      queryClient.setQueryData<Schedule[]>(query.queryKey, (current) => {
+        const schedules = current ?? [];
+        const hasSchedule = schedules.some(
+          (item) => item.schedule_id === schedule.schedule_id,
+        );
+        const matches = scheduleMatchesListQuery(schedule, listQuery);
+
+        if (!hasSchedule && !matches) return current;
+        if (!hasSchedule && matches) return upsertSchedules(schedules, [schedule]);
+        if (!matches) {
+          return schedules.filter(
+            (item) => item.schedule_id !== schedule.schedule_id,
+          );
+        }
+
+        return schedules.map((item) =>
+          item.schedule_id === schedule.schedule_id
+            ? { ...item, ...schedule }
+            : item,
+        );
+      });
+    });
+
+  queryClient.setQueryData<Schedule>(
+    scheduleDetailKey(schedule.schedule_id),
+    (current) => (current ? { ...current, ...schedule } : schedule),
+  );
+}
+
+function updateScheduleCompletionInCaches(
+  queryClient: QueryClient,
+  scheduleId: number,
+  completed: boolean,
+) {
+  const completedAt = completed ? toOffsetISOString(new Date()) : null;
+
+  queryClient
+    .getQueryCache()
+    .findAll({ queryKey: SCHEDULES_QUERY_KEY })
+    .forEach((query) => {
+      const listQuery = scheduleListQueryFromKey(query.queryKey);
+      if (!listQuery) return;
+
+      queryClient.setQueryData<Schedule[]>(query.queryKey, (current) => {
+        if (!current?.some((schedule) => schedule.schedule_id === scheduleId)) {
+          return current;
+        }
+
+        return current
+          .map((schedule) =>
+            schedule.schedule_id === scheduleId
+              ? {
+                  ...schedule,
+                  is_completed: completed,
+                  completed_at: completedAt,
+                }
+              : schedule,
+          )
+          .filter((schedule) => scheduleMatchesListQuery(schedule, listQuery));
+      });
+    });
+
+  queryClient.setQueryData<Schedule>(scheduleDetailKey(scheduleId), (current) =>
+    current
+      ? {
+          ...current,
+          is_completed: completed,
+          completed_at: completedAt,
+        }
+      : current,
+  );
+}
+
 export function useSchedules(query: ScheduleListQuery = {}) {
   return useQuery<Schedule[]>({
     queryKey: schedulesListKey(query),
@@ -378,6 +463,7 @@ export function useCreateRecurringSchedule() {
 
 export function useUpdateSchedule() {
   const invalidate = useInvalidateSchedules();
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
       scheduleId,
@@ -390,10 +476,43 @@ export function useUpdateSchedule() {
       if (!res.success) throw new Error(res.message || "수정에 실패했습니다.");
       return res.data.schedule;
     },
-    onSuccess: () => invalidate(),
+    onSuccess: (schedule) => {
+      syncUpdatedScheduleToListCaches(queryClient, schedule);
+      invalidate();
+    },
     meta: {
       successMessage: "일정이 수정되었습니다.",
       errorMessage: "일정 수정에 실패했습니다.",
+    },
+  });
+}
+
+export function useSetScheduleCompletion() {
+  const invalidate = useInvalidateSchedules();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      scheduleId,
+      completed,
+    }: {
+      scheduleId: number;
+      completed: boolean;
+    }) => {
+      const res = await updateSchedule(scheduleId, { is_completed: completed });
+      if (!res.success) throw new Error(res.message || "수정에 실패했습니다.");
+      return res.data.schedule;
+    },
+    onMutate: ({ scheduleId, completed }) => {
+      updateScheduleCompletionInCaches(queryClient, scheduleId, completed);
+    },
+    onSuccess: (schedule) => {
+      syncUpdatedScheduleToListCaches(queryClient, schedule);
+      invalidate();
+    },
+    onError: () => invalidate(),
+    meta: {
+      successMessage: "일정 상태를 변경했습니다.",
+      errorMessage: "일정 상태 변경에 실패했습니다.",
     },
   });
 }

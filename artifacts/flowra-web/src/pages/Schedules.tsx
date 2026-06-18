@@ -47,6 +47,7 @@ import {
   useDeleteSchedule,
   useDeleteSchedules,
   useSchedules,
+  useSetScheduleCompletion,
   useUpdateSchedule,
 } from "@/hooks/useSchedules";
 import { useCompanySchedules } from "@/hooks/useCompanySchedules";
@@ -92,6 +93,7 @@ import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import AppShell from "@/components/AppShell";
 import ScheduleLinkedTasks from "@/components/ScheduleLinkedTasks";
+import TaskCompletionToggleButton from "@/components/TaskCompletionToggleButton";
 import CustomSelect, {
   type CustomSelectOption,
 } from "@/components/ui/CustomSelect";
@@ -3365,6 +3367,8 @@ export function ScheduleFormPanel({
   onClose,
   onDelete,
   deletePending,
+  onCompletionChange,
+  completionPending,
   onSubmit,
   onCompanySubmit,
   companyName,
@@ -3380,6 +3384,8 @@ export function ScheduleFormPanel({
   onClose: () => void;
   onDelete?: () => Promise<void> | void;
   deletePending?: boolean;
+  onCompletionChange?: (completed: boolean) => Promise<void> | void;
+  completionPending?: boolean;
   onSubmit: (
     forms: ScheduleFormState[],
     options?: ScheduleFormSubmitOptions,
@@ -5796,6 +5802,17 @@ export function ScheduleFormPanel({
     }
   };
 
+  const handleCompletionToggle = async () => {
+    if (!schedule || !onCompletionChange) return;
+
+    setError(null);
+    try {
+      await onCompletionChange(!schedule.is_completed);
+    } catch (err) {
+      setError(getErrorMessage(err, "일정 상태 변경에 실패했습니다."));
+    }
+  };
+
   const updateStartLocal = (
     nextStartLocal: string,
     options: { defaultEndFromStart?: boolean } = {},
@@ -6711,6 +6728,30 @@ export function ScheduleFormPanel({
 
         <div className="flex shrink-0 flex-col gap-3 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.04)] backdrop-blur sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {mode === "edit" && schedule && onCompletionChange ? (
+              <button
+                type="button"
+                onClick={handleCompletionToggle}
+                disabled={completionPending}
+                aria-pressed={!!schedule.is_completed}
+                className={`inline-flex h-10 items-center justify-center gap-2 rounded-md border px-3 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-60 ${
+                  schedule.is_completed
+                    ? "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 focus-visible:ring-violet-200"
+                    : "border-slate-200 bg-white text-slate-700 hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 focus-visible:ring-violet-200"
+                }`}
+              >
+                {completionPending ? (
+                  <RotateCcw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckSquare2 className="h-4 w-4" />
+                )}
+                {completionPending
+                  ? "상태 변경 중..."
+                  : schedule.is_completed
+                    ? "완료 해제"
+                    : "완료"}
+              </button>
+            ) : null}
             {mode === "edit" && schedule && onDelete ? (
               <button
                 type="button"
@@ -7040,6 +7081,7 @@ function TimelineItem({
 }) {
   const { data: categories = [] } = useCategories("schedule");
   const classificationSettings = useClassificationSettings();
+  const completionMutation = useSetScheduleCompletion();
   const category = categories.find(
     (c) => c.category_id === schedule.category_id,
   );
@@ -7051,6 +7093,22 @@ function TimelineItem({
   const cardColor =
     (company ? companyScheduleAccent : category?.color) ??
     fallbackCategoryColor;
+  const completionPending =
+    completionMutation.isPending &&
+    completionMutation.variables?.scheduleId === schedule.schedule_id;
+
+  const handleCompletionChange = async (completed: boolean) => {
+    if (completed === !!schedule.is_completed) return;
+
+    try {
+      await completionMutation.mutateAsync({
+        scheduleId: schedule.schedule_id,
+        completed,
+      });
+    } catch (err) {
+      toast.error(getErrorMessage(err, "일정 상태 변경에 실패했습니다."));
+    }
+  };
 
   return (
     <li
@@ -7201,6 +7259,14 @@ function TimelineItem({
           </span>
         ) : (
           <div className="flex shrink-0 gap-1">
+            <TaskCompletionToggleButton
+              completed={!!schedule.is_completed}
+              disabled={completionPending}
+              onCompletedChange={(completed) =>
+                void handleCompletionChange(completed)
+              }
+              className="h-8 w-8 rounded-lg"
+            />
             <button
               type="button"
               onClick={(event) => onEdit(event.currentTarget)}
@@ -10896,6 +10962,7 @@ export default function Schedules() {
 
   const createSchedulesMutation = useCreateSchedules();
   const updateMutation = useUpdateSchedule();
+  const scheduleCompletionMutation = useSetScheduleCompletion();
   const deleteMutation = useDeleteSchedule();
   const bulkDeleteMutation = useDeleteSchedules();
   const categoriesQuery = useCategories("schedule");
@@ -12589,6 +12656,19 @@ export default function Schedules() {
               floatingStyle={floatingPanelStyle}
               panelLayout={schedulePanelLayout}
               deletePending={deleteMutation.isPending}
+              completionPending={scheduleCompletionMutation.isPending}
+              onCompletionChange={
+                panelMode === "edit" && editingSchedule
+                  ? async (completed) => {
+                      const updatedSchedule =
+                        await scheduleCompletionMutation.mutateAsync({
+                          scheduleId: editingSchedule.schedule_id,
+                          completed,
+                        });
+                      setEditingSchedule(updatedSchedule);
+                    }
+                  : undefined
+              }
               onDelete={
                 panelMode === "edit" && editingSchedule
                   ? async () => {

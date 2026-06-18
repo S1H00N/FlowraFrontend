@@ -28,4 +28,8 @@ export interface TodayBriefing {
   reminders: Reminder[];
 }
 
+export interface TodayBriefingQuery {
+  date?: string;
+}
+
 export type BriefingPriorityTask = BriefingTask;

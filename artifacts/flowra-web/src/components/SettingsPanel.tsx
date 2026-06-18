@@ -44,6 +44,10 @@ import {
   useAcceptMyCompanyInvite,
   useMyCompanyInvites,
 } from "@/hooks/useCompanyInvites";
+import {
+  useCompanyMemberships,
+  useLeaveCompanyMembership,
+} from "@/hooks/useCompanyMemberships";
 import { useGravatarProfileImage } from "@/hooks/useGravatarProfileImage";
 import { useMe, useUpdateMe } from "@/hooks/useMe";
 import {
@@ -81,6 +85,7 @@ import {
   DEFAULT_CATEGORY_COLORS,
   type Category,
   type CategoryType,
+  type CompanyMembership,
 } from "@/types";
 
 interface SettingsPanelProps {
@@ -152,7 +157,7 @@ function SectionHeader({
 }) {
   return (
     <div>
-      <h2 className="text-lg font-semibold tracking-tight text-slate-950">
+      <h2 className="text-lg font-semibold tracking-tight text-slate-950 dark:text-slate-100">
         {title}
       </h2>
       <p className="mt-1 text-sm font-medium text-slate-400">{description}</p>
@@ -191,8 +196,8 @@ function ChoiceButton({
       className={cn(
         "inline-flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border px-3 text-sm font-semibold transition",
         selected
-          ? "border-violet-500 bg-violet-50 text-violet-700"
-          : "border-slate-200 bg-white text-slate-600 shadow-sm hover:border-slate-300 hover:bg-slate-50",
+          ? "border-violet-500 bg-violet-50 text-violet-700 dark:border-violet-400/70 dark:bg-violet-500/20 dark:text-violet-100"
+          : "border-slate-200 bg-white text-slate-600 shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-100",
       )}
     >
       {children}
@@ -212,16 +217,18 @@ function ToggleRow({
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-5 border-b border-slate-100 px-5 py-4 last:border-b-0">
+    <div className="flex items-center justify-between gap-5 border-b border-slate-100 px-5 py-4 last:border-b-0 dark:border-slate-800">
       <div className="min-w-0">
-        <p className="text-sm font-semibold text-slate-950">{title}</p>
+        <p className="text-sm font-semibold text-slate-950 dark:text-slate-100">
+          {title}
+        </p>
         <p className="mt-1 text-xs font-medium text-slate-400">{description}</p>
       </div>
       <Switch
         checked={checked}
         onCheckedChange={onCheckedChange}
         aria-label={title}
-        className="data-[state=checked]:bg-violet-500 data-[state=unchecked]:bg-slate-200"
+        className="data-[state=checked]:border-violet-500 data-[state=checked]:bg-violet-500 data-[state=unchecked]:border-slate-300 data-[state=unchecked]:bg-slate-200 dark:data-[state=checked]:border-violet-300 dark:data-[state=checked]:bg-violet-500 dark:data-[state=unchecked]:border-slate-500 dark:data-[state=unchecked]:bg-slate-700"
       />
     </div>
   );
@@ -337,7 +344,7 @@ function DisplaySection() {
         description="달력 화면에 표시할 정보를 선택합니다."
       />
 
-      <section className="overflow-hidden rounded-lg bg-slate-50/80">
+      <section className="overflow-hidden rounded-lg border border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-900/70">
         <ToggleRow
           title="공휴일 표시"
           description="달력에 공휴일 이름과 공휴일 색상을 표시합니다."
@@ -1388,6 +1395,143 @@ function CompanyInviteInboxSection() {
   );
 }
 
+function getMembershipCompanyName(membership: CompanyMembership) {
+  return membership.company?.name?.trim() || `회사 ${membership.company_id}`;
+}
+
+function getMembershipDepartmentLabel(membership: CompanyMembership) {
+  const department = membership.department;
+  const departmentName = department?.name?.trim();
+  const departmentCode = department?.code?.trim();
+  if (!departmentName && !departmentCode) return "부서 미지정";
+  return `${departmentName || "부서 미지정"}${
+    departmentCode ? ` (${departmentCode})` : ""
+  }`;
+}
+
+function getMembershipRoleLabel(role: string) {
+  switch (role) {
+    case "owner":
+      return "소유자";
+    case "admin":
+      return "관리자";
+    case "leader":
+      return "리더";
+    case "member":
+      return "멤버";
+    default:
+      return role || "멤버";
+  }
+}
+
+function CompanyMembershipSection() {
+  const membershipsQuery = useCompanyMemberships();
+  const leaveMembershipMutation = useLeaveCompanyMembership();
+  const [leavingMemberId, setLeavingMemberId] = useState<number | null>(null);
+  const memberships = membershipsQuery.data ?? [];
+
+  const leaveMembership = async (membership: CompanyMembership) => {
+    const companyName = getMembershipCompanyName(membership);
+    if (
+      !confirm(
+        `${companyName}에서 탈퇴하시겠습니까?\n탈퇴하면 해당 회사 일정과 멤버 기능을 사용할 수 없습니다.`,
+      )
+    ) {
+      return;
+    }
+
+    setLeavingMemberId(membership.company_member_id);
+    try {
+      await leaveMembershipMutation.mutateAsync(membership.company_member_id);
+    } catch {
+      /* mutation cache handles toast */
+    } finally {
+      setLeavingMemberId(null);
+    }
+  };
+
+  return (
+    <section className="overflow-hidden rounded-lg bg-slate-50/80 dark:bg-slate-900/70">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-slate-950 dark:text-slate-100">
+            소속 회사
+          </h3>
+          <p className="mt-1 text-xs font-medium text-slate-400">
+            현재 속한 회사와 부서를 관리합니다.
+          </p>
+        </div>
+        {memberships.length > 0 && (
+          <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-violet-700 ring-1 ring-violet-100 dark:bg-slate-800 dark:text-violet-100 dark:ring-violet-300/20">
+            {memberships.length}개
+          </span>
+        )}
+      </div>
+
+      {membershipsQuery.isLoading ? (
+        <div className="flex items-center gap-2 px-5 py-4 text-sm font-medium text-slate-500">
+          <Spinner size="xs" />
+          소속 회사를 불러오는 중...
+        </div>
+      ) : membershipsQuery.isError ? (
+        <div className="p-4">
+          <ErrorState
+            compact
+            title="소속 회사를 불러오지 못했습니다"
+            message={(membershipsQuery.error as Error).message}
+            onRetry={() => membershipsQuery.refetch()}
+            retrying={membershipsQuery.isFetching}
+          />
+        </div>
+      ) : memberships.length === 0 ? (
+        <p className="px-5 py-5 text-sm font-medium text-slate-400">
+          현재 속한 회사가 없습니다.
+        </p>
+      ) : (
+        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+          {memberships.map((membership) => {
+            const leaving = leavingMemberId === membership.company_member_id;
+            return (
+              <li
+                key={membership.company_member_id}
+                className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-violet-700 ring-1 ring-violet-100 dark:bg-slate-800 dark:text-violet-100 dark:ring-violet-300/20">
+                    <Building2 className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
+                      {getMembershipCompanyName(membership)}
+                    </p>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+                      <span>{getMembershipDepartmentLabel(membership)}</span>
+                      <span>{getMembershipRoleLabel(membership.role)}</span>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void leaveMembership(membership)}
+                  disabled={leaveMembershipMutation.isPending}
+                  className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-500 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/15"
+                >
+                  {leaving ? (
+                    <Spinner size="xs" className="border-red-200 border-t-red-500" />
+                  ) : (
+                    <LogOut className="h-4 w-4" />
+                  )}
+                  탈퇴
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function AccountSection() {
   const { user: cachedUser, logout } = useAuth();
   const meQuery = useMe();
@@ -1537,6 +1681,8 @@ function AccountSection() {
 
       <CompanyInviteInboxSection />
 
+      <CompanyMembershipSection />
+
       <section className="overflow-hidden rounded-lg bg-slate-50/80">
         <AccountAction
           icon={Download}
@@ -1596,12 +1742,14 @@ export function SettingsPanel({
         className,
       )}
     >
-      <aside className="hidden w-[200px] shrink-0 flex-col border-r border-slate-100 bg-slate-50/70 sm:flex">
-        <div className="flex h-[72px] items-center gap-3 border-b border-slate-100 px-5">
+      <aside className="hidden w-[200px] shrink-0 flex-col border-r border-slate-100 bg-slate-50/70 sm:flex dark:border-slate-800 dark:bg-slate-900/70">
+        <div className="flex h-[72px] items-center gap-3 border-b border-slate-100 px-5 dark:border-slate-800">
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500 text-white">
             <Settings2 className="h-4 w-4" />
           </span>
-          <span className="text-sm font-semibold text-slate-950">설정</span>
+          <span className="text-sm font-semibold text-slate-950 dark:text-slate-100">
+            설정
+          </span>
         </div>
 
         <nav className="flex-1 space-y-2 px-3 py-4">
@@ -1616,8 +1764,8 @@ export function SettingsPanel({
                 className={cn(
                   "flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold transition",
                   selected
-                    ? "bg-violet-50 text-violet-700"
-                    : "text-slate-500 hover:bg-white hover:text-slate-900",
+                    ? "bg-violet-50 text-violet-700 dark:bg-violet-500/20 dark:text-violet-100"
+                    : "text-slate-500 hover:bg-white hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100",
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -1628,7 +1776,7 @@ export function SettingsPanel({
         </nav>
 
         <div className="p-3">
-          <div className="flex min-w-0 items-center gap-3 rounded-lg bg-slate-100/80 p-3">
+          <div className="flex min-w-0 items-center gap-3 rounded-lg bg-slate-100/80 p-3 dark:bg-slate-800">
             <Avatar className="h-8 w-8 rounded-lg">
               {profileImageUrl && (
                 <AvatarImage src={profileImageUrl} alt={displayName} />
@@ -1638,7 +1786,7 @@ export function SettingsPanel({
               </AvatarFallback>
             </Avatar>
             <div className="min-w-0">
-              <p className="truncate text-xs font-semibold text-slate-950">
+              <p className="truncate text-xs font-semibold text-slate-950 dark:text-slate-100">
                 {displayName}
               </p>
             </div>
@@ -1647,7 +1795,7 @@ export function SettingsPanel({
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col">
-        <div className="flex min-h-[64px] items-center overflow-x-auto border-b border-slate-100 px-4 sm:hidden">
+        <div className="flex min-h-[64px] items-center overflow-x-auto border-b border-slate-100 px-4 dark:border-slate-800 sm:hidden">
           <div className="flex gap-2">
             {settingsSections.map((section) => {
               const Icon = section.icon;
@@ -1660,8 +1808,8 @@ export function SettingsPanel({
                   className={cn(
                     "inline-flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-semibold",
                     selected
-                      ? "bg-violet-50 text-violet-700"
-                      : "text-slate-500 hover:bg-slate-50",
+                      ? "bg-violet-50 text-violet-700 dark:bg-violet-500/20 dark:text-violet-100"
+                      : "text-slate-500 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100",
                   )}
                 >
                   <Icon className="h-4 w-4" />
@@ -1671,7 +1819,7 @@ export function SettingsPanel({
             })}
           </div>
         </div>
-        <div className="hidden h-[60px] shrink-0 border-b border-slate-100 sm:block" />
+        <div className="hidden h-[60px] shrink-0 border-b border-slate-100 dark:border-slate-800 sm:block" />
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8">
           <div className="mx-auto max-w-[560px]">{content[activeSection]}</div>

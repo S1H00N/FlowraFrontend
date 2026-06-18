@@ -24,7 +24,9 @@ import { useHolidaysInRange } from "@/hooks/useHolidays";
 import {
   useCreateSchedules,
   useDeleteSchedule,
+  useDeleteSchedules,
   useSchedules,
+  useSetScheduleCompletion,
 } from "@/hooks/useSchedules";
 import {
   useDeleteTasks,
@@ -241,6 +243,13 @@ function taskDueOnDate(task: Task, date: Date) {
   );
 }
 
+function taskDueBeforeDate(task: Task, date: Date) {
+  if (!task.due_datetime) return false;
+  const dueTime = new Date(task.due_datetime).getTime();
+  if (Number.isNaN(dueTime)) return false;
+  return dueTime < startOfDay(date).getTime();
+}
+
 function sortIndependentTasks(a: Task, b: Task) {
   if (a.status === "done" && b.status !== "done") return 1;
   if (a.status !== "done" && b.status === "done") return -1;
@@ -424,7 +433,7 @@ function MiniCalendar({
                     : ""
                 } ${selectedWeek && !highlight ? "bg-slate-100" : ""} ${
                   highlight
-                    ? "z-10 rounded-lg bg-red-500! text-white! shadow-sm"
+                    ? "z-10 rounded-lg !bg-red-500 !text-white shadow-sm"
                     : currentMonth
                       ? isHoliday
                         ? "rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700"
@@ -463,9 +472,11 @@ function ScheduleCard({
   tasks,
   expanded,
   deleting,
+  selectedSchedule,
   selectedTaskIds,
   onToggle,
   onDelete,
+  onToggleScheduleSelection,
   onToggleTaskSelection,
   onOpenAddTaskPanel,
 }: {
@@ -474,16 +485,23 @@ function ScheduleCard({
   tasks: Task[];
   expanded: boolean;
   deleting: boolean;
+  selectedSchedule: boolean;
   selectedTaskIds: Set<number>;
   onToggle: () => void;
   onDelete: () => Promise<void>;
+  onToggleScheduleSelection: () => void;
   onToggleTaskSelection: (taskId: number) => void;
   onOpenAddTaskPanel: () => void;
 }) {
   const classificationSettings = useClassificationSettings();
   const completionMutation = useSetTaskCompletion();
+  const scheduleCompletionMutation = useSetScheduleCompletion();
   const [error, setError] = useState<string | null>(null);
   const progress = scheduleProgress(tasks, schedule);
+  const scheduleCompleted = !!schedule.is_completed;
+  const scheduleCompletionUpdating =
+    scheduleCompletionMutation.isPending &&
+    scheduleCompletionMutation.variables?.scheduleId === schedule.schedule_id;
   const accentColor =
     category?.color || scheduleTypeColor[schedule.schedule_type] || "#64748b";
   const classificationLabel = getClassificationLabel(
@@ -518,6 +536,20 @@ function ScheduleCard({
     }
   };
 
+  const handleScheduleCompletionChange = async (completed: boolean) => {
+    if (schedule.is_company_schedule || completed === scheduleCompleted) return;
+
+    setError(null);
+    try {
+      await scheduleCompletionMutation.mutateAsync({
+        scheduleId: schedule.schedule_id,
+        completed,
+      });
+    } catch (err) {
+      setError(getErrorMessage(err, "일정 상태 변경에 실패했습니다."));
+    }
+  };
+
   const handleDeleteSchedule = async () => {
     const message = schedule.is_company_schedule
       ? `"${schedule.title}" 회사 일정의 삭제 처리를 요청할까요?`
@@ -533,7 +565,11 @@ function ScheduleCard({
   };
 
   return (
-    <li className="flowra-list-card overflow-hidden transition">
+    <li
+      className={`flowra-list-card overflow-hidden transition ${
+        selectedSchedule ? "ring-2 ring-violet-100" : ""
+      }`}
+    >
       <div className="group relative flex items-center">
         <span
           className="absolute inset-y-4 left-4 w-1 rounded-full"
@@ -550,11 +586,18 @@ function ScheduleCard({
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h3
                 className={`truncate text-sm font-bold ${
-                  progress.completed ? "text-slate-500" : "text-slate-950"
+                  scheduleCompleted
+                    ? "text-slate-500 line-through"
+                    : "text-slate-950"
                 }`}
               >
                 {schedule.title || "제목 없음"}
               </h3>
+              {scheduleCompleted && (
+                <span className="rounded-md border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-bold text-violet-700">
+                  완료
+                </span>
+              )}
               <span
                 className="rounded-md px-2 py-0.5 text-[11px] font-bold"
                 style={{
@@ -593,6 +636,24 @@ function ScheduleCard({
             />
           </div>
         </button>
+        {!schedule.is_company_schedule && (
+          <TaskCompletionToggleButton
+            completed={scheduleCompleted}
+            disabled={scheduleCompletionUpdating}
+            compact
+            onCompletedChange={(completed) =>
+              void handleScheduleCompletionChange(completed)
+            }
+            className="mr-2"
+          />
+        )}
+        <Checkbox
+          checked={selectedSchedule}
+          onCheckedChange={() => onToggleScheduleSelection()}
+          aria-label={`${schedule.title} 삭제 대상으로 선택`}
+          title="삭제 대상으로 선택"
+          className="mr-2 h-5 w-5 rounded-full"
+        />
         <button
           type="button"
           onClick={() => void handleDeleteSchedule()}
@@ -954,6 +1015,9 @@ export default function Tasks() {
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<number>>(
     () => new Set(),
   );
+  const [selectedScheduleIds, setSelectedScheduleIds] = useState<Set<number>>(
+    () => new Set(),
+  );
   const [expandedScheduleIds, setExpandedScheduleIds] = useState<Set<number>>(
     () => new Set(),
   );
@@ -976,6 +1040,7 @@ export default function Tasks() {
   const schedulesQuery = useSchedules(queryRange);
   const createSchedulesMutation = useCreateSchedules();
   const deleteScheduleMutation = useDeleteSchedule();
+  const deleteSchedulesMutation = useDeleteSchedules();
   const companyAdminMeQuery = useCompanyAdminMe();
   const hasCompanyMembership = companyAdminMeQuery.isSuccess;
   const companySchedulesQuery = useCompanySchedules(queryRange, {
@@ -1078,7 +1143,7 @@ export default function Tasks() {
     return schedules
       .filter((schedule) => {
         const linkedTasks = tasksByScheduleId.get(schedule.schedule_id) ?? [];
-        const progress = scheduleProgress(linkedTasks, schedule);
+        const scheduleCompleted = !!schedule.is_completed;
         const useExactDate = dateMode || filter === "today";
         const targetDate = filter === "today" ? today : selectedDate;
 
@@ -1091,8 +1156,8 @@ export default function Tasks() {
         ) {
           return false;
         }
-        if (filter === "active" && progress.completed) return false;
-        if (filter === "completed" && !progress.completed) return false;
+        if (filter === "active" && scheduleCompleted) return false;
+        if (filter === "completed" && !scheduleCompleted) return false;
         if (keyword) {
           const category = schedule.category_id
             ? categoryById.get(schedule.category_id)
@@ -1138,7 +1203,8 @@ export default function Tasks() {
       .filter((task) => task.schedule_id == null)
       .filter((task) => {
         if (useExactDate && !taskDueOnDate(task, targetDate)) return false;
-        if (filter === "active" && task.status === "done") return false;
+        if (!useExactDate && taskDueBeforeDate(task, today)) return false;
+        if (filter !== "completed" && task.status === "done") return false;
         if (filter === "completed" && task.status !== "done") return false;
 
         if (keyword) {
@@ -1189,7 +1255,12 @@ export default function Tasks() {
       tasksByScheduleId,
     ],
   );
+  const selectableScheduleIds = useMemo(
+    () => filteredSchedules.map((schedule) => schedule.schedule_id),
+    [filteredSchedules],
+  );
   const selectedTaskCount = selectedTaskIds.size;
+  const selectedScheduleCount = selectedScheduleIds.size;
 
   useEffect(() => {
     const selectableIds = new Set(selectableTaskIds);
@@ -1200,6 +1271,16 @@ export default function Tasks() {
       return next.size === current.size ? current : next;
     });
   }, [selectableTaskIds]);
+
+  useEffect(() => {
+    const selectableIds = new Set(selectableScheduleIds);
+    setSelectedScheduleIds((current) => {
+      const next = new Set(
+        [...current].filter((scheduleId) => selectableIds.has(scheduleId)),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [selectableScheduleIds]);
 
   const visibleDoneCount = visibleTasks.filter(
     (task) => task.status === "done",
@@ -1224,6 +1305,8 @@ export default function Tasks() {
     tasksQuery.isFetching ||
     companySchedulesQuery.isFetching;
   const sidePanelOpen = scheduleAddPanelOpen || taskPanelScheduleId !== null;
+  const deleteSchedulesPending =
+    deleteSchedulesMutation.isPending || deleteCompanyScheduleMutation.isPending;
 
   const toggleTaskSelection = (taskId: number) => {
     setSelectedTaskIds((current) => {
@@ -1236,6 +1319,19 @@ export default function Tasks() {
 
   const clearTaskSelection = () => {
     setSelectedTaskIds(new Set());
+  };
+
+  const toggleScheduleSelection = (scheduleId: number) => {
+    setSelectedScheduleIds((current) => {
+      const next = new Set(current);
+      if (next.has(scheduleId)) next.delete(scheduleId);
+      else next.add(scheduleId);
+      return next;
+    });
+  };
+
+  const clearScheduleSelection = () => {
+    setSelectedScheduleIds(new Set());
   };
 
   const deleteSelectedTasks = async () => {
@@ -1259,6 +1355,64 @@ export default function Tasks() {
 
       toast.success(`할 일 ${result.deletedIds.length}개를 삭제했습니다.`);
       clearTaskSelection();
+    } catch {
+      // The shared mutation error handler shows the failure message.
+    }
+  };
+
+  const deleteSelectedSchedules = async () => {
+    if (selectedScheduleIds.size === 0) return;
+    if (!confirm(`선택한 일정 ${selectedScheduleIds.size}개를 삭제할까요?`)) {
+      return;
+    }
+
+    try {
+      const selectedSchedules = filteredSchedules.filter((schedule) =>
+        selectedScheduleIds.has(schedule.schedule_id),
+      );
+      const personalScheduleIds = selectedSchedules
+        .filter((schedule) => !schedule.is_company_schedule)
+        .map((schedule) => schedule.schedule_id);
+      const companySchedules = selectedSchedules.filter(
+        (schedule) => schedule.is_company_schedule,
+      );
+      let deletedCount = 0;
+      const failedIds: number[] = [];
+
+      if (personalScheduleIds.length > 0) {
+        const result =
+          await deleteSchedulesMutation.mutateAsync(personalScheduleIds);
+        deletedCount += result.deleted_count;
+        failedIds.push(...result.failed_ids);
+      }
+
+      for (const schedule of companySchedules) {
+        if (schedule.company_schedule_id == null) {
+          failedIds.push(schedule.schedule_id);
+          continue;
+        }
+
+        try {
+          await deleteCompanyScheduleMutation.mutateAsync(
+            schedule.company_schedule_id,
+          );
+          deletedCount += 1;
+        } catch {
+          failedIds.push(schedule.schedule_id);
+        }
+      }
+
+      setSelectedScheduleIds(new Set(failedIds));
+
+      if (failedIds.length > 0) {
+        toast.error(
+          `일정 ${deletedCount}개 삭제, ${failedIds.length}개 실패`,
+        );
+        return;
+      }
+
+      toast.success(`일정 ${deletedCount}개를 삭제했습니다.`);
+      clearScheduleSelection();
     } catch {
       // The shared mutation error handler shows the failure message.
     }
@@ -1318,6 +1472,12 @@ export default function Tasks() {
       next.delete(schedule.schedule_id);
       return next;
     });
+    setSelectedScheduleIds((current) => {
+      if (!current.has(schedule.schedule_id)) return current;
+      const next = new Set(current);
+      next.delete(schedule.schedule_id);
+      return next;
+    });
     setTaskPanelScheduleId((current) =>
       current === schedule.schedule_id ? null : current,
     );
@@ -1356,19 +1516,21 @@ export default function Tasks() {
         </div>
       }
       sidebarExtra={
-        <MiniCalendar
-          visibleMonth={visibleMonth}
-          selectedDateKey={selectedDateKey}
-          dateMode={dateMode || filter === "today"}
-          dateMeta={dateMeta}
-          holidaysByDate={holidaysByDate}
-          weekStart={weekStart}
-          onMoveMonth={(amount) =>
-            setVisibleMonth((prev) => addMonths(prev, amount))
-          }
-          onResetMonth={() => setVisibleMonth(startOfMonth(new Date()))}
-          onSelectDate={selectDate}
-        />
+        <div data-flowra-schedule-sidebar>
+          <MiniCalendar
+            visibleMonth={visibleMonth}
+            selectedDateKey={selectedDateKey}
+            dateMode={dateMode || filter === "today"}
+            dateMeta={dateMeta}
+            holidaysByDate={holidaysByDate}
+            weekStart={weekStart}
+            onMoveMonth={(amount) =>
+              setVisibleMonth((prev) => addMonths(prev, amount))
+            }
+            onResetMonth={() => setVisibleMonth(startOfMonth(new Date()))}
+            onSelectDate={selectDate}
+          />
+        </div>
       }
     >
       <div className="flowra-workspace flex h-full min-h-0 flex-col">
@@ -1444,6 +1606,30 @@ export default function Tasks() {
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                       {deleteTasksMutation.isPending ? "삭제 중..." : "삭제"}
+                    </button>
+                  </div>
+                )}
+                {selectedScheduleCount > 0 && (
+                  <div className="flex items-center gap-2 rounded-lg border border-red-100 bg-red-50 px-2 py-1 min-[900px]:ml-auto">
+                    <span className="px-1 text-xs font-bold text-red-700">
+                      {selectedScheduleCount}개 일정 선택
+                    </span>
+                    <button
+                      type="button"
+                      onClick={clearScheduleSelection}
+                      disabled={deleteSchedulesPending}
+                      className="inline-flex h-7 items-center justify-center rounded-md px-2 text-xs font-semibold text-slate-500 transition hover:bg-white disabled:opacity-50"
+                    >
+                      선택 해제
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void deleteSelectedSchedules()}
+                      disabled={deleteSchedulesPending}
+                      className="inline-flex h-7 items-center justify-center gap-1.5 rounded-md bg-red-600 px-2.5 text-xs font-bold text-white transition hover:bg-red-700 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      {deleteSchedulesPending ? "삭제 중..." : "삭제"}
                     </button>
                   </div>
                 )}
@@ -1545,12 +1731,18 @@ export default function Tasks() {
                                         deleteScheduleMutation.variables ===
                                           schedule.schedule_id
                                   }
+                                  selectedSchedule={selectedScheduleIds.has(
+                                    schedule.schedule_id,
+                                  )}
                                   selectedTaskIds={selectedTaskIds}
                                   onToggle={() =>
                                     toggleSchedule(schedule.schedule_id)
                                   }
                                   onDelete={() =>
                                     deleteScheduleFromBoard(schedule)
+                                  }
+                                  onToggleScheduleSelection={() =>
+                                    toggleScheduleSelection(schedule.schedule_id)
                                   }
                                   onToggleTaskSelection={toggleTaskSelection}
                                   onOpenAddTaskPanel={() =>

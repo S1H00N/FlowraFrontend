@@ -144,6 +144,13 @@ function checkBasicBrowserPushSupport(): BrowserPushSupportResult {
       missingEnv: configState.missingKeys,
     };
   }
+  if (!getValidFirebaseVapidPublicKey()) {
+    return {
+      supported: false,
+      reason:
+        "Firebase VAPID 공개키가 올바르지 않습니다. Firebase Console의 Web Push certificates에서 키 쌍의 공개키를 다시 복사해 주세요.",
+    };
+  }
 
   return { supported: true };
 }
@@ -159,6 +166,10 @@ function isValidVapidPublicKey(value: string) {
   } catch {
     return false;
   }
+}
+
+function getValidFirebaseVapidPublicKey() {
+  return getFirebaseVapidKeyCandidates().find(isValidVapidPublicKey) ?? null;
 }
 
 export async function checkBrowserPushSupport(): Promise<BrowserPushSupportResult> {
@@ -210,7 +221,7 @@ export async function requestBrowserPushToken() {
     throw new Error("이 브라우저는 Firebase 메시징을 지원하지 않습니다.");
   }
 
-  const vapidKey = getFirebaseVapidKeyCandidates().find(isValidVapidPublicKey);
+  const vapidKey = getValidFirebaseVapidPublicKey();
   if (!vapidKey) {
     throw new Error(
       "Firebase VAPID 공개키가 올바르지 않습니다. Firebase Console의 Web Push certificates에서 키 쌍의 공개키를 다시 복사해 주세요.",
