@@ -27,6 +27,7 @@ import {
   Clock3,
   Flag,
   Globe2,
+  Info,
   Link2,
   LockKeyhole,
   MapPin,
@@ -58,7 +59,6 @@ import { useCompanySchedules } from "@/hooks/useCompanySchedules";
 import {
   useCompanyAdminDepartments,
   useCompanyAdminMe,
-  useCompanyAdminMembers,
   useCreateCompanyAdminSchedule,
 } from "@/hooks/useCompanyAdmin";
 import {
@@ -76,7 +76,6 @@ import {
   SCHEDULE_TYPES,
   SCHEDULE_VISIBILITY_LABELS,
   type CompanyAdminDepartment,
-  type CompanyAdminMember,
   type CompanyScheduleApproval,
   type CompanySchedule,
   type CompanyScheduleCreateTarget,
@@ -119,6 +118,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import {
   localInputToOffsetISOString,
   toOffsetISOString,
@@ -1339,7 +1339,6 @@ const companyScheduleAccent = "#7c3aed";
 const schedulePanelLayoutStorageKey = "flowra-schedule-panel-layout";
 const scheduleSidebarToggleButtonClass =
   "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-transparent text-slate-500 shadow-none transition hover:bg-slate-100 hover:text-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300";
-type CompanyScheduleTargetType = "company" | "department" | "member";
 const scheduleOwnerOptions: Array<{ value: ScheduleOwnerType; label: string }> =
   [
     { value: "personal", label: "개인 일정" },
@@ -1371,10 +1370,6 @@ const scheduleOwnerFilterColors: Record<ScheduleOwnerFilter, string> = {
   personal: "#14b8a6",
   company: companyScheduleAccent,
 };
-const companyScheduleTargetTypeOptions: Array<{
-  value: CompanyScheduleTargetType;
-  label: string;
-}> = [{ value: "department", label: "부서" }];
 const personalAttendeeSuggestions: PersonalScheduleAttendee[] = [];
 type ScheduleCreateShareTargetKind = "link" | "all_friends" | "preset";
 type ScheduleCreateShareTab = "friends" | "presets";
@@ -3484,6 +3479,8 @@ export function ScheduleFormPanel({
   onSubmit,
   onCompanySubmit,
   companyName,
+  companyDepartmentLabel,
+  ownCompanyDepartmentId,
   defaultOwner = "personal",
   onPreviewChange,
   floatingStyle,
@@ -3506,6 +3503,8 @@ export function ScheduleFormPanel({
     payload: CreateCompanyScheduleRequest,
   ) => Promise<void> | void;
   companyName?: string;
+  companyDepartmentLabel?: string;
+  ownCompanyDepartmentId?: number | null;
   defaultOwner?: ScheduleOwnerType;
   onPreviewChange?: (forms: ScheduleFormState[]) => void;
   floatingStyle: SchedulePanelFloatingStyle;
@@ -3516,14 +3515,12 @@ export function ScheduleFormPanel({
   const [allDay, setAllDay] = useState(ownerInitialForm.all_day);
   const [scheduleOwner, setScheduleOwner] =
     useState<ScheduleOwnerType>(defaultOwner);
-  const [companyTargetType, setCompanyTargetType] =
-    useState<CompanyScheduleTargetType>("department");
-  const [companyDepartmentId, setCompanyDepartmentId] = useState("");
-  const [companyMemberId, setCompanyMemberId] = useState("");
   const [companyTargets, setCompanyTargets] = useState<
     CompanyScheduleCreateTarget[]
   >([]);
   const [companyCollaborationEnabled, setCompanyCollaborationEnabled] =
+    useState(false);
+  const [companyDepartmentPickerOpen, setCompanyDepartmentPickerOpen] =
     useState(false);
   const [personalAttendees, setPersonalAttendees] = useState<
     PersonalScheduleAttendee[]
@@ -3541,7 +3538,7 @@ export function ScheduleFormPanel({
   >(null);
   const [sharePermission] = useState<ScheduleSharePermission>("viewer");
   const [error, setError] = useState<string | null>(null);
-  const [autoSaveState, setAutoSaveState] = useState<
+  const [, setAutoSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
   const titleInputRef = useRef<HTMLInputElement | null>(null);
@@ -3667,26 +3664,7 @@ export function ScheduleFormPanel({
   const friendsQuery = useFriends({ enabled: personalShareEnabled });
   const friendPresetsQuery = useFriendPresets({ enabled: personalShareEnabled });
   const departmentsQuery = useCompanyAdminDepartments(
-    isCompanyScheduleDraft &&
-      companyCollaborationEnabled &&
-      (companyTargetType === "department" ||
-        companyTargets.some((target) => target.target_type === "department")),
-  );
-  const membersQuery = useCompanyAdminMembers(
-    isCompanyScheduleDraft &&
-      companyCollaborationEnabled &&
-      (companyTargetType === "member" ||
-        companyTargets.some((target) => target.target_type === "member")),
-  );
-  const companyTargetableMembers = useMemo(
-    () =>
-      (membersQuery.data ?? []).filter((member) => {
-        const departmentId = Number(
-          member.department_id ?? member.department?.department_id,
-        );
-        return Number.isFinite(departmentId) && departmentId > 0;
-      }),
-    [membersQuery.data],
+    isCompanyScheduleDraft && companyCollaborationEnabled,
   );
   const scheduleTypeSelectOptions = useMemo<CustomSelectOption<ScheduleType>[]>(
     () =>
@@ -4036,10 +4014,9 @@ export function ScheduleFormPanel({
     setForm(ownerInitialForm);
     setAllDay(ownerInitialForm.all_day);
     setScheduleOwner(defaultOwner);
-    setCompanyTargetType("department");
-    setCompanyDepartmentId("");
-    setCompanyMemberId("");
     setCompanyTargets([]);
+    setCompanyCollaborationEnabled(false);
+    setCompanyDepartmentPickerOpen(false);
     setPersonalAttendees([]);
     setPersonalAttendeeOpen(false);
     setPersonalAttendeeQuery("");
@@ -5905,53 +5882,13 @@ export function ScheduleFormPanel({
         : `부서 ${target.department_id}`;
     }
 
-    const member = (membersQuery.data ?? []).find(
-      (item) => item.company_member_id === target.company_member_id,
-    );
-    return member
-      ? renderMemberLabel(member)
-      : `팀원 ${target.company_member_id}`;
+    return `팀원 ${target.company_member_id}`;
   };
 
-  const buildCompanyTargetDraft = (): CompanyScheduleCreateTarget | null => {
-    if (companyTargetType === "company") return { target_type: "company" };
-
-    if (companyTargetType === "department") {
-      const numericDepartmentId = Number(companyDepartmentId);
-      return Number.isFinite(numericDepartmentId) && numericDepartmentId > 0
-        ? {
-            target_type: "department",
-            department_id: numericDepartmentId,
-          }
-        : null;
-    }
-
-    const numericMemberId = Number(companyMemberId);
-    return Number.isFinite(numericMemberId) && numericMemberId > 0
-      ? {
-          target_type: "member",
-          company_member_id: numericMemberId,
-        }
-      : null;
-  };
-
-  const addCompanyTarget = () => {
-    const target = buildCompanyTargetDraft();
+  const addCompanyTargetValue = (target: CompanyScheduleCreateTarget | null) => {
     if (!target) {
       setError("추가할 부서를 선택해 주세요.");
       return;
-    }
-    if (target.target_type === "member") {
-      const member = (membersQuery.data ?? []).find(
-        (item) => item.company_member_id === target.company_member_id,
-      );
-      const departmentId = Number(
-        member?.department_id ?? member?.department?.department_id,
-      );
-      if (!Number.isFinite(departmentId) || departmentId <= 0) {
-        setError("부서에 소속된 팀원만 참석자로 추가할 수 있습니다.");
-        return;
-      }
     }
 
     setError(null);
@@ -5968,6 +5905,14 @@ export function ScheduleFormPanel({
     });
   };
 
+  const addCompanyDepartmentTarget = (departmentId: number) => {
+    addCompanyTargetValue({
+      target_type: "department",
+      department_id: departmentId,
+    });
+    setCompanyDepartmentPickerOpen(false);
+  };
+
   const removeCompanyTarget = (target: CompanyScheduleCreateTarget) => {
     const targetKey = companyTargetKey(target);
     setCompanyTargets((prev) =>
@@ -5978,8 +5923,32 @@ export function ScheduleFormPanel({
   const renderDepartmentLabel = (department: CompanyAdminDepartment) =>
     `${department.name}${department.code ? ` (${department.code})` : ""}`;
 
-  const renderMemberLabel = (member: CompanyAdminMember) =>
-    `${member.name} · ${member.email}`;
+  const getDepartmentAvatarLabel = (label: string) =>
+    Array.from(label.trim())[0] ?? "부";
+
+  const ownDepartmentLabel = companyDepartmentLabel?.trim() || "내 소속 부서";
+  const normalizedOwnCompanyDepartmentId =
+    typeof ownCompanyDepartmentId === "number" &&
+    Number.isFinite(ownCompanyDepartmentId) &&
+    ownCompanyDepartmentId > 0
+      ? ownCompanyDepartmentId
+      : null;
+  const companyDepartmentTargets = companyTargets.filter(
+    (
+      target,
+    ): target is Extract<
+      CompanyScheduleCreateTarget,
+      { target_type: "department" }
+    > => target.target_type === "department",
+  );
+  const selectedCompanyDepartmentIds = new Set(
+    companyDepartmentTargets.map((target) => target.department_id),
+  );
+  const availableCompanyDepartments = (departmentsQuery.data ?? []).filter(
+    (department) =>
+      department.department_id !== normalizedOwnCompanyDepartmentId &&
+      !selectedCompanyDepartmentIds.has(department.department_id),
+  );
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -6185,11 +6154,9 @@ export function ScheduleFormPanel({
         ? { ...prev, schedule_type: "meeting", visibility: "private" }
         : { ...prev, visibility: value === "company" ? "private" : prev.visibility },
     );
-    setCompanyTargetType("department");
-    setCompanyDepartmentId("");
-    setCompanyMemberId("");
     setCompanyTargets([]);
     setCompanyCollaborationEnabled(false);
+    setCompanyDepartmentPickerOpen(false);
     setPersonalAttendees([]);
     setPersonalAttendeeOpen(false);
     setPersonalAttendeeQuery("");
@@ -6222,185 +6189,156 @@ export function ScheduleFormPanel({
   const handleCompanyCollaborationToggle = (checked: boolean) => {
     setCompanyCollaborationEnabled(checked);
     if (!checked) {
-      setCompanyTargetType("department");
-      setCompanyDepartmentId("");
-      setCompanyMemberId("");
       setCompanyTargets([]);
+      setCompanyDepartmentPickerOpen(false);
       setError(null);
     }
   };
 
   const renderCompanyTeamScopeControl = () => {
-    return (
-      <>
-        <div className={compactFieldGroupClass}>
-          <div className={settingsRowLabelClass}>대상</div>
-          <div className="mt-1 space-y-2">
-            <div className="flex h-9 min-w-0 items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700">
-              <Building2 className="mr-2 h-3.5 w-3.5 shrink-0 text-slate-400" />
-              <span className="truncate">내 소속 부서</span>
-            </div>
-            <label className="flex h-9 min-w-0 cursor-pointer items-center justify-between gap-2 rounded-md border border-transparent px-2.5 text-xs font-semibold text-slate-700 transition hover:border-slate-200 hover:bg-white">
-              <span className="truncate">협업 요청</span>
-              <input
-                type="checkbox"
-                checked={companyCollaborationEnabled}
-                onChange={(event) =>
-                  handleCompanyCollaborationToggle(event.target.checked)
-                }
-                className="peer sr-only"
-                aria-label="협업 요청 사용"
-              />
-              <span
-                className={`relative h-5 w-9 shrink-0 rounded-full transition peer-focus-visible:ring-2 peer-focus-visible:ring-violet-200 ${
-                  companyCollaborationEnabled ? "bg-violet-500" : "bg-slate-200"
-                }`}
-              >
-                <span
-                  className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition ${
-                    companyCollaborationEnabled
-                      ? "translate-x-4"
-                      : "translate-x-0"
-                  }`}
-                />
-              </span>
-            </label>
-          </div>
-        </div>
-        {companyCollaborationEnabled ? renderCompanyAttendeeControl() : null}
-      </>
-    );
-  };
-
-  const renderCompanyAttendeeControl = () => {
-    const canAddCompanyTarget =
-      companyTargetType === "company" ||
-      (companyTargetType === "department" && companyDepartmentId !== "") ||
-      (companyTargetType === "member" && companyMemberId !== "");
+    const helperText = companyCollaborationEnabled
+      ? "협업 부서는 부서장 승인 후 일정에 참여합니다."
+      : "협업 요청을 켜면 다른 부서를 승인 요청할 수 있습니다.";
 
     return (
       <div className={compactFieldGroupClass}>
-        <div className={settingsRowLabelClass}>협업 부서</div>
-        <div className="mt-1 space-y-2">
-          <div className="flex h-9 min-w-0 items-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700">
-            <Building2 className="mr-2 h-3.5 w-3.5 shrink-0 text-slate-400" />
-            <span className="truncate">내 소속 부서 자동 포함</span>
+        <div className="flex items-center justify-between gap-3 px-2">
+          <div className="text-sm font-semibold text-slate-700">참여 부서</div>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="text-xs font-semibold text-slate-400">
+              협업 요청
+            </span>
+            <Switch
+              checked={companyCollaborationEnabled}
+              onCheckedChange={handleCompanyCollaborationToggle}
+              aria-label="협업 요청 사용"
+              className="shadow-none"
+            />
           </div>
-          <div className="grid grid-cols-[5.75rem_minmax(0,1fr)_2.25rem] gap-1.5">
-            <select
-              value={companyTargetType}
-              onChange={(event) => {
-                setCompanyTargetType(
-                  event.target.value as CompanyScheduleTargetType,
-                );
-                setCompanyDepartmentId("");
-                setCompanyMemberId("");
-              }}
-              className="h-9 w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 pr-7 text-xs font-semibold text-slate-900 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
-              aria-label="참석자 유형"
-            >
-              {companyScheduleTargetTypeOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+        </div>
 
-            {companyTargetType === "company" ? (
-              <div className="flex h-9 min-w-0 items-center overflow-hidden rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700">
-                <Users className="mr-2 h-3.5 w-3.5 shrink-0 text-slate-400" />
-                <span className="truncate">{companyName ?? "회사 전체"}</span>
+        <div className="mt-2 space-y-2">
+          <div className="flex min-h-[60px] min-w-0 items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-500 text-sm font-bold text-white">
+              {getDepartmentAvatarLabel(ownDepartmentLabel)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold text-slate-800">
+                {ownDepartmentLabel}
               </div>
-            ) : companyTargetType === "department" ? (
-              <select
-                value={companyDepartmentId}
-                disabled={departmentsQuery.isLoading}
-                onChange={(event) => setCompanyDepartmentId(event.target.value)}
-                className="h-9 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-900 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100 disabled:text-slate-400"
-                aria-label="참석 부서"
-              >
-                <option value="">
-                  {departmentsQuery.isLoading
-                    ? "부서 불러오는 중"
-                    : "부서 선택"}
-                </option>
-                {(departmentsQuery.data ?? []).map((department) => (
-                  <option
-                    key={department.department_id}
-                    value={department.department_id}
-                  >
-                    {renderDepartmentLabel(department)}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <select
-                value={companyMemberId}
-                disabled={membersQuery.isLoading}
-                onChange={(event) => setCompanyMemberId(event.target.value)}
-                className="h-9 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-900 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100 disabled:text-slate-400"
-                aria-label="참석 팀원"
-              >
-                <option value="">
-                  {membersQuery.isLoading ? "팀원 불러오는 중" : "팀원 선택"}
-                </option>
-                {!membersQuery.isLoading &&
-                companyTargetableMembers.length === 0 ? (
-                  <option value="" disabled>
-                    부서 소속 팀원 없음
-                  </option>
-                ) : null}
-                {companyTargetableMembers.map((member) => (
-                  <option
-                    key={member.company_member_id}
-                    value={member.company_member_id}
-                  >
-                    {renderMemberLabel(member)}
-                  </option>
-                ))}
-              </select>
-            )}
-
-            <button
-              type="button"
-              onClick={addCompanyTarget}
-              disabled={!canAddCompanyTarget}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
-              aria-label="부서 추가"
-              title="부서 추가"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
+              <div className="truncate text-xs font-medium text-slate-400">
+                내 소속 부서 · 자동 포함
+              </div>
+            </div>
+            <span className="shrink-0 rounded-full bg-indigo-50 px-2 py-1 text-[11px] font-bold text-indigo-600">
+              주최
+            </span>
           </div>
 
-          {companyTargets.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
-              {companyTargets.map((target) => {
+          {companyCollaborationEnabled
+            ? companyDepartmentTargets.map((target) => {
                 const label = getCompanyTargetLabel(target);
                 return (
-                  <span
+                  <div
                     key={companyTargetKey(target)}
-                    className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-violet-100 bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-700"
+                    className="flex min-h-[60px] min-w-0 items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5"
                   >
-                    <span className="truncate">{label}</span>
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-pink-500 text-sm font-bold text-white">
+                      {getDepartmentAvatarLabel(label)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold text-slate-800">
+                        {label}
+                      </div>
+                      <div className="truncate text-xs font-semibold text-amber-500">
+                        승인 대기중
+                      </div>
+                    </div>
                     <button
                       type="button"
                       onClick={() => removeCompanyTarget(target)}
-                      className="-mr-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-violet-600 transition hover:bg-violet-100 hover:text-violet-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200"
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-300 transition hover:bg-rose-50 hover:text-rose-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-100"
                       aria-label={`${label} 제거`}
                     >
-                      <X className="h-3 w-3" />
+                      <X className="h-3.5 w-3.5" />
                     </button>
-                  </span>
+                  </div>
                 );
-              })}
-            </div>
-          ) : (
-            <p className="px-1 text-[11px] font-medium text-slate-400">
-              내 소속 부서는 자동 포함되며, 추가한 부서는 부서장 승인 후
-              참여합니다.
-            </p>
-          )}
+              })
+            : null}
+
+          {companyCollaborationEnabled ? (
+            <Popover
+              open={companyDepartmentPickerOpen}
+              onOpenChange={setCompanyDepartmentPickerOpen}
+            >
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="flex min-h-[60px] w-full min-w-0 items-center gap-3 rounded-lg border border-dashed border-violet-200 bg-white px-3 py-2.5 text-left text-sm font-semibold text-violet-500 transition hover:border-violet-300 hover:bg-violet-50/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-100"
+                  aria-label="협업 부서 추가"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-violet-50 text-violet-500">
+                    <Plus className="h-4 w-4" />
+                  </span>
+                  <span className="truncate">협업 부서 추가</span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                side="left"
+                sideOffset={8}
+                className="z-[170] w-72 rounded-lg border border-slate-200 bg-white p-2 shadow-xl"
+              >
+                <div className="px-1 pb-2">
+                  <div className="text-xs font-bold text-slate-700">
+                    협업 부서 선택
+                  </div>
+                  <div className="mt-0.5 text-[11px] font-medium text-slate-400">
+                    승인 요청할 부서를 선택해 주세요.
+                  </div>
+                </div>
+                <div className="max-h-56 overflow-y-auto">
+                  {departmentsQuery.isLoading ? (
+                    <div className="rounded-md bg-slate-50 px-3 py-4 text-center text-xs font-semibold text-slate-400">
+                      부서를 불러오는 중입니다.
+                    </div>
+                  ) : availableCompanyDepartments.length > 0 ? (
+                    availableCompanyDepartments.map((department) => {
+                      const label = renderDepartmentLabel(department);
+                      return (
+                        <button
+                          key={department.department_id}
+                          type="button"
+                          onClick={() =>
+                            addCompanyDepartmentTarget(department.department_id)
+                          }
+                          className="flex h-11 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition hover:bg-violet-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-100"
+                        >
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">
+                            {getDepartmentAvatarLabel(label)}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-700">
+                            {label}
+                          </span>
+                          <Plus className="h-3.5 w-3.5 shrink-0 text-violet-400" />
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-md bg-slate-50 px-3 py-4 text-center text-xs font-semibold text-slate-400">
+                      추가 가능한 부서가 없습니다.
+                    </div>
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+          ) : null}
+
+          <div className="flex items-start gap-1.5 px-2 pt-0.5 text-[11px] font-medium text-slate-400">
+            <Info className="mt-0.5 h-3 w-3 shrink-0" />
+            <span>{helperText}</span>
+          </div>
         </div>
       </div>
     );
@@ -6810,7 +6748,7 @@ export function ScheduleFormPanel({
                     : "text-slate-400 hover:text-slate-700"
                 }`}
               >
-                공유
+                공개
               </button>
         </div>
       </div>
@@ -6843,6 +6781,22 @@ export function ScheduleFormPanel({
               ) : null)}
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {mode === "edit" && schedule && onDelete ? (
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deletePending}
+                aria-label="일정 삭제"
+                title="일정 삭제"
+                className="order-1 inline-flex h-9 w-9 items-center justify-center rounded-md bg-red-50 text-red-500 transition hover:bg-red-100 hover:text-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-200 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deletePending ? (
+                  <RotateCcw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={onClose}
@@ -6860,6 +6814,32 @@ export function ScheduleFormPanel({
           className="min-h-0 flex-1 overflow-y-auto bg-slate-50/70 p-4"
         >
           <div className="space-y-2">
+            {mode === "edit" && schedule && onCompletionChange ? (
+              <div className="px-1 pb-1">
+                <button
+                  type="button"
+                  onClick={handleCompletionToggle}
+                  disabled={completionPending}
+                  aria-pressed={!!schedule.is_completed}
+                  className={`inline-flex h-9 items-center justify-center gap-2 rounded-full px-3 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-60 ${
+                    schedule.is_completed
+                      ? "bg-violet-50 text-violet-700 ring-1 ring-violet-100 hover:bg-violet-100 focus-visible:ring-violet-200"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800 focus-visible:ring-slate-200"
+                  }`}
+                >
+                  {completionPending ? (
+                    <RotateCcw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Check className="h-3.5 w-3.5" />
+                  )}
+                  {completionPending
+                    ? "상태 변경 중..."
+                    : schedule.is_completed
+                      ? "완료 해제"
+                      : "완료 표시"}
+                </button>
+              </div>
+            ) : null}
             <label className="block border-b border-slate-200/70 pb-2">
               <input
                 ref={titleInputRef}
@@ -7350,105 +7330,35 @@ export function ScheduleFormPanel({
           </div>
         </form>
 
-        <div className="flex shrink-0 flex-col gap-3 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.04)] backdrop-blur sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            {mode === "edit" && schedule && onCompletionChange ? (
-              <button
-                type="button"
-                onClick={handleCompletionToggle}
-                disabled={completionPending}
-                aria-pressed={!!schedule.is_completed}
-                className={`inline-flex h-10 items-center justify-center gap-2 rounded-md border px-3 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-60 ${
-                  schedule.is_completed
-                    ? "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 focus-visible:ring-violet-200"
-                    : "border-slate-200 bg-white text-slate-700 hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 focus-visible:ring-violet-200"
-                }`}
-              >
-                {completionPending ? (
-                  <RotateCcw className="h-4 w-4 animate-spin" />
-                ) : (
-                  <CheckSquare2 className="h-4 w-4" />
-                )}
-                {completionPending
-                  ? "상태 변경 중..."
-                  : schedule.is_completed
-                    ? "완료 해제"
-                    : "완료"}
-              </button>
-            ) : null}
-            {mode === "edit" && schedule && onDelete ? (
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={deletePending}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-200 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <Trash2 className="h-4 w-4" />
-                {deletePending ? "삭제 중..." : "삭제"}
-              </button>
-            ) : null}
-            {mode === "edit" ? (
-              <span
-                aria-live="polite"
-                className={`inline-flex h-8 max-w-full items-center gap-1.5 rounded-full border px-2.5 text-xs font-semibold ${
-                  autoSaveState === "error"
-                    ? "border-red-200 bg-red-50 text-red-700"
-                    : autoSaveState === "saving"
-                      ? "border-amber-200 bg-amber-50 text-amber-700"
-                      : autoSaveState === "saved"
-                        ? "border-violet-200 bg-violet-50 text-violet-700"
-                        : "border-slate-200 bg-slate-50 text-slate-600"
-                }`}
-              >
-                {autoSaveState === "saving" ? (
-                  <RotateCcw className="h-3.5 w-3.5 animate-spin" />
-                ) : autoSaveState === "error" ? (
-                  <X className="h-3.5 w-3.5" />
-                ) : autoSaveState === "saved" ? (
-                  <Check className="h-3.5 w-3.5" />
-                ) : (
-                  <Clock3 className="h-3.5 w-3.5" />
-                )}
-                {autoSaveState === "saving"
-                  ? "미리보기 중"
-                  : autoSaveState === "error"
-                    ? "저장 실패"
-                    : autoSaveState === "saved"
-                      ? "저장됨"
-                      : "저장 전 미리보기"}
-              </span>
-            ) : null}
-          </div>
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-end">
-            <button
-              type="button"
-              onClick={onClose}
-              className="inline-flex h-10 w-full min-w-[76px] items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-200 sm:w-auto"
-            >
-              <X className="h-4 w-4" />
-              닫기
-            </button>
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={(event) => {
-                const formEl = event.currentTarget
-                  .closest("aside")
-                  ?.querySelector("form");
-                formEl?.requestSubmit();
-              }}
-              className="inline-flex h-10 w-full min-w-[86px] items-center justify-center gap-2 rounded-md bg-violet-600 px-4 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(124,58,237,0.22)] transition hover:bg-violet-700 hover:shadow-[0_10px_22px_rgba(124,58,237,0.28)] focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 focus-visible:ring-offset-2 active:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none sm:w-auto"
-            >
-              {isPending ? (
-                <RotateCcw className="h-4 w-4 animate-spin" />
-              ) : mode === "edit" ? (
-                <Check className="h-4 w-4" />
-              ) : (
-                <Plus className="h-4 w-4" />
-              )}
-              {isPending ? "저장 중..." : mode === "edit" ? "저장" : "추가"}
-            </button>
-          </div>
+        <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-slate-200 bg-white/95 px-4 py-4 shadow-[0_-8px_24px_rgba(15,23,42,0.04)] backdrop-blur">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-12 w-full min-w-0 items-center justify-center gap-2 rounded-lg bg-slate-100 px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-200 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-200"
+          >
+            <X className="h-4 w-4" />
+            닫기
+          </button>
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={(event) => {
+              const formEl = event.currentTarget
+                .closest("aside")
+                ?.querySelector("form");
+              formEl?.requestSubmit();
+            }}
+            className="inline-flex h-12 w-full min-w-0 items-center justify-center gap-2 rounded-lg bg-violet-600 px-4 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(124,58,237,0.22)] transition hover:bg-violet-700 hover:shadow-[0_10px_22px_rgba(124,58,237,0.28)] focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 focus-visible:ring-offset-2 active:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
+          >
+            {isPending ? (
+              <RotateCcw className="h-4 w-4 animate-spin" />
+            ) : mode === "edit" ? (
+              <Check className="h-4 w-4" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
+            {isPending ? "저장 중..." : mode === "edit" ? "저장" : "추가"}
+          </button>
         </div>
       </aside>
       {renderRepeatTypePopover()}
@@ -11597,6 +11507,20 @@ export default function Schedules() {
   const categoriesQuery = useCategories("schedule");
   const companyAdminMeQuery = useCompanyAdminMe();
   const hasCompanyMembership = companyAdminMeQuery.isSuccess;
+  const activeCompanyDepartment = companyAdminMeQuery.data?.department;
+  const activeCompanyDepartmentLabel = activeCompanyDepartment?.name
+    ? `${activeCompanyDepartment.name}${
+        activeCompanyDepartment.code ? ` (${activeCompanyDepartment.code})` : ""
+      }`
+    : undefined;
+  const activeCompanyDepartmentId = Number(
+    activeCompanyDepartment?.department_id ??
+      companyAdminMeQuery.data?.department_id,
+  );
+  const ownCompanyDepartmentId =
+    Number.isFinite(activeCompanyDepartmentId) && activeCompanyDepartmentId > 0
+      ? activeCompanyDepartmentId
+      : null;
   const companyDepartmentsQuery = useCompanyAdminDepartments(
     hasCompanyMembership || !!viewingSchedule,
   );
@@ -13261,6 +13185,8 @@ export default function Schedules() {
               onClose={closePanel}
               onPreviewChange={updateDraftPreviewForms}
               companyName={companyAdminMeQuery.data?.company?.name}
+              companyDepartmentLabel={activeCompanyDepartmentLabel}
+              ownCompanyDepartmentId={ownCompanyDepartmentId}
               defaultOwner={
                 hasCompanyMembership && filters.owner === "company"
                   ? "company"

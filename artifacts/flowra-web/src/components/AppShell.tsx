@@ -461,7 +461,9 @@ export default function AppShell({
             type="button"
             aria-label={headerSidebarLabel}
             title={headerSidebarLabel}
-            className={sidebarToggleButtonClass}
+            className={`${sidebarToggleButtonClass} ${
+              showSidebarIconRail ? "min-[600px]:h-10 min-[600px]:w-10" : ""
+            }`}
             onClick={() => {
               if (isDesktop) {
                 setSidebarCollapsed((collapsed) => !collapsed);
@@ -676,7 +678,7 @@ export default function AppShell({
         </main>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-slate-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] pt-1 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur min-[600px]:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-slate-200 bg-white/95 px-2 pb-[calc(0.25rem+env(safe-area-inset-bottom))] pt-1 backdrop-blur min-[600px]:hidden">
         {navigation.map((item) => {
           const Icon = item.icon;
           return (

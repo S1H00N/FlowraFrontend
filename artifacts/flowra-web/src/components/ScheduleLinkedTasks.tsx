@@ -1,10 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { CalendarClock, Check, CheckSquare2, Plus } from "lucide-react";
+import {
+  CalendarClock,
+  Check,
+  CheckSquare2,
+  ChevronDown,
+  ChevronUp,
+  Clock3,
+  Plus,
+  X,
+} from "lucide-react";
 import {
   useCreateTask,
   useSetTaskCompletion,
   useTasks,
+  useUnlinkTaskFromSchedule,
 } from "@/hooks/useTasks";
 import {
   getClassificationLabel,
@@ -54,6 +64,13 @@ const priorityDotColor: Record<TaskPriority, string> = {
   urgent: "#f43f5e",
 };
 
+const priorityPillClass: Record<TaskPriority, string> = {
+  low: "bg-slate-100 text-slate-600",
+  medium: "bg-violet-50 text-violet-700",
+  high: "bg-red-50 text-red-600",
+  urgent: "bg-rose-100 text-rose-700",
+};
+
 function pad(value: number) {
   return String(value).padStart(2, "0");
 }
@@ -83,6 +100,15 @@ function formatTaskDue(iso?: string | null) {
   });
 }
 
+function formatTaskDueCompact(iso?: string | null) {
+  if (!iso) return "마감 없음";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "마감 없음";
+  const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
+
+  return `${pad(date.getMonth() + 1)}.${pad(date.getDate())}(${weekdays[date.getDay()]}) ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 function sortLinkedTasks(tasks: Task[]) {
   return [...tasks].sort((a, b) => {
     if (a.status === "done" && b.status !== "done") return 1;
@@ -97,17 +123,28 @@ function LinkedTaskListItem({
   task,
   highlighted,
   updatingCompletion,
+  compact = false,
   linkTask,
+  unlinking,
+  onUnlink,
   onCompletionChange,
 }: {
   task: Task;
   highlighted?: boolean;
   updatingCompletion?: boolean;
+  compact?: boolean;
   linkTask: boolean;
+  unlinking?: boolean;
+  onUnlink?: () => void;
   onCompletionChange: (completed: boolean) => void;
 }) {
   const isDone = task.status === "done";
   const classificationSettings = useClassificationSettings();
+  const priorityLabel = getClassificationLabel(
+    classificationSettings,
+    "taskPriorities",
+    task.priority,
+  );
   const titleClass = cn(
     "block truncate text-sm font-bold",
     isDone ? "text-slate-400 line-through" : "text-slate-800",
@@ -123,6 +160,63 @@ function LinkedTaskListItem({
   ) : (
     <p className={titleClass}>{task.title}</p>
   );
+
+  if (compact) {
+    return (
+      <li
+        className={cn(
+          "group flex items-start gap-3 rounded-lg border px-3 py-3 transition-colors duration-300",
+          highlighted
+            ? "border-violet-300 bg-violet-50 ring-2 ring-violet-100"
+            : isDone
+              ? "border-slate-200 bg-slate-50"
+              : "border-slate-200 bg-white",
+        )}
+      >
+        <TaskCompletionToggleButton
+          completed={isDone}
+          disabled={updatingCompletion}
+          compact
+          className={cn(
+            "mt-0.5 h-5 w-5 rounded-md",
+            !isDone && "border-slate-200",
+          )}
+          onCompletedChange={onCompletionChange}
+        />
+        <div className="min-w-0 flex-1">
+          {title}
+          <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
+            <span
+              className={cn(
+                "inline-flex h-6 items-center rounded-full px-2 text-[11px] font-bold",
+                priorityPillClass[task.priority],
+              )}
+            >
+              {priorityLabel}
+            </span>
+            <span className="inline-flex min-w-0 items-center gap-1 text-xs font-medium text-slate-400">
+              <Clock3 className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">
+                {formatTaskDueCompact(task.due_datetime)}
+              </span>
+            </span>
+          </div>
+        </div>
+        {onUnlink ? (
+          <button
+            type="button"
+            onClick={onUnlink}
+            disabled={unlinking}
+            aria-label={`${task.title} 연결 해제`}
+            title="연결 해제"
+            className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-300 transition hover:bg-slate-100 hover:text-slate-500 focus:outline-none focus:ring-2 focus:ring-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        ) : null}
+      </li>
+    );
+  }
 
   return (
     <li
@@ -154,11 +248,7 @@ function LinkedTaskListItem({
             {formatTaskDue(task.due_datetime)}
           </span>
           <PriorityMetaChip priority={task.priority}>
-            {getClassificationLabel(
-              classificationSettings,
-              "taskPriorities",
-              task.priority,
-            )}
+            {priorityLabel}
           </PriorityMetaChip>
         </ListCardMeta>
       </div>
@@ -224,6 +314,7 @@ export default function ScheduleLinkedTasks({
   const classificationSettings = useClassificationSettings();
   const createTask = useCreateTask();
   const completionMutation = useSetTaskCompletion();
+  const unlinkTask = useUnlinkTaskFromSchedule();
   const tasksQuery = useTasks({ schedule_id: schedule.schedule_id });
   const tasks = providedTasks ?? tasksQuery.data ?? [];
   const sortedTasks = useMemo(() => sortLinkedTasks(tasks), [tasks]);
@@ -241,8 +332,13 @@ export default function ScheduleLinkedTasks({
   const [highlightedTaskId, setHighlightedTaskId] = useState<number | null>(
     null,
   );
+  const [collapsed, setCollapsed] = useState(false);
+  const [addingTask, setAddingTask] = useState(variant === "panel");
+  const [unlinkingTaskId, setUnlinkingTaskId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const doneCount = sortedTasks.filter((task) => task.status === "done").length;
+  const progressPercent =
+    sortedTasks.length > 0 ? (doneCount / sortedTasks.length) * 100 : 0;
   const canAddTask = !!schedule.schedule_id && !schedule.is_company_schedule;
   const priorityOptions = getClassificationOptions(
     classificationSettings,
@@ -265,6 +361,9 @@ export default function ScheduleLinkedTasks({
     setDueLocal(scheduleDueLocal);
     setSyncDueToSchedule(true);
     setHighlightedTaskId(null);
+    setCollapsed(false);
+    setAddingTask(variant === "panel");
+    setUnlinkingTaskId(null);
     setError(null);
     if (variant === "panel") {
       window.requestAnimationFrame(() => titleInputRef.current?.focus());
@@ -286,6 +385,11 @@ export default function ScheduleLinkedTasks({
 
     return () => window.clearTimeout(timeoutId);
   }, [highlightedTaskId]);
+
+  useEffect(() => {
+    if (!addingTask || variant !== "section") return;
+    window.requestAnimationFrame(() => titleInputRef.current?.focus());
+  }, [addingTask, variant]);
 
   const toggleScheduleDueSync = () => {
     setSyncDueToSchedule((current) => {
@@ -324,9 +428,28 @@ export default function ScheduleLinkedTasks({
       setDueLocal(scheduleDueLocal);
       setSyncDueToSchedule(true);
       setHighlightedTaskId(createdTask.task_id);
-      window.requestAnimationFrame(() => titleInputRef.current?.focus());
+      if (variant === "section") {
+        setAddingTask(false);
+        setCollapsed(false);
+      }
+      if (variant === "panel") {
+        window.requestAnimationFrame(() => titleInputRef.current?.focus());
+      }
     } catch (err) {
       setError(getErrorMessage(err, "할 일 추가에 실패했습니다."));
+    }
+  };
+
+  const handleUnlinkTask = async (task: Task) => {
+    setError(null);
+    setUnlinkingTaskId(task.task_id);
+
+    try {
+      await unlinkTask.mutateAsync(task.task_id);
+    } catch (err) {
+      setError(getErrorMessage(err, "할 일 연결 해제에 실패했습니다."));
+    } finally {
+      setUnlinkingTaskId(null);
     }
   };
 
@@ -344,104 +467,258 @@ export default function ScheduleLinkedTasks({
     }
   };
 
-  const content = (
-    <>
-      {variant === "section" && (
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-              <CheckSquare2 className="h-4 w-4 text-violet-600" />
-              연결된 할 일
-            </div>
-            <p className="mt-1 text-xs text-slate-500">
-              이 일정에 연결된 실행 항목을 확인하고 완료할 수 있습니다.
-            </p>
-          </div>
-          <span className="rounded-md bg-white px-2 py-1 text-xs font-medium text-slate-500 ring-1 ring-slate-200">
-            {sortedTasks.length}개
-          </span>
-        </div>
+  const addTaskForm = canAddTask ? (
+    <form
+      onSubmit={handleSubmit}
+      noValidate
+      className={cn(
+        "space-y-3",
+        variant === "section" && "rounded-lg border border-violet-100 bg-white p-3",
+        variant === "panel" && "mt-3",
       )}
+    >
+      <div className="flex items-end gap-2">
+        <label className="block min-w-0 flex-1">
+          <span className="text-xs font-bold text-slate-500">할 일 제목</span>
+          <input
+            ref={titleInputRef}
+            type="text"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="새 할 일 입력"
+            enterKeyHint="done"
+            className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={createTask.isPending}
+          aria-label={createTask.isPending ? "할 일 추가 중" : "할 일 추가"}
+          title={createTask.isPending ? "추가 중..." : "할 일 추가"}
+          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-500 text-white transition hover:bg-violet-600 focus:outline-none focus:ring-2 focus:ring-violet-100 disabled:opacity-60"
+        >
+          <Plus
+            className={cn("h-5 w-5", createTask.isPending && "animate-pulse")}
+          />
+        </button>
+      </div>
 
-      {canAddTask ? (
-        <form onSubmit={handleSubmit} noValidate className="mt-3 space-y-3">
-          <div className="flex items-end gap-2">
-            <label className="block min-w-0 flex-1">
-              <span className="text-xs font-bold text-slate-500">
-                할 일 제목
-              </span>
-              <input
-                ref={titleInputRef}
-                type="text"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="새 할 일 입력"
-                enterKeyHint="done"
-                className="mt-1 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={createTask.isPending}
-              aria-label={createTask.isPending ? "할 일 추가 중" : "할 일 추가"}
-              title={createTask.isPending ? "추가 중..." : "할 일 추가"}
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-violet-500 text-white transition hover:bg-violet-600 focus:outline-none focus:ring-2 focus:ring-violet-100 disabled:opacity-60"
-            >
-              <Plus
-                className={cn(
-                  "h-5 w-5",
-                  createTask.isPending && "animate-pulse",
-                )}
-              />
-            </button>
-          </div>
+      <div className="grid gap-2">
+        <div className="block">
+          <span className="text-xs font-bold text-slate-500">우선순위</span>
+          <CustomSelect<TaskPriority>
+            value={priority}
+            options={prioritySelectOptions}
+            onChange={(value) => setPriority(value)}
+            ariaLabel="우선순위 선택"
+            side={variant === "panel" ? "left" : "bottom"}
+            floatingBoundary={variant === "panel" ? "panel" : "trigger"}
+            className="mt-1 h-10 shadow-none"
+          />
+        </div>
 
-          <div className="grid gap-2">
-            <div className="block">
-              <span className="text-xs font-bold text-slate-500">우선순위</span>
-              <CustomSelect<TaskPriority>
-                value={priority}
-                options={prioritySelectOptions}
-                onChange={(value) => setPriority(value)}
-                ariaLabel="우선순위 선택"
-                side={variant === "panel" ? "left" : "bottom"}
-                floatingBoundary={variant === "panel" ? "panel" : "trigger"}
-                className="mt-1 h-10 shadow-none"
-              />
-            </div>
+        <TaskDueDateTimeControl
+          value={dueLocal}
+          fallbackValue={scheduleDueLocal}
+          onChange={(nextValue) => {
+            setDueLocal(nextValue);
+            setSyncDueToSchedule(nextValue === scheduleDueLocal);
+          }}
+        />
+      </div>
 
-            <TaskDueDateTimeControl
-              value={dueLocal}
-              fallbackValue={scheduleDueLocal}
-              onChange={(nextValue) => {
-                setDueLocal(nextValue);
-                setSyncDueToSchedule(nextValue === scheduleDueLocal);
-              }}
-            />
-          </div>
-
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-pressed={syncDueToSchedule}
+          onClick={toggleScheduleDueSync}
+          className={cn(
+            "inline-flex h-9 min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border px-3 text-xs font-bold transition",
+            syncDueToSchedule
+              ? "border-violet-200 bg-violet-50 text-violet-700"
+              : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900",
+          )}
+        >
+          <Check
+            className={cn("h-3.5 w-3.5", !syncDueToSchedule && "opacity-0")}
+          />
+          <span className="truncate">일정 시간에 맞춤</span>
+        </button>
+        {variant === "section" ? (
           <button
             type="button"
-            aria-pressed={syncDueToSchedule}
-            onClick={toggleScheduleDueSync}
-            className={cn(
-              "inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border px-3 text-xs font-bold transition",
-              syncDueToSchedule
-                ? "border-violet-200 bg-violet-50 text-violet-700"
-                : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900",
-            )}
+            onClick={() => {
+              setAddingTask(false);
+              setTitle("");
+              setError(null);
+            }}
+            className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
           >
-            <Check
-              className={cn("h-3.5 w-3.5", !syncDueToSchedule && "opacity-0")}
-            />
-            <span className="whitespace-nowrap">일정 시간에 맞춤</span>
+            취소
           </button>
-        </form>
-      ) : (
-        <div className="mt-3 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-4 text-center text-xs font-bold text-slate-500">
-          이 일정에는 개인 할 일을 직접 연결할 수 없습니다.
+        ) : null}
+      </div>
+    </form>
+  ) : (
+    <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-4 text-center text-xs font-bold text-slate-500">
+      이 일정에는 개인 할 일을 직접 연결할 수 없습니다.
+    </div>
+  );
+
+  const linkedTaskList = (
+    <>
+      {providedTasks === undefined && tasksQuery.isLoading ? (
+        <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-5 text-center text-xs text-slate-500">
+          연결된 할 일을 불러오는 중입니다.
         </div>
+      ) : providedTasks === undefined && tasksQuery.isError ? (
+        <div className="rounded-lg border border-red-200 bg-white px-3 py-3 text-xs text-red-700">
+          {(tasksQuery.error as Error).message}
+        </div>
+      ) : sortedTasks.length > 0 ? (
+        <ul className="space-y-2">
+          {sortedTasks.map((task) => (
+            <LinkedTaskListItem
+              key={task.task_id}
+              task={task}
+              highlighted={highlightedTaskId === task.task_id}
+              updatingCompletion={completionMutation.isPending}
+              linkTask={linkTasks}
+              onCompletionChange={(completed) =>
+                handleCompletionChange(task, completed)
+              }
+            />
+          ))}
+        </ul>
+      ) : (
+        <p className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-8 text-center text-xs font-bold text-slate-500">
+          아직 연결된 할 일이 없습니다.
+        </p>
       )}
+    </>
+  );
+
+  if (variant === "section") {
+    return (
+      <section
+        className={cn(
+          "overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-900/5",
+          className,
+        )}
+      >
+        <div className="flex items-center justify-between gap-3 px-4 py-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600">
+              <CheckSquare2 className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-center gap-2">
+                <h3 className="truncate text-sm font-black text-slate-950">
+                  연결된 할 일
+                </h3>
+                <span className="inline-flex h-6 shrink-0 items-center rounded-full bg-violet-100 px-2 text-xs font-black text-violet-700">
+                  {doneCount}/{sortedTasks.length}
+                </span>
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCollapsed((current) => !current)}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "연결된 할 일 펼치기" : "연결된 할 일 접기"}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-100"
+          >
+            {collapsed ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronUp className="h-4 w-4" />
+            )}
+          </button>
+        </div>
+
+        <div className="px-4 pb-3">
+          <div className="h-1 rounded-full bg-slate-100">
+            <div
+              className="h-full rounded-full bg-violet-500 transition-[width] duration-300"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+        </div>
+
+        {!collapsed && (
+          <div className="space-y-2 px-3 pb-3">
+            {providedTasks === undefined && tasksQuery.isLoading ? (
+              <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-5 text-center text-xs text-slate-500">
+                연결된 할 일을 불러오는 중입니다.
+              </div>
+            ) : providedTasks === undefined && tasksQuery.isError ? (
+              <div className="rounded-lg border border-red-200 bg-white px-3 py-3 text-xs text-red-700">
+                {(tasksQuery.error as Error).message}
+              </div>
+            ) : sortedTasks.length > 0 ? (
+              <ul className="space-y-2">
+                {sortedTasks.map((task) => (
+                  <LinkedTaskListItem
+                    key={task.task_id}
+                    task={task}
+                    compact
+                    highlighted={highlightedTaskId === task.task_id}
+                    updatingCompletion={completionMutation.isPending}
+                    linkTask={linkTasks}
+                    unlinking={unlinkingTaskId === task.task_id}
+                    onUnlink={() => handleUnlinkTask(task)}
+                    onCompletionChange={(completed) =>
+                      handleCompletionChange(task, completed)
+                    }
+                  />
+                ))}
+              </ul>
+            ) : (
+              <p className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-7 text-center text-xs font-bold text-slate-500">
+                아직 연결된 할 일이 없습니다.
+              </p>
+            )}
+
+            {canAddTask && !addingTask ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setAddingTask(true);
+                  setCollapsed(false);
+                }}
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-slate-200 bg-white text-sm font-bold text-slate-400 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-600 focus:outline-none focus:ring-2 focus:ring-violet-100"
+              >
+                <Plus className="h-4 w-4" />
+                할 일 추가
+              </button>
+            ) : (
+              addTaskForm
+            )}
+
+            {error && (
+              <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+                {error}
+              </p>
+            )}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50 px-4 py-3 text-xs">
+          <span className="min-w-0 truncate font-medium text-slate-400">
+            이 일정에 연결된 실행 항목
+          </span>
+          <span className="shrink-0 font-black text-violet-700">
+            완료 {doneCount} / 전체 {sortedTasks.length}
+          </span>
+        </div>
+      </section>
+    );
+  }
+
+  const content = (
+    <>
+      {addTaskForm}
 
       {error && (
         <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
@@ -451,42 +728,13 @@ export default function ScheduleLinkedTasks({
 
       <div className="mt-6">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <h3 className="text-sm font-black text-slate-950">
-            {variant === "section" ? "목록" : "연결된 할 일"}
-          </h3>
+          <h3 className="text-sm font-black text-slate-950">연결된 할 일</h3>
           <span className="shrink-0 text-xs font-bold text-slate-400">
             완료 {doneCount} / 전체 {sortedTasks.length}
           </span>
         </div>
 
-        {providedTasks === undefined && tasksQuery.isLoading ? (
-          <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-5 text-center text-xs text-slate-500">
-            연결된 할 일을 불러오는 중입니다.
-          </div>
-        ) : providedTasks === undefined && tasksQuery.isError ? (
-          <div className="rounded-lg border border-red-200 bg-white px-3 py-3 text-xs text-red-700">
-            {(tasksQuery.error as Error).message}
-          </div>
-        ) : sortedTasks.length > 0 ? (
-          <ul className="space-y-2">
-            {sortedTasks.map((task) => (
-              <LinkedTaskListItem
-                key={task.task_id}
-                task={task}
-                highlighted={highlightedTaskId === task.task_id}
-                updatingCompletion={completionMutation.isPending}
-                linkTask={linkTasks}
-                onCompletionChange={(completed) =>
-                  handleCompletionChange(task, completed)
-                }
-              />
-            ))}
-          </ul>
-        ) : (
-          <p className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-8 text-center text-xs font-bold text-slate-500">
-            아직 연결된 할 일이 없습니다.
-          </p>
-        )}
+        {linkedTaskList}
       </div>
     </>
   );

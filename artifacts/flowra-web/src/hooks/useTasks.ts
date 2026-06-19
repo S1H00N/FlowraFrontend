@@ -263,6 +263,7 @@ export function useCreateTask() {
 
 export function useUpdateTask() {
   const invalidate = useInvalidateTasks();
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
       taskId,
@@ -275,10 +276,36 @@ export function useUpdateTask() {
       if (!res.success) throw new Error(res.message || "수정에 실패했습니다.");
       return res.data.task;
     },
-    onSuccess: () => invalidate(),
+    onSuccess: (task) => {
+      syncUpdatedTaskToListCaches(queryClient, task);
+      queryClient.setQueryData(taskDetailKey(task.task_id), task);
+      invalidate();
+    },
     meta: {
       successMessage: "할 일을 수정했습니다.",
       errorMessage: "할 일 수정에 실패했습니다.",
+    },
+  });
+}
+
+export function useUnlinkTaskFromSchedule() {
+  const invalidate = useInvalidateTasks();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (taskId: number) => {
+      const res = await updateTask(taskId, { schedule_id: null });
+      if (!res.success)
+        throw new Error(res.message || "할 일 연결 해제에 실패했습니다.");
+      return res.data.task;
+    },
+    onSuccess: (task) => {
+      syncUpdatedTaskToListCaches(queryClient, task);
+      queryClient.setQueryData(taskDetailKey(task.task_id), task);
+      invalidate();
+    },
+    meta: {
+      successMessage: "할 일 연결을 해제했습니다.",
+      errorMessage: "할 일 연결 해제에 실패했습니다.",
     },
   });
 }
