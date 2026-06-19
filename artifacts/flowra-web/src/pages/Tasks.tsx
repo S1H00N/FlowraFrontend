@@ -22,6 +22,8 @@ import {
 } from "@/hooks/useCompanySchedules";
 import { useHolidaysInRange } from "@/hooks/useHolidays";
 import {
+  useCreateScheduleFriendShare,
+  useCreateScheduleShareLink,
   useCreateSchedules,
   useDeleteSchedule,
   useDeleteSchedules,
@@ -39,6 +41,7 @@ import {
 } from "@/hooks/useCompanyAdmin";
 import {
   ScheduleFormPanel,
+  applyScheduleCreateShare,
   companyScheduleToSchedule,
   emptyFormForDate,
   defaultSchedulePanelFloatingStyle,
@@ -1039,6 +1042,8 @@ export default function Tasks() {
   }, [visibleMonth]);
   const schedulesQuery = useSchedules(queryRange);
   const createSchedulesMutation = useCreateSchedules();
+  const createShareLinkMutation = useCreateScheduleShareLink();
+  const createFriendShareMutation = useCreateScheduleFriendShare();
   const deleteScheduleMutation = useDeleteSchedule();
   const deleteSchedulesMutation = useDeleteSchedules();
   const companyAdminMeQuery = useCompanyAdminMe();
@@ -1780,7 +1785,9 @@ export default function Tasks() {
                   initial={emptyFormForDate(selectedDate)}
                   isPending={
                     createSchedulesMutation.isPending ||
-                    createCompanyScheduleMutation.isPending
+                    createCompanyScheduleMutation.isPending ||
+                    createShareLinkMutation.isPending ||
+                    createFriendShareMutation.isPending
                   }
                   onClose={() => setScheduleAddPanelOpen(false)}
                   companyName={companyAdminMeQuery.data?.company?.name}
@@ -1788,9 +1795,25 @@ export default function Tasks() {
                     await createCompanyScheduleMutation.mutateAsync(payload);
                     setScheduleAddPanelOpen(false);
                   }}
-                  onSubmit={async (forms) => {
+                  onSubmit={async (forms, options) => {
                     const payloads = forms.map((form) => toPayload(form));
-                    await createSchedulesMutation.mutateAsync(payloads);
+                    const createdSchedules =
+                      await createSchedulesMutation.mutateAsync(payloads);
+                    try {
+                      await applyScheduleCreateShare({
+                        schedules: createdSchedules,
+                        share: options?.share,
+                        createShareLink: createShareLinkMutation.mutateAsync,
+                        createFriendShare: createFriendShareMutation.mutateAsync,
+                      });
+                    } catch (err) {
+                      toast.error(
+                        getErrorMessage(
+                          err,
+                          "일정은 추가됐지만 공유 설정에 실패했습니다.",
+                        ),
+                      );
+                    }
                     setScheduleAddPanelOpen(false);
                   }}
                   floatingStyle={defaultSchedulePanelFloatingStyle}

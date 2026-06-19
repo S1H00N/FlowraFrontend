@@ -26,6 +26,8 @@ import {
   ChevronUp,
   Clock3,
   Flag,
+  Globe2,
+  Link2,
   LockKeyhole,
   MapPin,
   PanelRight,
@@ -43,6 +45,8 @@ import {
   X,
 } from "lucide-react";
 import {
+  useCreateScheduleFriendShare,
+  useCreateScheduleShareLink,
   useCreateSchedules,
   useDeleteSchedule,
   useDeleteSchedules,
@@ -64,6 +68,8 @@ import {
   useRejectCompanyScheduleApproval,
 } from "@/hooks/useCompanyScheduleApprovals";
 import { useCategories } from "@/hooks/useCategories";
+import { useFriendPresets } from "@/hooks/useFriendPresets";
+import { useFriends } from "@/hooks/useFriends";
 import { useHolidaysInRange } from "@/hooks/useHolidays";
 import {
   TASK_PRIORITIES,
@@ -74,9 +80,14 @@ import {
   type CompanyScheduleApproval,
   type CompanySchedule,
   type CompanyScheduleCreateTarget,
+  type CreateScheduleFriendShareRequest,
   type CreateCompanyScheduleRequest,
+  type CreateScheduleFriendShareResponse,
+  type CreateScheduleShareLinkRequest,
+  type CreateScheduleShareLinkResponse,
   type Holiday,
   type Schedule,
+  type ScheduleSharePermission,
   type ScheduleType,
   type ScheduleVisibility,
   type TaskPriority,
@@ -260,8 +271,26 @@ type ScheduleSelectDisplayState = Record<ScheduleSelectField, boolean>;
 
 export type ScheduleFormSubmitIntent = "manual" | "auto" | "repeat";
 
+export type ScheduleCreateShareOption =
+  | {
+      kind: "link";
+      permission: ScheduleSharePermission;
+    }
+  | {
+      kind: "friends";
+      scope: "all_friends";
+      permission: ScheduleSharePermission;
+    }
+  | {
+      kind: "friends";
+      scope: "preset";
+      friend_preset_id: number;
+      permission: ScheduleSharePermission;
+    };
+
 export interface ScheduleFormSubmitOptions {
   intent?: ScheduleFormSubmitIntent;
+  share?: ScheduleCreateShareOption;
 }
 
 interface ScheduleCreateDraft {
@@ -1347,6 +1376,8 @@ const companyScheduleTargetTypeOptions: Array<{
   label: string;
 }> = [{ value: "department", label: "부서" }];
 const personalAttendeeSuggestions: PersonalScheduleAttendee[] = [];
+type ScheduleCreateShareTargetKind = "link" | "all_friends" | "preset";
+type ScheduleCreateShareTab = "friends" | "presets";
 const scheduleVisibilityScopeOptions = [
   {
     value: "private",
@@ -2752,9 +2783,90 @@ export function toPayload(form: ScheduleFormState) {
       : undefined,
     all_day: allDay,
     location: form.location.trim() || undefined,
-    visibility: form.visibility,
+    visibility: form.visibility === "private" ? ("private" as const) : undefined,
     category_id: form.category_id === "" ? undefined : String(form.category_id),
   };
+}
+
+async function copyTextToClipboard(text: string) {
+  if (
+    typeof navigator === "undefined" ||
+    !navigator.clipboard ||
+    typeof navigator.clipboard.writeText !== "function"
+  ) {
+    return false;
+  }
+
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function applyScheduleCreateShare({
+  schedules,
+  share,
+  createShareLink,
+  createFriendShare,
+}: {
+  schedules: Schedule[];
+  share?: ScheduleCreateShareOption;
+  createShareLink: (vars: {
+    scheduleId: number;
+    payload: CreateScheduleShareLinkRequest;
+  }) => Promise<CreateScheduleShareLinkResponse>;
+  createFriendShare: (vars: {
+    scheduleId: number;
+    payload: CreateScheduleFriendShareRequest;
+  }) => Promise<CreateScheduleFriendShareResponse>;
+}) {
+  if (!share || schedules.length === 0) return;
+
+  if (share.kind === "link") {
+    const links: string[] = [];
+
+    for (const schedule of schedules) {
+      const result = await createShareLink({
+        scheduleId: schedule.schedule_id,
+        payload: {
+          permission: share.permission,
+          max_uses: null,
+          expires_at: null,
+        },
+      });
+      links.push(result.url);
+    }
+
+    const firstLink = links[0];
+    if (firstLink) {
+      const copied = await copyTextToClipboard(firstLink);
+      toast.success(
+        copied
+          ? "공유 링크를 만들고 복사했습니다."
+          : "공유 링크를 만들었습니다.",
+      );
+    }
+    return;
+  }
+
+  for (const schedule of schedules) {
+    await createFriendShare({
+      scheduleId: schedule.schedule_id,
+      payload:
+        share.scope === "preset"
+          ? {
+              scope: "preset",
+              friend_preset_id: share.friend_preset_id,
+              permission: share.permission,
+            }
+          : {
+              scope: "all_friends",
+              permission: share.permission,
+            },
+    });
+  }
 }
 
 function previewScheduleFromForm(
@@ -3418,6 +3530,16 @@ export function ScheduleFormPanel({
   >([]);
   const [personalAttendeeOpen, setPersonalAttendeeOpen] = useState(false);
   const [personalAttendeeQuery, setPersonalAttendeeQuery] = useState("");
+  const [shareTargetOpen, setShareTargetOpen] = useState(false);
+  const [shareTargetTab, setShareTargetTab] =
+    useState<ScheduleCreateShareTab>("friends");
+  const [shareTargetKind, setShareTargetKind] =
+    useState<ScheduleCreateShareTargetKind>("link");
+  const [shareSearchQuery, setShareSearchQuery] = useState("");
+  const [selectedFriendPresetId, setSelectedFriendPresetId] = useState<
+    number | null
+  >(null);
+  const [sharePermission] = useState<ScheduleSharePermission>("viewer");
   const [error, setError] = useState<string | null>(null);
   const [autoSaveState, setAutoSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
@@ -3436,6 +3558,8 @@ export function ScheduleFormPanel({
   const repeatTypeTriggerRef = useRef<HTMLButtonElement | null>(null);
   const repeatEndTriggerRef = useRef<HTMLButtonElement | null>(null);
   const repeatUntilDateButtonRef = useRef<HTMLButtonElement | null>(null);
+  const shareTargetTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const shareTargetPopupRef = useRef<HTMLDivElement | null>(null);
   const repeatOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const repeatEndOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const repeatCountInputRef = useRef<HTMLInputElement | null>(null);
@@ -3466,6 +3590,8 @@ export function ScheduleFormPanel({
   const [customRepeatPopupStyle, setCustomRepeatPopupStyle] =
     useState<CSSProperties>({});
   const [selectedDatesPopupStyle, setSelectedDatesPopupStyle] =
+    useState<CSSProperties>({});
+  const [shareTargetPopupStyle, setShareTargetPopupStyle] =
     useState<CSSProperties>({});
   const [selectedRepeatOption, setSelectedRepeatOption] = useState<RepeatType>(
     mode === "repeat" ? "weekly" : "none",
@@ -3537,6 +3663,9 @@ export function ScheduleFormPanel({
   } = useCategories("schedule");
   const isCompanyScheduleDraft =
     mode === "create" && scheduleOwner === "company" && !!onCompanySubmit;
+  const personalShareEnabled = mode === "create" && !isCompanyScheduleDraft;
+  const friendsQuery = useFriends({ enabled: personalShareEnabled });
+  const friendPresetsQuery = useFriendPresets({ enabled: personalShareEnabled });
   const departmentsQuery = useCompanyAdminDepartments(
     isCompanyScheduleDraft &&
       companyCollaborationEnabled &&
@@ -3914,6 +4043,11 @@ export function ScheduleFormPanel({
     setPersonalAttendees([]);
     setPersonalAttendeeOpen(false);
     setPersonalAttendeeQuery("");
+    setShareTargetOpen(false);
+    setShareTargetTab("friends");
+    setShareTargetKind("link");
+    setShareSearchQuery("");
+    setSelectedFriendPresetId(null);
     setSelectedDates([initial.start_local.slice(0, 10)]);
     setCustomSelectedDates([]);
     setRepeatStartDate(initial.start_local.slice(0, 10));
@@ -4220,6 +4354,56 @@ export function ScheduleFormPanel({
       window.removeEventListener("scroll", updatePosition, true);
     };
   }, [selectedDatesOpen, updateFloatingPopupPosition]);
+
+  useEffect(() => {
+    if (!shareTargetOpen) return;
+
+    const updatePosition = () =>
+      updateFloatingPopupPosition(
+        shareTargetTriggerRef.current,
+        setShareTargetPopupStyle,
+        340,
+        620,
+        "left",
+      );
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [shareTargetOpen, updateFloatingPopupPosition]);
+
+  useEffect(() => {
+    if (!shareTargetOpen) return;
+
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        (shareTargetTriggerRef.current?.contains(target) ||
+          shareTargetPopupRef.current?.contains(target))
+      ) {
+        return;
+      }
+
+      setShareTargetOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setShareTargetOpen(false);
+      shareTargetTriggerRef.current?.focus();
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsideClick, true);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick, true);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [shareTargetOpen]);
 
   useEffect(() => {
     if (!repeatTypeOpen) return;
@@ -5529,6 +5713,59 @@ export function ScheduleFormPanel({
         attendee.email.toLowerCase().includes(query)
       );
     });
+  const shareFriends = useMemo(
+    () =>
+      (friendsQuery.data ?? []).filter(
+        (item) => item.status === "accepted" && item.friend,
+      ),
+    [friendsQuery.data],
+  );
+  const shareSearch = shareSearchQuery.trim().toLowerCase();
+  const filteredShareFriends = useMemo(() => {
+    if (!shareSearch) return shareFriends;
+
+    return shareFriends.filter((item) => {
+      const name = item.friend.name.toLowerCase();
+      const publicUid = item.friend.public_uid.toLowerCase();
+      return name.includes(shareSearch) || publicUid.includes(shareSearch);
+    });
+  }, [shareFriends, shareSearch]);
+  const filteredFriendPresets = useMemo(() => {
+    const presets = friendPresetsQuery.data ?? [];
+    if (!shareSearch) return presets;
+
+    return presets.filter((preset) =>
+      preset.name.toLowerCase().includes(shareSearch),
+    );
+  }, [friendPresetsQuery.data, shareSearch]);
+  const selectedFriendPreset = useMemo(
+    () =>
+      (friendPresetsQuery.data ?? []).find(
+        (preset) => preset.friend_preset_id === selectedFriendPresetId,
+      ) ?? null,
+    [friendPresetsQuery.data, selectedFriendPresetId],
+  );
+  const shareSelectionReady =
+    form.visibility === "private" ||
+    shareTargetKind === "link" ||
+    shareTargetKind === "all_friends" ||
+    (shareTargetKind === "preset" && selectedFriendPresetId !== null);
+  const shareTargetLabel =
+    form.visibility === "private"
+      ? "비공개"
+      : shareTargetKind === "link"
+        ? "링크 공유"
+        : shareTargetKind === "preset"
+          ? (selectedFriendPreset?.name ?? "그룹 프리셋")
+          : "전체 친구";
+  const shareTargetHint =
+    form.visibility === "private"
+      ? "나만 볼 수 있습니다."
+      : shareTargetKind === "link"
+        ? "링크로 초대합니다."
+        : shareTargetKind === "preset"
+          ? `${selectedFriendPreset?.members.length ?? 0}명에게 공유합니다.`
+          : `${shareFriends.length}명에게 공유합니다.`;
 
   const addPersonalAttendee = (attendee: PersonalScheduleAttendee) => {
     setError(null);
@@ -5570,6 +5807,79 @@ export function ScheduleFormPanel({
         (item) => normalizeAttendeeEmail(item.email) !== attendeeEmail,
       ),
     );
+  };
+
+  const setPrivateVisibility = () => {
+    setForm((prev) => ({ ...prev, visibility: "private" }));
+    setShareTargetOpen(false);
+  };
+
+  const openShareTargetPicker = () => {
+    if (shareTargetOpen) {
+      setShareTargetOpen(false);
+      return;
+    }
+
+    if (form.visibility === "private") {
+      setForm((prev) => ({ ...prev, visibility: "link" }));
+      setShareTargetKind("link");
+    }
+    setShareTargetOpen(true);
+  };
+
+  const selectShareTarget = (
+    kind: ScheduleCreateShareTargetKind,
+    presetId?: number,
+  ) => {
+    setShareTargetKind(kind);
+    setForm((prev) => ({
+      ...prev,
+      visibility: kind === "link" ? "link" : "friends",
+    }));
+    if (kind === "preset") {
+      setSelectedFriendPresetId(presetId ?? null);
+    }
+  };
+
+  const buildShareOption = (): ScheduleCreateShareOption | undefined | null => {
+    if (
+      mode !== "create" ||
+      isCompanyScheduleDraft ||
+      form.visibility === "private"
+    ) {
+      return undefined;
+    }
+
+    if (previewForms.length !== 1) {
+      setError("공유 일정은 한 번에 하나씩 추가해 주세요.");
+      return null;
+    }
+
+    if (shareTargetKind === "link") {
+      return { kind: "link", permission: sharePermission };
+    }
+
+    if (shareTargetKind === "all_friends") {
+      return {
+        kind: "friends",
+        scope: "all_friends",
+        permission: sharePermission,
+      };
+    }
+
+    if (selectedFriendPresetId === null) {
+      setShareTargetTab("presets");
+      setShareTargetOpen(true);
+      setError("공유할 그룹 프리셋을 선택해 주세요.");
+      return null;
+    }
+
+    return {
+      kind: "friends",
+      scope: "preset",
+      friend_preset_id: selectedFriendPresetId,
+      permission: sharePermission,
+    };
   };
 
   const companyTargetKey = (target: CompanyScheduleCreateTarget) => {
@@ -5738,7 +6048,10 @@ export function ScheduleFormPanel({
     }
 
     try {
-      await onSubmit(previewForms, { intent: "manual" });
+      const share = buildShareOption();
+      if (share === null) return;
+
+      await onSubmit(previewForms, { intent: "manual", share });
       if (mode === "edit") {
         lastAutoSaveSignatureRef.current = scheduleFormSignature(form);
         setAutoSaveState("saved");
@@ -5869,8 +6182,8 @@ export function ScheduleFormPanel({
     setScheduleOwner(value);
     setForm((prev) =>
       value === "company" && prev.schedule_type === "personal"
-        ? { ...prev, schedule_type: "meeting" }
-        : prev,
+        ? { ...prev, schedule_type: "meeting", visibility: "private" }
+        : { ...prev, visibility: value === "company" ? "private" : prev.visibility },
     );
     setCompanyTargetType("department");
     setCompanyDepartmentId("");
@@ -5880,6 +6193,11 @@ export function ScheduleFormPanel({
     setPersonalAttendees([]);
     setPersonalAttendeeOpen(false);
     setPersonalAttendeeQuery("");
+    setShareTargetOpen(false);
+    setShareTargetTab("friends");
+    setShareTargetKind("link");
+    setShareSearchQuery("");
+    setSelectedFriendPresetId(null);
   };
   const scheduleOwnerSelect =
     mode === "create" && onCompanySubmit ? (
@@ -6196,6 +6514,308 @@ export function ScheduleFormPanel({
       </div>
     );
   };
+
+  const shareAvatarLabel = (name: string) => {
+    const normalized = name.trim();
+    return normalized ? Array.from(normalized).slice(0, 2).join("") : "친구";
+  };
+
+  const renderShareTargetPopoverContent = () => {
+    if (!shareTargetOpen) return null;
+
+    return renderFloatingPortal(
+      <div
+        id="schedule-share-target-popover"
+        ref={shareTargetPopupRef}
+        style={shareTargetPopupStyle}
+        className="fixed z-[180] outline-none"
+      >
+        <div className="max-h-[inherit] overflow-y-auto rounded-2xl border border-slate-100 bg-white p-0 text-slate-950 shadow-2xl shadow-slate-900/15">
+      <div className="flex items-start justify-between gap-3 px-4 pb-3 pt-4">
+        <div className="min-w-0">
+          <h3 className="text-sm font-bold text-slate-950">공유 대상 선택</h3>
+          <p className="mt-0.5 text-[11px] font-medium text-slate-400">
+            {shareTargetHint}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShareTargetOpen(false)}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200"
+          aria-label="공유 대상 선택 닫기"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="px-4 pb-3">
+        <button
+          type="button"
+          onClick={() => selectShareTarget("link")}
+          className={`flex h-11 w-full items-center gap-3 rounded-xl border px-3 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 ${
+            shareTargetKind === "link"
+              ? "border-violet-200 bg-violet-50 text-violet-700"
+              : "border-slate-100 bg-slate-50 text-slate-700 hover:border-slate-200 hover:bg-white"
+          }`}
+        >
+          <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-violet-600 shadow-sm">
+            <Link2 className="h-3.5 w-3.5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-xs font-bold">링크 공유</span>
+            <span className="block truncate text-[11px] font-medium text-slate-400">
+              링크를 받은 사람이 참가합니다.
+            </span>
+          </span>
+          <span
+            className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+              shareTargetKind === "link"
+                ? "border-violet-500 bg-violet-600 text-white"
+                : "border-slate-200 bg-white"
+            }`}
+            aria-hidden="true"
+          >
+            {shareTargetKind === "link" ? <Check className="h-3 w-3" /> : null}
+          </span>
+        </button>
+      </div>
+
+      <div className="border-t border-slate-100 px-4 pt-3">
+        <div className="flex gap-5 border-b border-slate-100">
+          {[
+            { value: "friends" as const, label: "친구 선택" },
+            { value: "presets" as const, label: "그룹 프리셋" },
+          ].map((tab) => (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => setShareTargetTab(tab.value)}
+              className={`relative h-8 text-xs font-bold transition focus:outline-none ${
+                shareTargetTab === tab.value
+                  ? "text-slate-950"
+                  : "text-slate-400 hover:text-slate-700"
+              }`}
+            >
+              {tab.label}
+              {shareTargetTab === tab.value ? (
+                <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-slate-950" />
+              ) : null}
+            </button>
+          ))}
+        </div>
+
+        <div className="relative mt-3">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-300" />
+          <input
+            type="text"
+            name="flowra_share_target_search"
+            autoComplete="none"
+            value={shareSearchQuery}
+            onChange={(event) => setShareSearchQuery(event.target.value)}
+            placeholder="이름 검색"
+            className="h-10 w-full rounded-lg border border-slate-100 bg-slate-50 px-9 text-xs font-semibold text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-violet-200 focus:bg-white focus:ring-2 focus:ring-violet-100"
+          />
+        </div>
+      </div>
+
+      <div className="max-h-60 overflow-y-auto px-4 py-3">
+        {shareTargetTab === "friends" ? (
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => selectShareTarget("all_friends")}
+              className={`flex h-12 w-full items-center gap-3 rounded-xl px-2 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 ${
+                shareTargetKind === "all_friends"
+                  ? "bg-violet-50"
+                  : "hover:bg-slate-50"
+              }`}
+            >
+              <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-700">
+                <Users className="h-4 w-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-bold text-slate-950">
+                  전체 친구
+                </span>
+                <span className="block text-[11px] font-semibold text-slate-400">
+                  {shareFriends.length}명
+                </span>
+              </span>
+              <span
+                className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                  shareTargetKind === "all_friends"
+                    ? "border-violet-500 bg-violet-600 text-white"
+                    : "border-slate-200 bg-white"
+                }`}
+                aria-hidden="true"
+              >
+                {shareTargetKind === "all_friends" ? (
+                  <Check className="h-3 w-3" />
+                ) : null}
+              </span>
+            </button>
+
+            <div className="pt-1 text-[11px] font-semibold text-slate-400">
+              친구 목록
+            </div>
+            {friendsQuery.isLoading ? (
+              <div className="rounded-xl bg-slate-50 px-3 py-5 text-center text-xs font-semibold text-slate-400">
+                친구 목록을 불러오는 중입니다.
+              </div>
+            ) : filteredShareFriends.length > 0 ? (
+              filteredShareFriends.map((item, index) => {
+                const friend = item.friend;
+                return (
+                  <div
+                    key={friend.public_uid}
+                    className="flex h-11 items-center gap-3 rounded-xl px-2"
+                  >
+                    <span
+                      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                        index % 3 === 0
+                          ? "bg-pink-100 text-pink-700"
+                          : index % 3 === 1
+                            ? "bg-blue-100 text-blue-700"
+                            : "bg-emerald-100 text-emerald-700"
+                      }`}
+                    >
+                      {shareAvatarLabel(friend.name)}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-bold text-slate-900">
+                      {friend.name}
+                    </span>
+                    <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-400">
+                      친구
+                    </span>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="rounded-xl bg-slate-50 px-3 py-5 text-center text-xs font-semibold text-slate-400">
+                표시할 친구가 없습니다.
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {friendPresetsQuery.isLoading ? (
+              <div className="rounded-xl bg-slate-50 px-3 py-5 text-center text-xs font-semibold text-slate-400">
+                그룹 프리셋을 불러오는 중입니다.
+              </div>
+            ) : filteredFriendPresets.length > 0 ? (
+              filteredFriendPresets.map((preset) => {
+                const selected =
+                  shareTargetKind === "preset" &&
+                  selectedFriendPresetId === preset.friend_preset_id;
+                return (
+                  <button
+                    key={preset.friend_preset_id}
+                    type="button"
+                    onClick={() =>
+                      selectShareTarget("preset", preset.friend_preset_id)
+                    }
+                    className={`flex h-12 w-full items-center gap-3 rounded-xl px-2 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 ${
+                      selected ? "bg-violet-50" : "hover:bg-slate-50"
+                    }`}
+                  >
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+                      <Users className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-bold text-slate-950">
+                        {preset.name}
+                      </span>
+                      <span className="block text-[11px] font-semibold text-slate-400">
+                        {preset.members.length}명
+                      </span>
+                    </span>
+                    <span
+                      className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                        selected
+                          ? "border-violet-500 bg-violet-600 text-white"
+                          : "border-slate-200 bg-white"
+                      }`}
+                      aria-hidden="true"
+                    >
+                      {selected ? <Check className="h-3 w-3" /> : null}
+                    </span>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="rounded-xl bg-slate-50 px-3 py-5 text-center text-xs font-semibold text-slate-400">
+                표시할 그룹 프리셋이 없습니다.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-slate-100 p-3">
+        <button
+          type="button"
+          disabled={!shareSelectionReady}
+          onClick={() => setShareTargetOpen(false)}
+          className="inline-flex h-10 w-full items-center justify-center rounded-xl bg-violet-600 px-3 text-sm font-bold text-white shadow-lg shadow-violet-600/20 transition hover:bg-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none"
+        >
+          공유하기
+        </button>
+        </div>
+        </div>
+      </div>,
+    );
+  };
+
+  const renderCreateVisibilityControl = () => (
+    <div className={compactFieldGroupClass}>
+      <div className="mt-1 flex h-12 min-w-0 items-center gap-3 rounded-lg px-2">
+        <Globe2 className="h-4 w-4 shrink-0 text-violet-500" />
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-semibold text-slate-600">공개 범위</div>
+          <div className="truncate text-[11px] font-medium text-slate-400">
+            {shareTargetLabel}
+          </div>
+        </div>
+        <div
+          role="radiogroup"
+          aria-label="공개 범위"
+          className="grid shrink-0 grid-cols-2 gap-1 rounded-full bg-slate-100 p-1"
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={form.visibility === "private"}
+            onClick={setPrivateVisibility}
+            className={`inline-flex h-8 min-w-[58px] items-center justify-center rounded-full px-3 text-xs font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 ${
+              form.visibility === "private"
+                ? "bg-white text-slate-700 shadow-sm"
+                : "text-slate-400 hover:text-slate-700"
+            }`}
+          >
+            비공개
+          </button>
+          <button
+            ref={shareTargetTriggerRef}
+            type="button"
+            role="radio"
+            aria-checked={form.visibility !== "private"}
+            aria-expanded={shareTargetOpen}
+            aria-controls={
+              shareTargetOpen ? "schedule-share-target-popover" : undefined
+            }
+            onClick={openShareTargetPicker}
+            className={`inline-flex h-8 min-w-[58px] items-center justify-center rounded-full px-3 text-xs font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 ${
+                  form.visibility !== "private"
+                    ? "bg-violet-600 text-white shadow-sm shadow-violet-600/20"
+                    : "text-slate-400 hover:text-slate-700"
+                }`}
+              >
+                공유
+              </button>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -6638,7 +7258,11 @@ export function ScheduleFormPanel({
                       </div>
                     </div>
 
-                    <div className={compactFieldGroupClass}>
+                    {mode === "create" && !isCompanyScheduleDraft
+                      ? renderCreateVisibilityControl()
+                      : null}
+
+                    <div className={`${compactFieldGroupClass} hidden`}>
                       <div className={settingsRowLabelClass}>공개 범위</div>
                       <div className="relative mt-1">
                         <div
@@ -6831,6 +7455,7 @@ export function ScheduleFormPanel({
       {renderRepeatEndPopover()}
       {renderCustomRepeatPopover()}
       {renderSelectedDatesPopover()}
+      {renderShareTargetPopoverContent()}
     </>
   );
 }
@@ -8784,6 +9409,8 @@ interface ScheduleBlockMetrics {
   height: number;
 }
 
+const scheduleBlockOverlapTolerance = 0.001;
+
 interface TimedScheduleLayout {
   schedule: Schedule;
   start: Date;
@@ -9227,10 +9854,10 @@ function scheduleBlocksOverlap(
   const secondBottom = second.top + second.height;
 
   return (
-    first.left < secondRight &&
-    firstRight > second.left &&
-    first.top < secondBottom &&
-    firstBottom > second.top
+    first.left < secondRight - scheduleBlockOverlapTolerance &&
+    firstRight > second.left + scheduleBlockOverlapTolerance &&
+    first.top < secondBottom - scheduleBlockOverlapTolerance &&
+    firstBottom > second.top + scheduleBlockOverlapTolerance
   );
 }
 
@@ -10961,6 +11588,8 @@ export default function Schedules() {
   });
 
   const createSchedulesMutation = useCreateSchedules();
+  const createShareLinkMutation = useCreateScheduleShareLink();
+  const createFriendShareMutation = useCreateScheduleFriendShare();
   const updateMutation = useUpdateSchedule();
   const scheduleCompletionMutation = useSetScheduleCompletion();
   const deleteMutation = useDeleteSchedule();
@@ -12624,7 +13253,9 @@ export default function Schedules() {
                     createSchedulesMutation.isPending
                   : panelMode === "create" || panelMode === "repeat"
                     ? createSchedulesMutation.isPending ||
-                      createCompanyScheduleMutation.isPending
+                      createCompanyScheduleMutation.isPending ||
+                      createShareLinkMutation.isPending ||
+                      createFriendShareMutation.isPending
                     : updateMutation.isPending
               }
               onClose={closePanel}
@@ -12704,6 +13335,21 @@ export default function Schedules() {
                   const payloads = forms.map((form) => toPayload(form));
                   const createdSchedules =
                     await createSchedulesMutation.mutateAsync(payloads);
+                  try {
+                    await applyScheduleCreateShare({
+                      schedules: createdSchedules,
+                      share: options?.share,
+                      createShareLink: createShareLinkMutation.mutateAsync,
+                      createFriendShare: createFriendShareMutation.mutateAsync,
+                    });
+                  } catch (err) {
+                    toast.error(
+                      getErrorMessage(
+                        err,
+                        "일정은 추가됐지만 공유 설정에 실패했습니다.",
+                      ),
+                    );
+                  }
                   const firstCreated = createdSchedules[0];
                   const firstPayload = payloads[0];
                   const start = new Date(

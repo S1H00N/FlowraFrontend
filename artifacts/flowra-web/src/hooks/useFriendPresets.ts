@@ -14,9 +14,10 @@ import type {
 
 export const FRIEND_PRESETS_QUERY_KEY = ["friend-presets"] as const;
 
-export function useFriendPresets() {
+export function useFriendPresets(options: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: [...FRIEND_PRESETS_QUERY_KEY, "list"],
+    enabled: options.enabled ?? true,
     queryFn: async () => {
       const res = await listFriendPresets();
       if (!res.success)

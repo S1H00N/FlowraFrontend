@@ -12,9 +12,10 @@ import type { CreateFriendRequestPayload } from "@/types";
 
 export const FRIENDS_QUERY_KEY = ["friends"] as const;
 
-export function useFriends() {
+export function useFriends(options: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: [...FRIENDS_QUERY_KEY, "list"],
+    enabled: options.enabled ?? true,
     queryFn: async () => {
       const res = await listFriends();
       if (!res.success) throw new Error(res.message || "친구 목록을 불러오지 못했습니다.");
