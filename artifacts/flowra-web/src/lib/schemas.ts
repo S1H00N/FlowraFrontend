@@ -10,7 +10,7 @@ export const loginSchema = z.object({
   email: z
     .string()
     .min(1, "이메일을 입력하세요.")
-    .email("올바른 이메일 형식이 아닙니다."),
+    .email("올바른 이메일 형식이 아닙니다.").max(255, "이메일은 255자 이하여야 합니다."),
   password: z.string().min(1, "비밀번호를 입력하세요."),
 });
 export type LoginFormValues = z.infer<typeof loginSchema>;
@@ -18,17 +18,17 @@ export type LoginFormValues = z.infer<typeof loginSchema>;
 export const signupSchema = z.object({
   name: z
     .string()
+    .trim()
     .min(1, "이름을 입력하세요.")
-    .max(30, "이름은 30자 이하여야 합니다."),
+    .max(50, "이름은 50자 이하여야 합니다."),
   email: z
     .string()
     .min(1, "이메일을 입력하세요.")
-    .email("올바른 이메일 형식이 아닙니다."),
+    .email("올바른 이메일 형식이 아닙니다.").max(255, "이메일은 255자 이하여야 합니다."),
   password: z
     .string()
     .min(8, "비밀번호는 8자 이상이어야 합니다.")
-    .regex(/[A-Za-z]/, "영문을 포함해야 합니다.")
-    .regex(/\d/, "숫자를 포함해야 합니다."),
+    .max(72, "비밀번호는 72자 이하여야 합니다."),
 });
 export type SignupFormValues = z.infer<typeof signupSchema>;
 
@@ -36,7 +36,7 @@ export const forgotPasswordSchema = z.object({
   email: z
     .string()
     .min(1, "이메일을 입력하세요.")
-    .email("올바른 이메일 형식이 아닙니다."),
+    .email("올바른 이메일 형식이 아닙니다.").max(255, "이메일은 255자 이하여야 합니다."),
 });
 export type ForgotPasswordFormValues = z.infer<typeof forgotPasswordSchema>;
 
@@ -45,9 +45,7 @@ export const resetPasswordSchema = z
     new_password: z
       .string()
       .min(8, "비밀번호는 8자 이상이어야 합니다.")
-      .max(72, "비밀번호는 72자 이하여야 합니다.")
-      .regex(/[A-Za-z]/, "영문을 포함해야 합니다.")
-      .regex(/\d/, "숫자를 포함해야 합니다."),
+      .max(72, "비밀번호는 72자 이하여야 합니다."),
     new_password_confirm: z.string().min(1, "비밀번호 확인을 입력하세요."),
   })
   .refine((value) => value.new_password === value.new_password_confirm, {
@@ -61,7 +59,7 @@ export const taskSchema = z.object({
     .string()
     .trim()
     .min(1, "제목을 입력하세요.")
-    .max(200, "제목은 200자 이하여야 합니다."),
+    .max(100, "제목은 100자 이하여야 합니다."),
   priority: z.enum(TASK_PRIORITIES as [TaskPriority, ...TaskPriority[]]),
   status: z.enum(TASK_STATUSES as [TaskStatus, ...TaskStatus[]]),
   category_id: z
@@ -76,7 +74,7 @@ export const memoSchema = z.object({
     .string()
     .trim()
     .min(1, "메모 내용을 입력하세요.")
-    .max(5000, "메모는 5000자 이하여야 합니다."),
+    .max(20000, "메모는 20000자 이하여야 합니다."),
   memo_type: z.enum(["quick", "meeting", "general"]),
   category_id: z
     .union([z.number().int().positive(), z.literal("")])

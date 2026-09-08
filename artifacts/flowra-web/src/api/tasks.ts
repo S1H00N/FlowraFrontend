@@ -1,6 +1,6 @@
 import apiClient from "./client";
 import { toOffsetISOString } from "@/utils/dateUtils";
-import { compactParams, toCommaParam, toNullableString } from "./normalize";
+import { compactParams, toCommaParam, toNullableString, toOptionalString } from "./normalize";
 import type {
   ApiListData,
   ApiResponse,
@@ -67,7 +67,11 @@ export async function getTask(taskId: number) {
 export async function createTask(payload: CreateTaskRequest) {
   const res = await apiClient.post<ApiResponse<TaskData>>(
     "/tasks",
-    normalizeTaskPayload(payload),
+    normalizeTaskPayload({
+      ...payload,
+      category_id: toOptionalString(payload.category_id),
+      schedule_id: toOptionalString(payload.schedule_id),
+    }),
   );
   return { ...res.data, data: { task: unwrapTask(res.data.data) } };
 }

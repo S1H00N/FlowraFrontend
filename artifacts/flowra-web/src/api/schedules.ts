@@ -1,5 +1,5 @@
 import apiClient from "./client";
-import { compactParams, toCommaParam, toNullableString } from "./normalize";
+import { compactParams, toCommaParam, toNullableString, toOptionalString } from "./normalize";
 import type {
   ApiListData,
   ApiResponse,
@@ -108,7 +108,7 @@ export async function getSchedule(scheduleId: number) {
 export async function createSchedule(payload: CreateScheduleRequest) {
   const res = await apiClient.post<ApiResponse<ScheduleData>>(
     "/schedules",
-    normalizeSchedulePayload(payload),
+    normalizeSchedulePayload({ ...payload, category_id: toOptionalString(payload.category_id) }),
   );
   return { ...res.data, data: { schedule: unwrapSchedule(res.data.data) } };
 }
@@ -118,7 +118,7 @@ export async function createRecurringSchedule(
 ) {
   const res = await apiClient.post<
     ApiResponse<CreateRecurringScheduleResponse>
-  >("/schedules/recurring", normalizeSchedulePayload(payload));
+  >("/schedules/recurring", normalizeSchedulePayload({ ...payload, category_id: toOptionalString(payload.category_id) }));
   return res.data;
 }
 

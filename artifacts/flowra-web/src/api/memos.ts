@@ -41,7 +41,8 @@ function normalizeMemoPayload<T extends CreateMemoRequest | UpdateMemoRequest>(
 
 function normalizeMemoQuery(query: MemoListQuery) {
   return compactParams({
-    ...query,
+    parse_status: query.parse_status,
+    memo_type: query.memo_type,
     category_id: toOptionalString(query.category_id),
   });
 }
@@ -67,7 +68,7 @@ export async function getMemo(memoId: number) {
 export async function createMemo(payload: CreateMemoRequest) {
   const res = await apiClient.post<ApiResponse<MemoData>>(
     "/memos",
-    normalizeMemoPayload(payload),
+    normalizeMemoPayload({ ...payload, category_id: toOptionalString(payload.category_id) }),
   );
   return { ...res.data, data: { memo: unwrapMemo(res.data.data) } };
 }

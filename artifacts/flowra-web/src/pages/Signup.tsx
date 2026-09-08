@@ -181,7 +181,7 @@ export default function Signup() {
                   {...register("password")}
                   aria-invalid={!!errors.password}
                   className={inputClass(!!errors.password)}
-                  placeholder="영문+숫자 포함 8자 이상"
+                  placeholder="8~72자"
                 />
                 {errors.password && (
                   <p className="mt-1 text-xs text-red-600">
