@@ -64,6 +64,7 @@ import {
   readBrowserPushPermission,
   requestBrowserNotificationPermission,
   requestBrowserPushToken,
+  setBrowserPushEnabledPreference,
   setStoredBrowserPushToken,
   type BrowserPushPermission,
   type BrowserPushSupportResult,
@@ -421,6 +422,7 @@ function NotificationsSection() {
   );
   const [localError, setLocalError] = useState<string | null>(null);
   const [requestingPermission, setRequestingPermission] = useState(false);
+  const [removingToken, setRemovingToken] = useState(false);
 
   const registerMutation = useRegisterPushDevice();
   const unregisterMutation = useUnregisterPushDevice();
@@ -455,7 +457,7 @@ function NotificationsSection() {
   const supportReady = support?.supported ?? false;
   const permissionBlocked = permission === "denied";
   const enabling = requestingPermission || registerMutation.isPending;
-  const disabling = unregisterMutation.isPending;
+  const disabling = removingToken || unregisterMutation.isPending;
 
   const enableBrowserNotifications = async () => {
     setLocalError(null);
@@ -465,7 +467,6 @@ function NotificationsSection() {
       setRequestingPermission(true);
       await requestBrowserNotificationPermission();
       refreshLocalState();
-      setRequestingPermission(false);
 
       issuedToken = await requestBrowserPushToken();
       await registerMutation.mutateAsync({
@@ -500,9 +501,13 @@ function NotificationsSection() {
       return;
     }
 
+    setRemovingToken(true);
+    setBrowserPushEnabledPreference(false);
     try {
       await unregisterMutation.mutateAsync(token);
     } catch (error) {
+      setBrowserPushEnabledPreference(true);
+      setRemovingToken(false);
       setLocalError(
         getErrorMessage(error, "이 브라우저의 알림을 끄지 못했습니다."),
       );
@@ -515,6 +520,7 @@ function NotificationsSection() {
     } catch {
       clearStoredBrowserPushToken();
     }
+    setRemovingToken(false);
     refreshLocalState();
   };
 
@@ -1121,7 +1127,7 @@ function ClassificationSection() {
   };
 
   return (
-    <div className="space-y-6">
+    <div data-flowra-settings-classification="" className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <SectionHeader
           title="분류 관리"

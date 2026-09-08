@@ -17,6 +17,19 @@ function firebaseConfigPlugin(env: Record<string, string>): PluginOption {
 
   return {
     name: "firebase-service-worker-config",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const pathname = req.url?.split("?")[0];
+        const base = server.config.base.replace(/\/$/, "");
+        if (pathname !== "/firebase-config.json" && pathname !== `${base}/firebase-config.json`) {
+          next();
+          return;
+        }
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.setHeader("Cache-Control", "no-store");
+        res.end(JSON.stringify(firebaseConfig));
+      });
+    },
     generateBundle() {
       this.emitFile({
         type: "asset",

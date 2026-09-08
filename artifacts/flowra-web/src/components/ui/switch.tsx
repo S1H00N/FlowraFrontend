@@ -8,6 +8,7 @@ const Switch = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof SwitchPrimitives.Root>
 >(({ className, ...props }, ref) => (
   <SwitchPrimitives.Root
+    data-flowra-switch=""
     className={cn(
       "peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-slate-300 bg-slate-200 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-100 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-violet-600 data-[state=checked]:bg-violet-600 data-[state=unchecked]:border-slate-300 data-[state=unchecked]:bg-slate-200 dark:border-zinc-600 dark:bg-zinc-700 dark:focus-visible:ring-violet-500/30 dark:data-[state=checked]:border-violet-500 dark:data-[state=checked]:bg-violet-500 dark:data-[state=unchecked]:border-zinc-600 dark:data-[state=unchecked]:bg-zinc-700",
       className,

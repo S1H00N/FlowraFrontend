@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { registerPushDevice } from "@/api/pushDevices";
+import { registerPushDevice, unregisterPushDevice } from "@/api/pushDevices";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   checkBrowserPushSupport,
@@ -25,6 +25,7 @@ export function useBrowserPush() {
     readBrowserPushPermission(),
   );
   const [support, setSupport] = useState<BrowserPushSupportResult | null>(null);
+  const [enabled, setEnabled] = useState(getBrowserPushEnabledPreference);
   const autoRegistrationKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -34,7 +35,10 @@ export function useBrowserPush() {
       if (active) setSupport(nextSupport);
     });
 
-    const syncPermission = () => setPermission(readBrowserPushPermission());
+    const syncPermission = () => {
+      setPermission(readBrowserPushPermission());
+      setEnabled(getBrowserPushEnabledPreference());
+    };
 
     window.addEventListener("focus", syncPermission);
     document.addEventListener("visibilitychange", syncPermission);
@@ -54,8 +58,9 @@ export function useBrowserPush() {
       !user ||
       !support?.supported ||
       permission !== "granted" ||
-      !getBrowserPushEnabledPreference()
+      !enabled
     ) {
+      autoRegistrationKeyRef.current = null;
       return;
     }
 
@@ -68,6 +73,7 @@ export function useBrowserPush() {
 
     void (async () => {
       const token = existingToken ?? (await requestBrowserPushToken());
+      if (cancelled || !getBrowserPushEnabledPreference()) return;
       const res = await registerPushDevice({
         provider: "fcm",
         platform: "web",
@@ -78,6 +84,12 @@ export function useBrowserPush() {
 
       if (!res.success) {
         throw new Error(res.message || "브라우저 알림 등록에 실패했습니다.");
+      }
+
+      // Disabling can finish while registration is in flight. Keep the server disabled too.
+      if (!getBrowserPushEnabledPreference()) {
+        await unregisterPushDevice({ device_token: token });
+        return;
       }
 
       if (!cancelled) {
@@ -92,10 +104,10 @@ export function useBrowserPush() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, permission, support?.supported, user]);
+  }, [enabled, isAuthenticated, permission, support?.supported, user]);
 
   useEffect(() => {
-    if (!isAuthenticated || !support?.supported || permission !== "granted") {
+    if (!enabled || !isAuthenticated || !support?.supported || permission !== "granted") {
       return;
     }
 
@@ -103,6 +115,7 @@ export function useBrowserPush() {
     let unsubscribe: (() => void) | null = null;
 
     void listenForegroundPush((payload) => {
+      if (!getBrowserPushEnabledPreference()) return;
       const { title, body } = getPushNotificationText(payload);
       void showForegroundPushNotification(payload).catch(() => {
         // Keep the in-app toast even if the OS notification surface is unavailable.
@@ -124,7 +137,7 @@ export function useBrowserPush() {
       mounted = false;
       unsubscribe?.();
     };
-  }, [isAuthenticated, permission, support?.supported]);
+  }, [enabled, isAuthenticated, permission, support?.supported]);
 }
 
 export default useBrowserPush;
