@@ -15,6 +15,7 @@ import { getErrorMessage } from "@/lib/error";
 import { useApplyUserTheme } from "@/lib/userSettings";
 
 const Home = lazy(() => import("@/pages/Home"));
+const Notices = lazy(() => import("@/pages/Notices"));
 const Login = lazy(() => import("@/pages/Login"));
 const Signup = lazy(() => import("@/pages/Signup"));
 const VerifyEmail = lazy(() => import("@/pages/VerifyEmail"));
@@ -95,6 +96,7 @@ function App() {
           <PushNotificationBridge />
           <Suspense fallback={<PageFallback />}>
             <Routes>
+              <Route path="/notices" element={<ProtectedRoute><Notices /></ProtectedRoute>} />
               <Route path="/login" element={<Login />} />
               <Route path="/signup" element={<Signup />} />
               <Route path="/verify-email" element={<VerifyEmail />} />

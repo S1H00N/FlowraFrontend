@@ -46,6 +46,7 @@ import { formatCompanyAffiliation } from "@/lib/companyAffiliation";
 import type { NotificationRecipient } from "@/types";
 
 const navigation = [
+  { to: "/notices", label: "공지사항", description: "서비스 공지를 확인합니다.", icon: Bell },
   {
     to: "/",
     label: "홈",
@@ -453,7 +454,7 @@ export default function AppShell({
             fullBleed ? "h-12 min-[600px]:h-16" : "h-14 min-[600px]:h-16"
           } ${
             showSidebarIconRail
-              ? "justify-start px-5"
+              ? "justify-center px-0"
               : "justify-start gap-3 px-5"
           }`}
         >
@@ -488,7 +489,7 @@ export default function AppShell({
         </div>
 
         <nav
-          className={`flex-1 space-y-1 px-3 py-4 transition-all ${
+          className={`min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-4 transition-all ${
             showSidebarIconRail ? "min-[600px]:px-2" : ""
           }`}
         >
@@ -668,7 +669,7 @@ export default function AppShell({
         <main
           className={
             fullBleed
-              ? "h-[calc(100dvh-7rem)] w-full overflow-hidden min-[600px]:h-[calc(100dvh-4rem)]"
+              ? "h-[calc(100dvh-7rem-1px-env(safe-area-inset-bottom))] w-full overflow-hidden min-[600px]:h-[calc(100dvh-4rem)]"
               : wide
                 ? "w-full px-4 py-5 pb-24 min-[600px]:pb-6 sm:px-6 lg:px-8 lg:py-6"
                 : "mx-auto w-full max-w-7xl px-4 py-5 pb-24 min-[600px]:pb-6 sm:px-6 lg:px-8 lg:py-6"

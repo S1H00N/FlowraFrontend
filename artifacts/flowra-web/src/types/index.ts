@@ -14,3 +14,4 @@ export * from "./notification";
 export * from "./company";
 export * from "./companyProject";
 export * from "./holiday";
+export * from "./notice";
