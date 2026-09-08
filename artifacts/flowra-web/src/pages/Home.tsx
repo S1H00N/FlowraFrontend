@@ -16,6 +16,7 @@ import {
   Zap,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import ProjectWorkItems from "@/components/ProjectWorkItems";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCategories } from "@/hooks/useCategories";
 import { useMe } from "@/hooks/useMe";
@@ -1390,6 +1391,8 @@ export default function Home() {
             </section>
 
             <TodaySchedulePanel schedules={schedules} date={homeDate} />
+            <ProjectWorkItems items={homeQuery.data?.project_work_items ?? []} title="오늘 프로젝트 업무" />
+            <ProjectWorkItems items={homeQuery.data?.overdue_project_work_items ?? []} title="지연된 프로젝트 업무" />
 
             {setTaskCompletion.isPending && (
               <div className="mb-3 flex items-center gap-2 text-xs font-medium text-slate-400">

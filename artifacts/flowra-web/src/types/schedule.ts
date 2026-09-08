@@ -1,4 +1,5 @@
 import type { TaskPriority } from "./task";
+import type { ProjectCalendarItem } from "./companyProject";
 import type { FriendPreset, PublicUserSummary } from "./friend";
 
 export type ScheduleType =
@@ -36,6 +37,7 @@ export const SCHEDULE_VISIBILITY_LABELS: Partial<
 };
 
 export interface Schedule {
+  project_work_item?: ProjectCalendarItem;
   schedule_id: number;
   company_schedule_id?: number;
   is_company_schedule?: boolean;

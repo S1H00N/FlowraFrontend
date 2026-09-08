@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  createCompanySchedule,
   deleteCompanySchedule,
   getCompanySchedule,
   getCompanyScheduleApprovalStatus,
@@ -10,7 +11,9 @@ import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
 import type {
   CompanySchedule,
   CompanyScheduleApprovalStatusData,
+  CompanyScheduleListResponseData,
   CompanyScheduleListQuery,
+  CreateCompanyScheduleApiRequest,
   UpdateCompanyScheduleRequest,
 } from "@/types";
 
@@ -20,6 +23,12 @@ export function companySchedulesListKey(
   query: CompanyScheduleListQuery = {},
 ) {
   return [...COMPANY_SCHEDULES_QUERY_KEY, "list", query] as const;
+}
+
+export function companyScheduleFeedKey(
+  query: CompanyScheduleListQuery = {},
+) {
+  return [...COMPANY_SCHEDULES_QUERY_KEY, "feed", query] as const;
 }
 
 export function companyScheduleDetailKey(companyScheduleId: number) {
@@ -48,6 +57,26 @@ export function useCompanySchedules(
         );
       }
       return res.data.company_schedules ?? [];
+    },
+    enabled: options.enabled ?? true,
+    placeholderData: (previousData) => previousData,
+  });
+}
+
+export function useCompanyScheduleFeed(
+  query: CompanyScheduleListQuery = {},
+  options: { enabled?: boolean } = {},
+) {
+  return useQuery<CompanyScheduleListResponseData>({
+    queryKey: companyScheduleFeedKey(query),
+    queryFn: async () => {
+      const res = await listCompanySchedules(query);
+      if (!res.success) {
+        throw new Error(
+          res.message || "?뚯궗 ?쇱젙??遺덈윭?ㅼ? 紐삵뻽?듬땲??",
+        );
+      }
+      return res.data;
     },
     enabled: options.enabled ?? true,
     placeholderData: (previousData) => previousData,
@@ -115,6 +144,24 @@ export function useUpdateCompanySchedule() {
       return res.data.company_schedule;
     },
     onSuccess: () => invalidate(),
+  });
+}
+
+export function useCreateCompanySchedule() {
+  const invalidate = useInvalidateCompanySchedules();
+  return useMutation({
+    mutationFn: async (payload: CreateCompanyScheduleApiRequest) => {
+      const res = await createCompanySchedule(payload);
+      if (!res.success) {
+        throw new Error(res.message || "?뚯궗 ?쇱젙 異붽????ㅽ뙣?덉뒿?덈떎.");
+      }
+      return res.data.company_schedule;
+    },
+    onSuccess: () => invalidate(),
+    meta: {
+      successMessage: "?뚯궗 ?쇱젙??異붽??덉뒿?덈떎.",
+      errorMessage: "?뚯궗 ?쇱젙 異붽????ㅽ뙣?덉뒿?덈떎.",
+    },
   });
 }
 

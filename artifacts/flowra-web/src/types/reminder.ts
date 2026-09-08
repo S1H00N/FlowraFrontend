@@ -1,4 +1,8 @@
-export type ReminderTargetType = "schedule" | "task";
+export type ReminderTargetType =
+  | "schedule"
+  | "task"
+  | "project_work_item"
+  | "project_work_assignment";
 export type ReminderType = "push" | "in_app";
 
 export const REMINDER_TYPES: ReminderType[] = ["in_app", "push"];
@@ -27,7 +31,7 @@ export interface CreateReminderRequest {
   target_type: ReminderTargetType;
   target_id: string | number;
   remind_at: string;
-  reminder_type: ReminderType;
+  reminder_type?: ReminderType;
 }
 
 export interface ReminderListQuery {

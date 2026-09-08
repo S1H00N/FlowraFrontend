@@ -1,5 +1,6 @@
 import type { TaskPriority, Task } from "./task";
 import type { CompanySchedule } from "./company";
+import type { ProjectCalendarItem } from "./companyProject";
 import type { Reminder } from "./reminder";
 import type { Schedule } from "./schedule";
 
@@ -15,6 +16,8 @@ export interface BriefingSummary {
   total_schedule_count?: number;
   task_count: number;
   overdue_task_count: number;
+  project_work_item_count?: number;
+  overdue_project_work_item_count?: number;
   reminder_count: number;
 }
 
@@ -25,6 +28,8 @@ export interface TodayBriefing {
   company_schedules: CompanySchedule[];
   tasks: BriefingTask[];
   overdue_tasks: BriefingTask[];
+  project_work_items: ProjectCalendarItem[];
+  overdue_project_work_items: ProjectCalendarItem[];
   reminders: Reminder[];
 }
 

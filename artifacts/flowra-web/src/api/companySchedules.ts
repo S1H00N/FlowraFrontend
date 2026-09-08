@@ -1,17 +1,19 @@
 import apiClient from "./client";
-import { compactParams } from "./normalize";
+import { compactParams, toOptionalString } from "./normalize";
 import type {
   ApiListData,
   ApiResponse,
   CompanySchedule,
   CompanyScheduleApprovalStatusData,
+  CompanyScheduleListResponseData,
   CompanyScheduleListQuery,
+  CreateCompanyScheduleApiRequest,
   UpdateCompanyScheduleRequest,
 } from "@/types";
 
-type CompanyScheduleListData = Partial<ApiListData<CompanySchedule>> & {
-  company_schedules?: CompanySchedule[];
-};
+type CompanyScheduleListData = Partial<
+  ApiListData<CompanySchedule> & CompanyScheduleListResponseData
+>;
 type CompanyScheduleData =
   | CompanySchedule
   | { company_schedule: CompanySchedule }
@@ -34,6 +36,36 @@ function normalizeCompanyScheduleQuery(query: CompanyScheduleListQuery) {
   return compactParams({
     start_from: toUtcDateTimeParam(query.start_from),
     start_to: toUtcDateTimeParam(query.start_to),
+    include_project_work_items:
+      query.include_project_work_items === undefined
+        ? undefined
+        : String(query.include_project_work_items),
+    include_done_project_work_items:
+      query.include_done_project_work_items === undefined
+        ? undefined
+        : String(query.include_done_project_work_items),
+    project_id: toOptionalString(query.project_id),
+    project_work_item_limit: query.project_work_item_limit,
+  });
+}
+
+function normalizeCreateCompanySchedulePayload(
+  payload: CreateCompanyScheduleApiRequest,
+) {
+  const targetDepartmentIds = payload.target_department_ids
+    ?.map((departmentId) => toOptionalString(departmentId))
+    .filter((departmentId): departmentId is string => Boolean(departmentId));
+
+  return compactParams({
+    ...payload,
+    company_id: toOptionalString(payload.company_id),
+    description: payload.description || undefined,
+    end_datetime: payload.end_datetime || undefined,
+    location: payload.location || undefined,
+    target_department_ids:
+      targetDepartmentIds && targetDepartmentIds.length > 0
+        ? targetDepartmentIds
+        : undefined,
   });
 }
 
@@ -52,6 +84,24 @@ export async function listCompanySchedules(
     data: {
       company_schedules:
         res.data.data.items ?? res.data.data.company_schedules ?? [],
+      project_work_items: res.data.data.project_work_items ?? [],
+      summary: res.data.data.summary,
+      pagination: res.data.data.pagination,
+    },
+  };
+}
+
+export async function createCompanySchedule(
+  payload: CreateCompanyScheduleApiRequest,
+) {
+  const res = await apiClient.post<ApiResponse<CompanyScheduleData>>(
+    "/company-schedules",
+    normalizeCreateCompanySchedulePayload(payload),
+  );
+  return {
+    ...res.data,
+    data: {
+      company_schedule: unwrapCompanySchedule(res.data.data),
     },
   };
 }

@@ -1,3 +1,6 @@
+import type { Pagination } from "./api";
+import type { ProjectCalendarItem } from "./companyProject";
+
 export interface CompanyInviteCompany {
   company_id: number;
   public_uid?: string;
@@ -102,6 +105,23 @@ export interface CompanySchedule {
 export interface CompanyScheduleListQuery {
   start_from?: string;
   start_to?: string;
+  include_project_work_items?: boolean;
+  include_done_project_work_items?: boolean;
+  project_id?: string | number;
+  project_work_item_limit?: number;
+}
+
+export interface CompanyScheduleListSummary {
+  company_schedule_count?: number;
+  project_work_item_count?: number;
+  [key: string]: unknown;
+}
+
+export interface CompanyScheduleListResponseData {
+  company_schedules: CompanySchedule[];
+  project_work_items: ProjectCalendarItem[];
+  summary?: CompanyScheduleListSummary;
+  pagination?: Pagination;
 }
 
 export interface UpdateCompanyScheduleRequest {
@@ -196,6 +216,19 @@ export interface CreateCompanyScheduleRequest {
   location?: string | null;
   status?: "active" | "cancelled";
   targets: CompanyScheduleCreateTarget[];
+}
+
+export interface CreateCompanyScheduleApiRequest {
+  company_id: string | number;
+  title: string;
+  description?: string | null;
+  schedule_type: import("./schedule").ScheduleType;
+  start_datetime: string;
+  end_datetime?: string | null;
+  all_day?: boolean;
+  location?: string | null;
+  target_type?: "company";
+  target_department_ids?: Array<string | number>;
 }
 
 export type CompanyScheduleApprovalStatus =

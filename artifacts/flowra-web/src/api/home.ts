@@ -14,6 +14,7 @@ import type {
   HomeSummary,
   HomeTask,
   HomeTodayQuery,
+  HomeProjectWorkItem,
   ScheduleType,
   TaskPriority,
   TaskStatus,
@@ -26,6 +27,8 @@ type RawHomeSummary = Partial<HomeSummary> & {
   schedule_count?: number;
   total_schedule_count?: number;
   task_count?: number;
+  project_work_item_count?: number;
+  overdue_project_work_item_count?: number;
 };
 
 type RawAiInsights = {
@@ -47,6 +50,8 @@ type RawTodayResponse = Omit<
   tasks?: RawTask[];
   overdue_tasks?: RawTask[];
   priority_tasks?: RawTask[];
+  project_work_items?: HomeProjectWorkItem[];
+  overdue_project_work_items?: HomeProjectWorkItem[];
   unfinished_tasks?: number;
   ai_summary?: string;
   summary?: RawHomeSummary;
@@ -224,6 +229,8 @@ function briefingToHome(raw: RawTodayResponse | undefined): TodayHome {
     data.organization_schedules ?? data.company_schedules,
   );
   const tasks = list(rawTasks).map((task, index) => toHomeTask(task, index));
+  const projectWorkItems = list(data.project_work_items);
+  const overdueProjectWorkItems = list(data.overdue_project_work_items);
 
   const todayScheduleCount = numberOr(
     summary.today_schedule_count ??
@@ -265,7 +272,7 @@ function briefingToHome(raw: RawTodayResponse | undefined): TodayHome {
       today_schedule_count: todayScheduleCount,
       today_personal_schedule_count: numberOr(
         summary.today_personal_schedule_count,
-        schedules.length,
+        schedules.filter((schedule) => !schedule.is_completed).length,
       ),
       today_company_schedule_count: numberOr(
         summary.today_company_schedule_count,
@@ -274,6 +281,15 @@ function briefingToHome(raw: RawTodayResponse | undefined): TodayHome {
       today_deadline_schedule_count: numberOr(
         summary.today_deadline_schedule_count,
         0,
+      ),
+      today_project_work_item_count: numberOr(
+        summary.today_project_work_item_count ??
+          summary.project_work_item_count,
+        projectWorkItems.length,
+      ),
+      overdue_project_work_item_count: numberOr(
+        summary.overdue_project_work_item_count,
+        overdueProjectWorkItems.length,
       ),
       incomplete_task_count: numberOr(
         summary.incomplete_task_count ??
@@ -295,6 +311,8 @@ function briefingToHome(raw: RawTodayResponse | undefined): TodayHome {
     today_schedules: schedules,
     organization_schedules: organizationSchedules,
     due_today_tasks: tasks,
+    project_work_items: projectWorkItems,
+    overdue_project_work_items: overdueProjectWorkItems,
     focus_items: list(data.focus_items),
   };
 }

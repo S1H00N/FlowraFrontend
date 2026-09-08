@@ -51,6 +51,73 @@
   color-scheme: dark;
 }
 
+/* Keep the floating chat consistent across pages, including nested action cards. */
+.dark #flowra-ai-chat-panel {
+  background-color: var(--flowra-surface);
+  color: var(--flowra-text);
+  border-color: var(--flowra-border-strong);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 45%);
+}
+
+.dark #flowra-ai-chat-panel [data-flowra-ai-chat-messages] {
+  background-color: var(--flowra-page-bg);
+}
+
+.dark #flowra-ai-chat-panel :where([class~="bg-white"]) {
+  background-color: var(--flowra-surface);
+}
+
+.dark #flowra-ai-chat-panel :where([class~="bg-slate-50"], [class~="bg-slate-100"]) {
+  background-color: var(--flowra-surface-soft);
+}
+
+.dark #flowra-ai-chat-panel :where([class~="border-slate-200"]) {
+  border-color: var(--flowra-border);
+}
+
+.dark #flowra-ai-chat-panel :where([class~="ring-slate-200"]) {
+  --tw-ring-color: var(--flowra-border-strong);
+}
+
+.dark #flowra-ai-chat-panel :where([class~="ring-violet-100"], [class~="ring-violet-200"]) {
+  --tw-ring-color: rgb(167 139 250 / 24%);
+}
+
+.dark #flowra-ai-chat-panel :where([class~="ring-amber-100"]) {
+  --tw-ring-color: rgb(251 191 36 / 24%);
+}
+
+.dark #flowra-ai-chat-panel :where([class~="hover:bg-slate-50"], [class~="hover:bg-slate-100"]):hover {
+  background-color: var(--flowra-surface-soft);
+}
+
+.dark #flowra-ai-chat-panel :where([class~="hover:text-slate-900"]):hover {
+  color: var(--flowra-text-strong);
+}
+
+.dark #flowra-ai-chat-panel textarea {
+  background-color: var(--flowra-page-bg);
+  color: var(--flowra-text-strong);
+}
+
+.dark #flowra-ai-chat-panel textarea::placeholder {
+  color: var(--flowra-text-muted);
+}
+
+.dark #flowra-ai-chat-panel :where([class~="focus-visible:ring-violet-100"], [class~="focus-visible:ring-violet-200"]):focus-visible,
+.dark #flowra-ai-chat-panel [class~="focus-within:ring-violet-100"]:focus-within {
+  --tw-ring-color: rgb(167 139 250 / 32%);
+  border-color: var(--flowra-primary);
+}
+
+.dark #flowra-ai-chat-panel :where([class~="bg-violet-600"]) {
+  background-color: #6d28d9;
+}
+
+.dark #flowra-ai-chat-panel :where([class~="hover:bg-violet-700"]):hover {
+  background-color: #7c3aed;
+}
+
 @theme inline {
   --font-sans: var(--app-font-sans);
   --color-background: var(--flowra-surface);
@@ -568,25 +635,25 @@ body {
     [data-flowra-schedule-sidebar]
   ) {
   --schedule-bg: #181818;
-  --schedule-surface: #1f1f1f;
-  --schedule-surface-elevated: rgba(31, 31, 31, 0.96);
-  --schedule-surface-muted: #262626;
+  --schedule-surface: #1c1c1c;
+  --schedule-surface-elevated: rgba(28, 28, 28, 0.98);
+  --schedule-surface-muted: #1b1b1b;
   --schedule-grid: #191919;
-  --schedule-grid-soft: #242424;
-  --schedule-border: rgba(255, 255, 255, 0.08);
-  --schedule-border-strong: rgba(255, 255, 255, 0.14);
+  --schedule-grid-soft: #222222;
+  --schedule-border: rgba(255, 255, 255, 0.045);
+  --schedule-border-strong: rgba(255, 255, 255, 0.1);
   --schedule-text-strong: #eeeeee;
   --schedule-text: #d0d0d0;
   --schedule-text-muted: #939393;
-  --schedule-text-subtle: #696969;
-  --schedule-violet-bg: rgba(124, 58, 237, 0.22);
-  --schedule-violet-bg-strong: rgba(124, 58, 237, 0.32);
+  --schedule-text-subtle: #858585;
+  --schedule-violet-bg: rgba(167, 139, 250, 0.08);
+  --schedule-violet-bg-strong: rgba(167, 139, 250, 0.14);
   --schedule-violet-text: #c4b5fd;
-  --schedule-rose-bg: rgba(132, 54, 43, 0.36);
-  --schedule-rose-bg-strong: rgba(132, 54, 43, 0.5);
+  --schedule-rose-bg: rgba(180, 110, 100, 0.06);
+  --schedule-rose-bg-strong: rgba(180, 110, 100, 0.12);
   --schedule-rose-text: #f0a398;
-  --schedule-sky-bg: rgba(64, 93, 119, 0.42);
-  --schedule-sky-bg-strong: rgba(74, 112, 143, 0.54);
+  --schedule-sky-bg: rgba(120, 150, 170, 0.06);
+  --schedule-sky-bg-strong: rgba(120, 150, 170, 0.12);
   --schedule-sky-text: #9fc5e6;
   color: var(--schedule-text);
 }
@@ -914,6 +981,41 @@ body {
   --tw-shadow-color: rgba(0, 0, 0, 0.5);
 }
 
+.dark [data-flowra-schedule-page] .flowra-calendar-week-heading {
+  box-shadow: none;
+}
+
+.dark [data-flowra-schedule-page] .flowra-calendar-today-heading {
+  background-color: var(--schedule-bg);
+  color: var(--schedule-text-strong);
+  box-shadow: none;
+}
+
+.dark [data-flowra-schedule-page] .flowra-calendar-today-column {
+  background-color: rgba(255, 255, 255, 0.018);
+  box-shadow: none;
+}
+
+.dark [data-flowra-schedule-page]
+  :where([class~="bg-rose-50/20"], [class~="bg-rose-50/30"], [class~="bg-sky-50/20"]) {
+  background-color: rgba(0, 0, 0, 0.07);
+}
+
+/* Apply calendar hover feedback after weekend and today surface colors. */
+.dark [data-flowra-schedule-page]
+  :where([class~="hover:bg-violet-50/20"], [class~="hover:bg-violet-50/40"]):hover {
+  background-color: var(--schedule-violet-bg-strong);
+}
+
+.dark [data-flowra-schedule-controls] :where(button) {
+  --tw-shadow: 0 0 #0000;
+  border-color: transparent;
+}
+
+.dark [data-flowra-schedule-controls] :where(button):hover {
+  border-color: var(--schedule-border-strong);
+}
+
 .dark [data-flowra-schedule-page] :where([class~="bg-white/35"]) {
   background-color: rgba(255, 255, 255, 0.08);
 }
@@ -924,6 +1026,78 @@ body {
 
 .dark [data-flowra-schedule-page] :where([class~="bg-white/75"]) {
   background-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Preserve editor depth and interaction states independently of calendar surfaces. */
+.dark [data-flowra-schedule-editor-header],
+.dark [data-flowra-schedule-editor-footer] {
+  background-color: var(--flowra-surface);
+  border-color: var(--flowra-border);
+}
+
+.dark [data-flowra-schedule-editor-footer] {
+  box-shadow: 0 -8px 24px rgb(0 0 0 / 20%);
+}
+
+.dark [data-flowra-schedule-editor] {
+  background-color: var(--flowra-shell-bg);
+}
+
+.dark [data-flowra-schedule-editor] :where([class~="bg-white"]) {
+  background-color: var(--flowra-surface);
+}
+
+.dark [data-flowra-schedule-editor]
+  :where([class~="bg-slate-50"], [class~="bg-slate-50/70"], [class~="bg-slate-100"]) {
+  background-color: var(--flowra-surface-soft);
+}
+
+.dark [data-flowra-schedule-editor]
+  :where([class~="hover:bg-white"], [class~="hover:bg-white/60"], [class~="hover:bg-slate-50"]):hover {
+  background-color: var(--flowra-surface-soft);
+}
+
+.dark [data-flowra-schedule-editor] [class~="focus:bg-white"]:focus,
+.dark [data-flowra-schedule-editor] [class~="focus-visible:bg-white"]:focus-visible,
+.dark [data-flowra-schedule-editor] [class~="focus-within:bg-white"]:focus-within,
+.dark [data-flowra-schedule-editor] [class~="data-[state=open]:bg-white"][data-state="open"] {
+  background-color: var(--flowra-surface-soft);
+  border-color: var(--flowra-primary);
+  --tw-ring-color: rgb(167 139 250 / 28%);
+}
+
+.dark [data-flowra-schedule-editor] [class~="focus:ring-violet-100"]:focus,
+.dark [data-flowra-schedule-editor] [class~="focus-visible:ring-violet-100"]:focus-visible,
+.dark [data-flowra-schedule-editor] [class~="focus-within:ring-violet-100"]:focus-within {
+  --tw-ring-color: rgb(167 139 250 / 28%);
+}
+
+.dark [data-flowra-schedule-editor-footer] button {
+  --tw-ring-offset-color: var(--flowra-surface);
+}
+
+/* The rounded field wrapper owns the fill and focus ring, not its text input. */
+.dark [data-flowra-schedule-editor] input:is([name="flowra_time_input"], [name="flowra_date_input"]),
+.dark [data-flowra-schedule-editor] input:is([name="flowra_time_input"], [name="flowra_date_input"]):focus {
+  background-color: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+.dark [data-flowra-schedule-editor] [data-flowra-schedule-toggle="unchecked"] {
+  background-color: #3f3f46;
+  border-color: #52525b;
+}
+
+.dark [data-flowra-schedule-editor] [data-flowra-schedule-toggle="checked"] {
+  background-color: var(--flowra-primary);
+  border-color: var(--flowra-primary);
+}
+
+.dark [data-flowra-schedule-editor] [data-flowra-schedule-toggle] > span {
+  background-color: #f4f4f5;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 25%);
 }
 
 .dark [data-flowra-memo-ai-result] {
@@ -1144,6 +1318,70 @@ body {
   border-color: rgba(248, 113, 113, 0.34);
 }
 
+/* Keep state colors above the unlayered dark surface compatibility rules. */
+.dark [data-flowra-switch][data-state="checked"] {
+  background-color: var(--flowra-primary);
+  border-color: #a78bfa;
+}
+
+.dark [data-flowra-switch][data-state="unchecked"] {
+  background-color: var(--flowra-border-strong);
+  border-color: #737373;
+}
+
+.dark [data-flowra-switch] > span {
+  background-color: #ffffff;
+}
+
+.dark [data-flowra-settings-classification] :where([class~="bg-white"]) {
+  background-color: var(--flowra-surface);
+}
+
+.dark [data-flowra-settings-classification]
+  :where([class~="bg-violet-100"], [class~="bg-violet-50/60"]) {
+  background-color: var(--flowra-accent-bg);
+}
+
+.dark [data-flowra-settings-classification] :where([class~="shadow-violet-100"]) {
+  --tw-shadow-color: rgba(124, 58, 237, 0.12);
+}
+
+.dark [data-flowra-settings-classification] :where([class~="text-slate-400"]) {
+  color: var(--flowra-text-muted);
+}
+
+.dark [data-flowra-settings-classification]
+  :where([class~="hover:bg-white"], [class~="hover:bg-slate-50"], [class~="hover:bg-slate-100"]):hover {
+  background-color: var(--flowra-surface-soft);
+}
+
+.dark [data-flowra-settings-classification]
+  :where([class~="hover:text-slate-800"], [class~="hover:text-slate-900"]):hover {
+  color: var(--flowra-text-strong);
+}
+
+.dark [data-flowra-settings-classification] :where([class~="hover:bg-red-50"]):hover {
+  background-color: rgba(239, 68, 68, 0.14);
+}
+
+.dark [data-flowra-settings-classification] :where([class~="disabled:text-slate-300"]):disabled {
+  color: var(--flowra-text-subtle);
+}
+
+.dark [data-flowra-settings-classification] :where([class~="focus:ring-violet-100"]):focus {
+  --tw-ring-color: rgba(167, 139, 250, 0.3);
+}
+
+.dark [data-flowra-settings-classification] :where([class~="focus:ring-red-100"]):focus {
+  --tw-ring-color: rgba(248, 113, 113, 0.3);
+}
+
+/* An outline keeps very dark custom swatches visible without changing their color. */
+.dark [data-flowra-settings-classification] [style*="background-color"] {
+  outline: 1px solid rgba(255, 255, 255, 0.35);
+  outline-offset: 1px;
+}
+
 .scrollbar-none {
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -1153,9 +1391,11 @@ body {
   display: none;
 }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
+@layer base {
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
 }

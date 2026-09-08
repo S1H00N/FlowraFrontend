@@ -12,4 +12,5 @@ export * from "./reminder";
 export * from "./push";
 export * from "./notification";
 export * from "./company";
+export * from "./companyProject";
 export * from "./holiday";

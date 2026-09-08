@@ -45,6 +45,14 @@ export function useLeaveCompanyMembership() {
         queryKey: COMPANY_MEMBERSHIPS_QUERY_KEY,
       });
       void queryClient.invalidateQueries({ queryKey: COMPANY_ADMIN_QUERY_KEY });
+      for (const queryKey of [
+        ["company-schedules"],
+        ["company-projects"],
+        ["companies"],
+        ["users", "me"],
+      ]) {
+        void queryClient.invalidateQueries({ queryKey });
+      }
     },
     meta: {
       successMessage: "회사에서 탈퇴했습니다.",

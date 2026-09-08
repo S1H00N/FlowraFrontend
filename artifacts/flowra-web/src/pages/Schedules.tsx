@@ -55,7 +55,10 @@ import {
   useSetScheduleCompletion,
   useUpdateSchedule,
 } from "@/hooks/useSchedules";
-import { useCompanySchedules } from "@/hooks/useCompanySchedules";
+import { useCompanyScheduleFeed } from "@/hooks/useCompanySchedules";
+import { ProjectWorkItemCard } from "@/components/ProjectWorkItems";
+import { projectWorkItemToSchedule } from "@/lib/projectCalendar";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   useCompanyAdminDepartments,
   useCompanyAdminMe,
@@ -703,7 +706,7 @@ function CompactDateInput({
                 ...calendarStyle,
                 visibility: calendarReady ? undefined : "hidden",
               }}
-              className="schedule-date-popover fixed z-[160] rounded-xl border border-neutral-800 bg-neutral-900 p-3 text-slate-100 shadow-xl"
+              className="schedule-date-popover fixed z-[160] rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl"
             >
               <div className="mb-3 flex items-center justify-between">
                 <div className="text-sm font-semibold">
@@ -718,7 +721,7 @@ function CompactDateInput({
                         getCalendarViewMonth(toDateKey(new Date())),
                       )
                     }
-                    className={`h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white ${
+                    className={`h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-accent-foreground ${
                       canResetVisibleMonth ? "inline-flex" : "hidden"
                     }`}
                     aria-label="Go to current month"
@@ -735,7 +738,7 @@ function CompactDateInput({
                           new Date(prev.getFullYear(), prev.getMonth() - 1, 1),
                       )
                     }
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
                     aria-label="Previous month"
                   >
                     <ChevronLeft className="h-4 w-4" />
@@ -749,7 +752,7 @@ function CompactDateInput({
                           new Date(prev.getFullYear(), prev.getMonth() + 1, 1),
                       )
                     }
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
                     aria-label="Next month"
                   >
                     <ChevronRight className="h-4 w-4" />
@@ -786,8 +789,8 @@ function CompactDateInput({
                         dateKey === selectedKey
                           ? "bg-violet-500 text-white"
                           : disabled
-                            ? "cursor-not-allowed text-slate-600"
-                            : "text-slate-200 hover:bg-neutral-800"
+                            ? "cursor-not-allowed text-muted-foreground opacity-40"
+                            : "text-popover-foreground hover:bg-accent"
                       }`}
                     >
                       {date.getDate()}
@@ -1284,7 +1287,7 @@ function CompactTimeInput({
         <div
           ref={dropdownRef}
           style={{ ...dropdownStyle, maxHeight: timeDropdownMaxHeight }}
-          className="fixed z-[70] overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-900 p-1 shadow-xl"
+          className="fixed z-[70] overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-xl"
           role="listbox"
           onWheel={(event) => event.stopPropagation()}
           onPointerDownCapture={() => {
@@ -1308,10 +1311,10 @@ function CompactTimeInput({
               onClick={() => selectTimeOption(option)}
               className={`flex h-8 w-full items-center rounded-md px-2 text-left text-sm font-medium tabular-nums transition ${
                 index === activeOptionIndex
-                  ? "bg-neutral-800 text-violet-200"
+                  ? "bg-accent text-accent-foreground"
                   : option === draftTimeOption || option === value
-                    ? "bg-neutral-800 text-violet-200"
-                    : "text-slate-100 hover:bg-neutral-800"
+                    ? "bg-accent text-accent-foreground"
+                    : "text-popover-foreground hover:bg-accent"
               }`}
               aria-selected={index === activeOptionIndex}
             >
@@ -1417,6 +1420,7 @@ function isSchedulePanelPointAnchor(
 }
 
 function isCompanySchedule(schedule: Schedule) {
+  if (schedule.project_work_item) return false;
   return (
     schedule.is_company_schedule === true ||
     schedule.company_schedule_id != null ||
@@ -1425,7 +1429,7 @@ function isCompanySchedule(schedule: Schedule) {
 }
 
 function scheduleOwnerType(schedule: Schedule): ScheduleOwnerType {
-  return isCompanySchedule(schedule) ? "company" : "personal";
+  return isCompanySchedule(schedule) || schedule.project_work_item ? "company" : "personal";
 }
 
 function scheduleOwnerFilterLabel(value: ScheduleOwnerFilter) {
@@ -1440,7 +1444,7 @@ function isPreviewSchedule(schedule: Schedule) {
 }
 
 function isReadonlySchedule(schedule: Schedule) {
-  return isCompanySchedule(schedule) || isPreviewSchedule(schedule);
+  return isCompanySchedule(schedule) || isPreviewSchedule(schedule) || !!schedule.project_work_item;
 }
 
 function useSchedulePanelFloatingStyle(
@@ -1541,6 +1545,7 @@ function companyScheduleSourceId(schedule: Schedule) {
 }
 
 function scheduleIdentityKey(schedule: Schedule) {
+  if (schedule.project_work_item) return `project:${schedule.project_work_item.assignment_id}`;
   return isCompanySchedule(schedule)
     ? `company:${companyScheduleSourceId(schedule)}`
     : `personal:${schedule.schedule_id}`;
@@ -3263,14 +3268,14 @@ function ScheduleOwnerViewSelector({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        className="w-52 border-slate-800 bg-neutral-900 p-1.5 text-slate-100 shadow-xl"
+        className="w-52 border-border bg-popover p-1.5 text-popover-foreground shadow-xl"
       >
         {scheduleOwnerFilterOptions.map((option) => (
           <DropdownMenuItem
             key={option.value}
             onSelect={() => onChange(option.value)}
-            className={`gap-3 rounded-md px-2.5 py-2 text-sm text-slate-200 focus:bg-neutral-800 focus:text-white ${
-              value === option.value ? "bg-neutral-800" : ""
+            className={`gap-3 rounded-md px-2.5 py-2 text-sm text-popover-foreground focus:bg-accent focus:text-accent-foreground ${
+              value === option.value ? "bg-accent" : ""
             }`}
           >
             <span className="flex h-4 w-4 items-center justify-center text-violet-400">
@@ -3286,7 +3291,7 @@ function ScheduleOwnerViewSelector({
             <span className="min-w-0">
               <span
                 className={`block truncate font-medium ${
-                  value === option.value ? "text-violet-200" : "text-slate-100"
+                  value === option.value ? "text-accent-foreground" : "text-popover-foreground"
                 }`}
               >
                 {option.label}
@@ -4821,6 +4826,7 @@ export function ScheduleFormPanel({
       />
       <span
         aria-hidden
+        data-flowra-schedule-toggle={allDay ? "checked" : "unchecked"}
         className={`relative inline-flex h-3.5 w-7 shrink-0 items-center rounded-full border transition peer-focus-visible:ring-2 peer-focus-visible:ring-violet-200 ${
           allDay
             ? "border-violet-500 bg-violet-500"
@@ -4870,6 +4876,7 @@ export function ScheduleFormPanel({
       />
       <span
         aria-hidden
+        data-flowra-schedule-toggle={repeatEnabled ? "checked" : "unchecked"}
         className={`relative inline-flex h-3.5 w-7 shrink-0 items-center rounded-full border transition peer-focus-visible:ring-2 peer-focus-visible:ring-violet-200 ${
           repeatEnabled
             ? "border-violet-500 bg-violet-500"
@@ -5091,7 +5098,7 @@ export function ScheduleFormPanel({
               <span>{repeatUntilDateKey}</span>
               <CalendarDays className="h-4 w-4 text-zinc-400" />
             </button>
-            <div className="mt-2 rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-slate-100">
+            <div className="mt-2 rounded-lg border border-border bg-popover p-2 text-popover-foreground">
               <div className="mb-2 flex items-center justify-between">
                 <div className="text-sm font-semibold">
                   {formatMonthTitle(repeatUntilCalendarMonth)}
@@ -5104,7 +5111,7 @@ export function ScheduleFormPanel({
                         getCalendarViewMonth(repeatUntilDateKey),
                       )
                     }
-                    className={`h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white ${
+                    className={`h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-accent-foreground ${
                       canResetRepeatUntilCalendarMonth
                         ? "inline-flex"
                         : "hidden"
@@ -5117,7 +5124,7 @@ export function ScheduleFormPanel({
                   <button
                     type="button"
                     onClick={() => moveRepeatUntilCalendarMonth(-1)}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
                     aria-label="이전 달"
                   >
                     <ChevronLeft className="h-4 w-4" />
@@ -5125,7 +5132,7 @@ export function ScheduleFormPanel({
                   <button
                     type="button"
                     onClick={() => moveRepeatUntilCalendarMonth(1)}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
                     aria-label="다음 달"
                   >
                     <ChevronRight className="h-4 w-4" />
@@ -5167,8 +5174,8 @@ export function ScheduleFormPanel({
                             : disabled
                               ? "cursor-not-allowed text-zinc-600"
                               : today
-                                ? "text-violet-300 ring-1 ring-violet-600/60 hover:bg-neutral-800"
-                                : "text-slate-200 hover:bg-neutral-800 hover:text-white"
+                                ? "text-accent-foreground ring-1 ring-violet-600/60 hover:bg-accent"
+                                : "text-popover-foreground hover:bg-accent hover:text-accent-foreground"
                         }`}
                       >
                         {date.getDate()}
@@ -5557,7 +5564,7 @@ export function ScheduleFormPanel({
         role="dialog"
         aria-label="날짜 직접 선택"
         style={selectedDatesPopupStyle}
-        className="fixed z-[120] overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900 p-3 text-slate-100 shadow-2xl outline-none"
+        className="fixed z-[120] overflow-hidden rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-2xl outline-none"
       >
         <div className="mb-3 flex items-center justify-between">
           <div className="text-sm font-semibold">
@@ -5567,7 +5574,7 @@ export function ScheduleFormPanel({
             <button
               type="button"
               onClick={() => moveSelectedDatesMonth(-1)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
               aria-label="이전 달"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -5575,7 +5582,7 @@ export function ScheduleFormPanel({
             <button
               type="button"
               onClick={() => moveSelectedDatesMonth(1)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
               aria-label="다음 달"
             >
               <ChevronRight className="h-4 w-4" />
@@ -5641,8 +5648,8 @@ export function ScheduleFormPanel({
                       selected
                         ? "bg-violet-500 text-white shadow-sm"
                         : today
-                          ? "text-violet-300 ring-1 ring-violet-600/60 hover:bg-neutral-800"
-                          : "text-slate-200 hover:bg-neutral-800 hover:text-white"
+                          ? "text-accent-foreground ring-1 ring-violet-600/60 hover:bg-accent"
+                          : "text-popover-foreground hover:bg-accent hover:text-accent-foreground"
                     } ${active && !selected ? "ring-2 ring-violet-500/40" : ""}`}
                   >
                     {date.getDate()}
@@ -6766,7 +6773,7 @@ export function ScheduleFormPanel({
         style={floatingStyle}
         className={getSchedulePanelClassName(panelLayout)}
       >
-        <div className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-5">
+        <div data-flowra-schedule-editor-header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-5">
           <div className="min-w-0">
             {scheduleOwnerSelect ??
               (mode !== "create" ? (
@@ -6811,6 +6818,7 @@ export function ScheduleFormPanel({
         <form
           onSubmit={handleSubmit}
           autoComplete="none"
+          data-flowra-schedule-editor
           className="min-h-0 flex-1 overflow-y-auto bg-slate-50/70 p-4"
         >
           <div className="space-y-2">
@@ -7330,11 +7338,11 @@ export function ScheduleFormPanel({
           </div>
         </form>
 
-        <div className="grid shrink-0 grid-cols-2 gap-2 border-t border-slate-200 bg-white/95 px-4 py-4 shadow-[0_-8px_24px_rgba(15,23,42,0.04)] backdrop-blur">
+        <div data-flowra-schedule-editor-footer className="grid shrink-0 grid-cols-2 gap-2 border-t border-slate-200 bg-white/95 px-4 py-4 shadow-[0_-8px_24px_rgba(15,23,42,0.04)] backdrop-blur">
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-12 w-full min-w-0 items-center justify-center gap-2 rounded-lg bg-slate-100 px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-200 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-200"
+            className="inline-flex h-12 w-full min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-slate-100 px-4 text-sm font-semibold text-slate-600 transition hover:bg-slate-200 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-200"
           >
             <X className="h-4 w-4" />
             닫기
@@ -7407,16 +7415,16 @@ function MiniCalendar({
     () => new Set(weekDates.map((day) => toDateKey(day))),
     [weekDates],
   );
-  const renderMarker = (meta?: DayMeta, selected?: boolean) => {
+  const renderMarker = (meta?: DayMeta, highlighted?: boolean) => {
     if (!meta || meta.count === 0) return null;
-    const dotClass = selected
-      ? "bg-white"
+    const dotClass = highlighted
+      ? "bg-current"
       : meta.hasDeadline
         ? "bg-rose-500"
         : "bg-violet-500";
 
     return (
-      <span className="pointer-events-none absolute inset-x-0 bottom-1 flex items-center justify-center">
+      <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-1 flex items-center justify-center">
         <span className={`h-1 w-1 rounded-full ${dotClass}`} />
       </span>
     );
@@ -7517,7 +7525,7 @@ function MiniCalendar({
                 aria-label={`${formatCompactDate(day)} schedule count ${meta?.count ?? 0}`}
               >
                 {day.getDate()}
-                {currentMonth ? renderMarker(meta, selected) : null}
+                {currentMonth ? renderMarker(meta, selected || today) : null}
               </button>
             );
           })}
@@ -7622,7 +7630,7 @@ function TimelineItem({
   );
   const preview = isPreviewSchedule(schedule);
   const company = isCompanySchedule(schedule);
-  const readOnly = company || preview;
+  const readOnly = company || preview || !!schedule.project_work_item;
   const creator = company ? companyScheduleCreatorDisplay(schedule) : null;
   const accentColor = scheduleAccentColor(schedule);
   const cardColor =
@@ -8652,9 +8660,9 @@ function MonthSchedulePreview({
         continuesBefore ? "rounded-l-none pl-1" : ""
       } ${continuesAfter ? "rounded-r-none pr-1" : ""} ${className}`}
       style={{
-        backgroundColor: colorWithAlpha(cardColor, "18"),
+        backgroundColor: `light-dark(${colorWithAlpha(cardColor, "18")}, color-mix(in srgb, ${cardColor} 28%, #202020))`,
         borderColor: preview ? colorWithAlpha(cardColor, "80") : undefined,
-        color: accentColor,
+        color: `light-dark(${accentColor}, color-mix(in srgb, ${cardColor} 25%, #eeeeee))`,
         boxShadow: barShadow,
         ...style,
       }}
@@ -9465,7 +9473,7 @@ function PreviewPriorityBadge({
 
 function weekdayToneClass(day: Date, selected = false, holiday = false) {
   if (isToday(day)) {
-    return "bg-violet-50/95 text-violet-800 shadow-[inset_0_-2px_0_rgba(124,58,237,0.45)]";
+    return "flowra-calendar-today-heading bg-violet-50/95 text-violet-800 shadow-[inset_0_-2px_0_rgba(124,58,237,0.45)]";
   }
   if (holiday || day.getDay() === 0) {
     return selected
@@ -9480,7 +9488,7 @@ function weekdayToneClass(day: Date, selected = false, holiday = false) {
 
 function weekdayColumnClass(day: Date, selected = false, holiday = false) {
   if (isToday(day)) {
-    return "bg-violet-50/35 shadow-[inset_2px_0_0_rgba(124,58,237,0.18),inset_-2px_0_0_rgba(124,58,237,0.18)]";
+    return "flowra-calendar-today-column bg-violet-50/35 shadow-[inset_2px_0_0_rgba(124,58,237,0.18),inset_-2px_0_0_rgba(124,58,237,0.18)]";
   }
   if (selected) return "bg-violet-50/20";
   if (holiday || day.getDay() === 0) return "bg-rose-50/20";
@@ -9701,6 +9709,8 @@ function scheduleBlockStyleFromMetrics(
   return {
     top: `${metrics.top}px`,
     height: `${metrics.height}px`,
+    boxSizing: "border-box",
+    minHeight: 0,
     left: `calc(${laneLeft}% + ${sideInset}px)`,
     width: `calc(${laneWidth}% - ${widthInset}px)`,
   };
@@ -9721,7 +9731,8 @@ function scheduleBlockMetricsFromDates(
         ? rawEndMinutes
         : startMinutes + minTimedScheduleMinutes
       : rawEndMinutes;
-  const duration = Math.max(minTimedScheduleMinutes, endMinutes - startMinutes);
+  // Existing short events must end at their actual time; the drag minimum is only for editing.
+  const duration = Math.max(1, endMinutes - startMinutes);
   const startKey = toDateKey(startDate);
   const endKey = toDateKey(endDate);
   const rawStartIndex = weekDates.findIndex(
@@ -10803,7 +10814,7 @@ function WeekScheduleGrid({
       )}
       <div className="min-w-0">
         <div
-          className="sticky top-0 z-30 grid border-b border-slate-100 bg-slate-50/95 shadow-[0_1px_0_rgba(226,232,240,0.9)] backdrop-blur"
+          className="flowra-calendar-week-heading sticky top-0 z-30 grid border-b border-slate-100 bg-slate-50/95 shadow-[0_1px_0_rgba(226,232,240,0.9)] backdrop-blur"
           style={{
             gridTemplateColumns: `${weekTimeColumnWidth}px repeat(${dayCount}, minmax(0, 1fr))`,
           }}
@@ -11015,11 +11026,11 @@ function WeekScheduleGrid({
                     top: 26 + holidayLaneCount * 24 + lane * 24,
                     left: `calc(${(displayStartIndex / dayCount) * 100}% + 4px)`,
                     width: `calc(${(span / dayCount) * 100}% - 8px)`,
-                    backgroundColor: colorWithAlpha(cardColor, "18"),
+                    backgroundColor: `light-dark(${colorWithAlpha(cardColor, "18")}, color-mix(in srgb, ${cardColor} 28%, #202020))`,
                     borderColor: preview
                       ? colorWithAlpha(cardColor, "80")
                       : undefined,
-                    color: accentColor,
+                    color: `light-dark(${accentColor}, color-mix(in srgb, ${cardColor} 25%, #eeeeee))`,
                     boxShadow: `inset 3px 0 0 ${accentColor}, 0 0 0 1px ${colorWithAlpha(cardColor, "30")}`,
                   }}
                 >
@@ -11238,7 +11249,7 @@ function WeekScheduleGrid({
                       onOpenSchedule(schedule, event.currentTarget);
                     }
                   }}
-                  className={`absolute z-10 origin-top-left touch-none overflow-hidden rounded-lg px-2 py-1 text-left text-xs font-medium transition-[box-shadow,filter,opacity,transform,left,top,width,height] duration-150 ease-out hover:scale-[1.02] hover:brightness-95 focus:scale-[1.02] ${
+                  className={`absolute z-10 touch-none overflow-hidden rounded-lg px-2 py-1 text-left text-xs font-medium transition-[box-shadow,filter,opacity,transform,left,top,width,height] duration-150 ease-out hover:brightness-95 ${
                     readOnly
                       ? "cursor-pointer"
                       : "cursor-grab active:cursor-grabbing"
@@ -11253,12 +11264,12 @@ function WeekScheduleGrid({
                     ...blockStyle,
                     zIndex:
                       selected || hovered ? 35 : activeDraft ? 12 : 10 + lane,
-                    backgroundColor: colorWithAlpha(cardColor, "24"),
+                    backgroundColor: `light-dark(${colorWithAlpha(cardColor, "24")}, color-mix(in srgb, ${cardColor} 28%, #202020))`,
                     borderLeft: `3px solid ${accentColor}`,
                     borderColor: preview
                       ? colorWithAlpha(cardColor, "80")
                       : undefined,
-                    color: accentColor,
+                    color: `light-dark(${accentColor}, color-mix(in srgb, ${cardColor} 25%, #eeeeee))`,
                     boxShadow: activeDraft
                       ? `0 0 0 1px ${colorWithAlpha(cardColor, "28")}`
                       : `0 0 0 1px ${colorWithAlpha(cardColor, "40")}`,
@@ -11673,10 +11684,11 @@ export default function Schedules() {
     start_from: monthRange.startFrom,
     start_to: monthRange.startTo,
   });
-  const companySchedulesQuery = useCompanySchedules(
+  const companySchedulesQuery = useCompanyScheduleFeed(
     {
       start_from: monthRange.startFrom,
       start_to: monthRange.startTo,
+      include_done_project_work_items: filters.completion !== "active",
     },
     {
       enabled: hasCompanyMembership,
@@ -11699,9 +11711,11 @@ export default function Schedules() {
   const data = schedulesQuery.data;
   const companySchedules = useMemo(
     () =>
-      (companySchedulesQuery.data ?? []).map((schedule) =>
-        companyScheduleToSchedule(schedule),
-      ),
+      [
+        ...(companySchedulesQuery.data?.company_schedules ?? []).map(companyScheduleToSchedule),
+        ...(companySchedulesQuery.data?.project_work_items ?? []).map(projectWorkItemToSchedule)
+          .filter((schedule): schedule is Schedule => schedule !== null),
+      ],
     [companySchedulesQuery.data],
   );
   const isLoading = schedulesQuery.isLoading || companySchedulesQuery.isLoading;
@@ -12280,7 +12294,7 @@ export default function Schedules() {
     setDraftCreateForm(null);
     setDraftPreviewForms([]);
 
-    if (isCompanySchedule(schedule)) {
+    if (isCompanySchedule(schedule) || schedule.project_work_item) {
       setEditingSchedule(null);
       setPanelMode(null);
       setViewingSchedule(schedule);
@@ -12302,7 +12316,7 @@ export default function Schedules() {
       return;
     }
 
-    if (isCompanySchedule(schedule)) {
+    if (isCompanySchedule(schedule) || schedule.project_work_item) {
       toast.info("회사 일정은 조회 전용입니다.");
       return;
     }
@@ -12369,7 +12383,7 @@ export default function Schedules() {
     (schedule) => !isAllDayLikeSchedule(schedule),
   );
   const schedulePanelOpen = panelMode !== null || viewingSchedule !== null;
-  const sidePanelOpen = schedulePanelOpen;
+  const sidePanelOpen = schedulePanelOpen && !viewingSchedule?.project_work_item;
   const dockedPanelOpen = sidePanelOpen && schedulePanelLayout === "docked";
   const floatingPanelOpen = sidePanelOpen && schedulePanelLayout === "floating";
   const headerPanelOffsetClass = dockedPanelOpen
@@ -12551,14 +12565,14 @@ export default function Schedules() {
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"
-                className="w-48 border-slate-800 bg-neutral-900 p-1.5 text-slate-100 shadow-xl"
+                className="w-48 border-border bg-popover p-1.5 text-popover-foreground shadow-xl"
               >
                 {scheduleViewOptions.map((option) => (
                   <DropdownMenuItem
                     key={option.value}
                     onSelect={() => changeScheduleView(option.value)}
-                    className={`gap-3 rounded-md px-2.5 py-2 text-sm text-slate-200 focus:bg-neutral-800 focus:text-white ${
-                      scheduleView === option.value ? "bg-neutral-800" : ""
+                    className={`gap-3 rounded-md px-2.5 py-2 text-sm text-popover-foreground focus:bg-accent focus:text-accent-foreground ${
+                      scheduleView === option.value ? "bg-accent" : ""
                     }`}
                   >
                     <span className="flex h-4 w-4 items-center justify-center text-violet-400">
@@ -12569,8 +12583,8 @@ export default function Schedules() {
                     <span
                       className={`font-medium ${
                         scheduleView === option.value
-                          ? "text-violet-200"
-                          : "text-slate-100"
+                          ? "text-accent-foreground"
+                          : "text-popover-foreground"
                       }`}
                     >
                       {option.label}
@@ -12802,14 +12816,14 @@ export default function Schedules() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   align="end"
-                  className="w-48 border-slate-800 bg-neutral-900 p-1.5 text-slate-100 shadow-xl"
+                  className="w-48 border-border bg-popover p-1.5 text-popover-foreground shadow-xl"
                 >
                   {scheduleViewOptions.map((option) => (
                     <DropdownMenuItem
                       key={option.value}
                       onSelect={() => changeScheduleView(option.value)}
-                      className={`gap-3 rounded-md px-2.5 py-2 text-sm text-slate-200 focus:bg-neutral-800 focus:text-white ${
-                        scheduleView === option.value ? "bg-neutral-800" : ""
+                      className={`gap-3 rounded-md px-2.5 py-2 text-sm text-popover-foreground focus:bg-accent focus:text-accent-foreground ${
+                        scheduleView === option.value ? "bg-accent" : ""
                       }`}
                     >
                       <span className="flex h-4 w-4 items-center justify-center text-violet-400">
@@ -12820,8 +12834,8 @@ export default function Schedules() {
                       <span
                         className={`font-medium ${
                           scheduleView === option.value
-                            ? "text-violet-200"
-                            : "text-slate-100"
+                            ? "text-accent-foreground"
+                            : "text-popover-foreground"
                         }`}
                       >
                         {option.label}
@@ -13155,7 +13169,19 @@ export default function Schedules() {
             </div>
           </section>
 
-          {viewingSchedule && (
+          {viewingSchedule?.project_work_item && (
+            <Dialog open onOpenChange={(open) => { if (!open) closePanel(); }}>
+              <DialogContent>
+                <DialogTitle>프로젝트 업무</DialogTitle>
+                <ProjectWorkItemCard
+                  onCompletionChange={closePanel}
+                  key={`${viewingSchedule.project_work_item.assignment_id}:${companySchedulesQuery.dataUpdatedAt}`}
+                  item={companySchedulesQuery.data?.project_work_items.find((item) => item.assignment_id === viewingSchedule.project_work_item?.assignment_id) ?? viewingSchedule.project_work_item}
+                />
+              </DialogContent>
+            </Dialog>
+          )}
+          {viewingSchedule && !viewingSchedule.project_work_item && (
             <ScheduleReadonlyPanel
               schedule={viewingSchedule}
               onClose={closePanel}

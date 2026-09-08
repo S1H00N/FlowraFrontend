@@ -1,11 +1,16 @@
 import type { ScheduleType } from "./schedule";
+import type { ProjectCalendarItem } from "./companyProject";
 import type { TaskPriority, TaskStatus } from "./task";
+
+export type HomeProjectWorkItem = Omit<ProjectCalendarItem, "item_type">;
 
 export interface HomeSummary {
   today_schedule_count: number;
   today_personal_schedule_count: number;
   today_company_schedule_count: number;
   today_deadline_schedule_count: number;
+  today_project_work_item_count: number;
+  overdue_project_work_item_count: number;
   incomplete_task_count: number;
   current_completion_streak_days: number;
   best_completion_streak_days: number;
@@ -102,8 +107,9 @@ export interface HomeTask {
 }
 
 export interface HomeFocusItem {
-  item_type: "schedule" | "company_schedule" | "task";
+  item_type: "schedule" | "company_schedule" | "task" | "project_work_item";
   id: number;
+  assignment_id?: number;
 }
 
 export interface TodayHome {
@@ -117,6 +123,8 @@ export interface TodayHome {
   today_schedules: HomeSchedule[];
   organization_schedules: HomeOrganizationSchedule[];
   due_today_tasks: HomeTask[];
+  project_work_items: HomeProjectWorkItem[];
+  overdue_project_work_items: HomeProjectWorkItem[];
   focus_items: HomeFocusItem[];
 }
 
