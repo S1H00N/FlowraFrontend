@@ -604,6 +604,17 @@ Response 예시:
 - 세션 목록의 각 항목도 `ai_chat_session_id`를 사용합니다.
 - `messages`는 각 세션의 최신 메시지 1개만 포함됩니다.
 
+### `DELETE /api/v1/ai-chat/sessions/:session_id` — 신규 연동 요구사항
+
+프론트엔드 대화 목록 삭제 버튼에서 호출합니다. 기존 명세에는 없던 API이며 서버 구현 및 배포 확인이 필요합니다.
+
+- 인증된 사용자 본인의 세션만 삭제할 수 있어야 합니다.
+- 해당 세션과 하위 메시지 및 대화에 종속된 기록을 함께 삭제합니다.
+- 대화에서 이미 생성한 일정, 할 일, 메모는 유지합니다.
+- 성공: `204 No Content` 또는 `200`과 `{ "success": true, "message": "AI chat session deleted", "data": null }`.
+- 없는 세션 또는 다른 사용자의 세션은 `404`를 반환합니다.
+- 삭제 실패 시 프론트엔드는 대화와 목록을 유지하고 오류를 표시합니다.
+
 ### `POST /api/v1/ai-chat/sessions/:session_id/messages`
 
 사용자 메시지를 저장하고 AI 응답을 생성합니다.
@@ -619,6 +630,16 @@ Request body:
   "content": "내일 오후 2시에 디자인 회의 잡아줘. 30분 전에 알려줘."
 }
 ```
+
+AI가 참고하는 내부 문맥:
+
+- `personal_schedules`
+- `company_schedules`
+- `project_work_items`
+- `tasks`
+- `recent_memos`
+
+`project_work_items` 문맥은 최근 14일 범위의 실제 assignee 프로젝트 업무만 포함하며, AI 채팅에서는 read-only 참고 정보로만 사용합니다.
 
 Response 주요 필드:
 
@@ -722,6 +743,8 @@ Response 예시:
     "summary": {
       "today_schedule_count": 2,
       "today_deadline_schedule_count": 1,
+      "today_project_work_item_count": 1,
+      "overdue_project_work_item_count": 0,
       "incomplete_task_count": 5
     },
     "slot_counts": {
@@ -731,7 +754,10 @@ Response 예시:
       "other": 0
     },
     "today_schedules": [],
+    "organization_schedules": [],
     "due_today_tasks": [],
+    "project_work_items": [],
+    "overdue_project_work_items": [],
     "focus_items": []
   }
 }
@@ -765,13 +791,20 @@ Response 예시:
     "date": "2026-04-21",
     "summary": {
       "schedule_count": 2,
+      "company_schedule_count": 1,
+      "total_schedule_count": 3,
       "task_count": 3,
       "overdue_task_count": 1,
+      "project_work_item_count": 1,
+      "overdue_project_work_item_count": 0,
       "reminder_count": 4
     },
     "schedules": [],
+    "company_schedules": [],
     "tasks": [],
     "overdue_tasks": [],
+    "project_work_items": [],
+    "overdue_project_work_items": [],
     "reminders": []
   }
 }

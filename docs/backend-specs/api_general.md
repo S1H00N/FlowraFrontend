@@ -1477,6 +1477,7 @@ Response 예시:
 ### `GET /company-schedules`
 
 로그인한 사용자가 볼 수 있는 조직 일정 목록 조회.
+프로젝트 업무는 회사 일정의 하위 캘린더 항목으로 함께 반환됩니다.
 
 Query params:
 
@@ -1484,12 +1485,19 @@ Query params:
 | --- | --- | --- | --- |
 | `start_from` | datetime string | X | `start_datetime >= start_from` |
 | `start_to` | datetime string | X | `start_datetime <= start_to` |
+| `include_project_work_items` | `true` \| `false` | X | 프로젝트 업무 포함 여부. 기본 `true` |
+| `include_done_project_work_items` | `true` \| `false` | X | 완료된 프로젝트 assignment 포함 여부. 기본 `false` |
+| `project_id` | numeric string | X | 특정 프로젝트 업무만 포함 |
+| `project_work_item_limit` | number | X | 프로젝트 업무 최대 개수. 기본 500, 최대 1000 |
 
 Response data:
 
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
 | `company_schedules` | CompanySchedule[] | 조회 가능한 조직 일정 |
+| `project_work_items` | ProjectCalendarItem[] | 실제 담당자로 배정된 프로젝트 업무 |
+| `summary.company_schedule_count` | number | 조직 일정 수 |
+| `summary.project_work_item_count` | number | 프로젝트 업무 수 |
 
 CompanySchedule 주요 필드:
 
@@ -1517,6 +1525,30 @@ CompanySchedule 주요 필드:
 
 - 조직 일정 응답의 회사 멤버 객체(`created_by_company_member`, `updated_by_company_member`, `targets[].company_member`, `approvals[].requested_by_company_member`, `change_requests[].requested_by_company_member`)는 내부 `user_id`를 노출하지 않습니다.
 - Flowra 계정과 연결된 회사 멤버는 `user_public_uid`를 포함합니다.
+- `project_work_items`는 실제 담당자 assignment 기준입니다. 프로젝트 관리자/부서장이어도 실제 담당자가 아니면 포함되지 않습니다.
+- `project_work_items`는 `/company-projects/my-calendar-items`와 같은 item shape입니다.
+
+ProjectCalendarItem 주요 필드:
+
+- `item_type`: `project_work_item`
+- `id`: work item ID
+- `assignment_id`
+- `company_project_id`
+- `company_project_public_uid`
+- `project_name`
+- `title`
+- `description`
+- `priority`
+- `status`: assignment 상태
+- `work_item_status`
+- `progress_percent`: assignment 진행률
+- `work_item_progress_percent`
+- `start_datetime`, `end_datetime`
+- `date_source`: `assignment` | `due_datetime` | `planned_date` | `assigned_at`
+- `due_datetime`
+- `planned_start_date`, `planned_end_date`
+- `assignment_starts_at`, `assignment_ends_at`
+- `completed_at`
 
 ### `GET /company-schedules/:company_schedule_id`
 
@@ -1613,6 +1645,262 @@ Response data:
 - `approvals`
 - `change_requests`
 - `approval_summary`
+
+## Company Projects
+
+모든 Company Projects API는 인증 필요. 프로젝트 업무는 개인 일정(`schedules`)과 다른 리소스이며, 개인 캘린더에서 표시할 때는 실제 담당자 assignment 기준 조회 API를 사용합니다.
+
+### `GET /company-projects`
+
+로그인 사용자가 볼 수 있는 회사 프로젝트 목록 조회.
+
+Query params:
+
+- `company_id`: 여러 회사 멤버십이 있을 때 회사 지정
+- `status`: `draft` | `active` | `paused` | `completed` | `cancelled` | `archived`
+- `q`: 이름/설명 검색
+- `from`, `to`: 프로젝트 계획 기간이 조회 범위와 겹치는 항목만 조회
+- `assigned_only`: `true`이면 본인 assignment가 있는 프로젝트만 조회
+
+visibility:
+
+- `company`: 회사 구성원에게 노출
+- `department_tree`: 프로젝트 origin 부서와 하위 부서 구성원에게 노출
+- `members`: 프로젝트 멤버로 등록된 구성원에게 노출
+
+### `POST /company-projects`
+
+일반 사용자가 본인 소속 부서 기준으로 프로젝트를 생성합니다.
+
+권한:
+
+- 요청자는 활성 회사 멤버여야 하고 활성 부서에 속해야 합니다.
+- 요청자 부서의 `project_create_policy=disabled`이면 생성할 수 없습니다.
+- `project_create_policy=leader_only`이면 해당 부서장만 생성할 수 있습니다.
+- `project_create_policy=members`이면 해당 부서 구성원이 생성할 수 있습니다.
+- 일반 사용자 API에서는 `origin_department_id`를 본인 부서로만 지정할 수 있습니다. 생략하면 본인 부서가 사용됩니다.
+- 일반 사용자 API에서는 `status`가 `draft` 또는 `active`만 허용됩니다.
+- 일반 사용자 API에서는 `visibility`가 `department_tree` 또는 `members`만 허용됩니다.
+
+Request body:
+
+```json
+{
+  "company_id": 1,
+  "name": "신규 ERP 구축",
+  "description": "2년 장기 프로젝트",
+  "status": "draft",
+  "phase_mode": "phased",
+  "visibility": "department_tree",
+  "origin_department_id": 12,
+  "planned_start_date": "2026-07-01",
+  "planned_end_date": "2028-06-30"
+}
+```
+
+비고:
+
+- 생성자는 자동으로 프로젝트 멤버 `owner`로 등록됩니다.
+- `phase_mode=phase_less`로 생성한 프로젝트는 phase 추가 API를 사용할 수 없습니다.
+- 기본 `visibility`는 `department_tree`입니다.
+
+### `GET /company-projects/:company_project_id`
+
+프로젝트 상세 조회.
+
+Response data:
+
+- `project`
+- `phases`
+- `work_items`
+- `departments`
+- `assignments`
+- `dependencies`
+- `summary`
+- `detail_policy`: 대형 프로젝트에서 상세 응답이 summary로 제한됐는지 표시
+
+비고:
+
+- 일반 사용자는 본인 assignment 또는 프로젝트 `owner`/`manager` 권한이 있는 경우에만 담당자 식별 정보를 볼 수 있습니다.
+- 대형 프로젝트는 상세 응답에서 상위 depth만 반환될 수 있으며, 하위 업무는 children API로 조회합니다.
+
+### `GET /company-projects/:company_project_id/gantt`
+
+간트 조회. 서버가 프로젝트 규모와 요청 옵션에 따라 `full` 또는 `summary` 응답을 결정합니다.
+
+Query params:
+
+- `mode`: `auto` | `summary` | `full`, 기본 `auto`
+- `max_depth`: 1-5, 기본 2
+- `phase_id`
+- `from`, `to`
+
+Response data:
+
+- `project`
+- `gantt_policy`
+- `phases`
+- `items`
+- `dependencies`
+
+`gantt_policy`:
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `scale` | `small` \| `medium` \| `large` | 프로젝트 규모 판단 |
+| `mode` | `auto` \| `summary` \| `full` | 실제 응답 모드 |
+| `max_depth` | number | 반환된 최대 depth |
+| `full_load_allowed` | boolean | 전체 로드 허용 여부 |
+
+`items[]`는 project work item 객체입니다. 간트 매핑 핵심 필드:
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `company_project_work_item_id` | number | work item ID |
+| `company_project_phase_id` | number \| null | phase grouping ID |
+| `parent_work_item_id` | number \| null | 트리 상위 ID |
+| `depth_level` | number | 트리 depth |
+| `title` | string | 업무명 |
+| `status` | `todo` \| `in_progress` \| `done` \| `postponed` \| `cancelled` | 상태 |
+| `priority` | `low` \| `medium` \| `high` \| `urgent` | 우선순위 |
+| `planned_start_date` | `YYYY-MM-DD` \| null | 간트 bar 시작일 |
+| `planned_end_date` | `YYYY-MM-DD` \| null | 간트 bar 종료일 |
+| `progress_percent` | number | 진행률 |
+| `progress_override_percent` | number \| null | 수동 override 진행률 |
+| `sort_order` | number | 정렬 순서 |
+| `wbs_code` | string \| null | WBS 코드 |
+| `rollup` | object \| null | child/descendant/done/delayed count와 rollup progress |
+
+`dependencies[]`:
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `company_project_work_dependency_id` | number | dependency ID |
+| `predecessor_work_item_id` | number | 선행 work item ID |
+| `successor_work_item_id` | number | 후행 work item ID |
+| `dependency_type` | `finish_to_start` \| `start_to_start` \| `finish_to_finish` \| `start_to_finish` | 의존성 종류 |
+| `lag_days` | number | 지연/선행 offset 일수 |
+
+### `GET /company-projects/:company_project_id/work-items/:work_item_id/children`
+
+간트/트리 lazy-load용 하위 업무 조회.
+
+Query params:
+
+- `depth`: 1-5, 기본 1
+
+### `GET /company-projects/my-work-items`
+
+로그인한 사용자가 실제 담당자로 배정된 프로젝트 업무 목록 조회.
+
+Query params:
+
+- `status`
+- `project_id`
+
+### `PATCH /company-projects/work-assignments/:assignment_id`
+
+본인에게 배정된 프로젝트 assignment의 상태/진행률/완료시각을 수정합니다.
+
+Request body:
+
+```json
+{
+  "status": "done",
+  "progress_percent": 100,
+  "completed_at": "2026-07-31T09:00:00+09:00"
+}
+```
+
+비고:
+
+- `completed_at`은 현장 입력 지연 보정을 위해 수정 가능하며 audit log에 기록됩니다.
+
+### `GET /company-projects/my-calendar-items`
+
+로그인한 사용자가 실제 담당자로 배정된 프로젝트 업무를 캘린더 표시용으로 조회합니다. 부서장/프로젝트 관리자 책임 업무라도 본인이 assignment assignee가 아니면 응답에 포함되지 않습니다.
+
+Query params:
+
+| 이름 | 타입 | 필수 | 기본값 | 설명 |
+| --- | --- | --- | --- | --- |
+| `start_from` | datetime string | X | - | 캘린더 범위 시작 |
+| `start_to` | datetime string | X | - | 캘린더 범위 종료 |
+| `include_done` | `true` \| `false` | X | `false` | 완료/취소 업무 포함 여부 |
+| `project_id` | numeric string | X | - | 특정 프로젝트만 조회 |
+| `limit` | number | X | `200` | 최대 500 |
+
+Response data:
+
+| 필드 | 타입 | 설명 |
+| --- | --- | --- |
+| `items` | object[] | 프로젝트 업무 캘린더 아이템 |
+
+Project calendar item 주요 필드:
+
+- `item_type`: `project_work_item`
+- `id`: work item id
+- `assignment_id`
+- `company_project_id`
+- `company_project_public_uid`
+- `project_name`
+- `title`
+- `description`
+- `priority`
+- `status`: assignment status
+- `work_item_status`
+- `progress_percent`: assignment 진행률
+- `work_item_progress_percent`
+- `start_datetime`
+- `end_datetime`
+- `all_day`
+- `date_source`: `assignment` | `due_datetime` | `planned_date` | `assigned_at`
+- `due_datetime`
+- `planned_start_date`
+- `planned_end_date`
+- `assignment_starts_at`
+- `assignment_ends_at`
+- `completed_at`
+
+날짜 결정 우선순위:
+
+1. assignment `starts_at`/`ends_at`
+2. work item `due_datetime`
+3. work item `planned_start_date`/`planned_end_date`
+4. assignment `assigned_at`
+
+Request 예시:
+
+```http
+GET /api/v1/company-projects/my-calendar-items?start_from=2026-06-01T00:00:00%2B09:00&start_to=2026-06-30T23:59:59%2B09:00
+```
+
+### `POST /company-projects/work-assignments/:assignment_id/reminders`
+
+본인 assignment에 프로젝트 업무 푸시 리마인더를 예약합니다.
+
+Request body:
+
+```json
+{
+  "remind_at": "2026-07-30T09:00:00+09:00",
+  "reminder_type": "custom",
+  "message": "마감 전 진행률 확인"
+}
+```
+
+### `GET /company-projects/work-reminders`
+
+본인의 프로젝트 업무 리마인더 목록 조회.
+
+Query params:
+
+- `status`: `scheduled` | `sent` | `cancelled` | `failed`
+- `assignment_id`
+
+### `DELETE /company-projects/work-reminders/:reminder_id`
+
+예약된 프로젝트 업무 리마인더를 취소합니다.
 
 ## Company Schedule Approvals
 
@@ -2432,7 +2720,7 @@ Query params:
 
 | 이름 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- |
-| `target_type` | `schedule` \| `task` | X | 대상 유형 |
+| `target_type` | `schedule` \| `task` \| `project_work_item` \| `project_work_assignment` | X | 대상 유형 |
 | `is_sent` | `true` \| `false` | X | 발송 여부 |
 | `remind_from` | datetime string | X | `remind_at >= remind_from` |
 | `remind_to` | datetime string | X | `remind_at <= remind_to` |
@@ -2471,8 +2759,8 @@ Request body:
 
 | 필드 | 타입 | 필수 | 기본값 | 제약 |
 | --- | --- | --- | --- | --- |
-| `target_type` | `schedule` \| `task` | O | - | - |
-| `target_id` | numeric string | O | - | 본인 소유 일정/할 일이어야 함 |
+| `target_type` | `schedule` \| `task` \| `project_work_item` \| `project_work_assignment` | O | - | - |
+| `target_id` | numeric string | O | - | 본인 소유 일정/할 일 또는 본인이 실제 담당자인 프로젝트 업무/assignment |
 | `remind_at` | datetime string | O | - | offset 포함 |
 | `reminder_type` | `push` \| `in_app` | X | `push` | - |
 
@@ -2496,6 +2784,8 @@ Response data:
 - `201 Created`
 - `404 SCHEDULE_NOT_FOUND`
 - `404 TASK_NOT_FOUND`
+- `404 PROJECT_WORK_ITEM_NOT_FOUND`
+- `404 PROJECT_WORK_ASSIGNMENT_NOT_FOUND`
 
 ### `PATCH /reminders/:reminder_id`
 
@@ -2507,7 +2797,7 @@ Request body:
 
 | 필드 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- |
-| `target_type` | `schedule` \| `task` | X | 대상 유형 |
+| `target_type` | `schedule` \| `task` \| `project_work_item` \| `project_work_assignment` | X | 대상 유형 |
 | `target_id` | numeric string | X | 대상 ID |
 | `remind_at` | datetime string | X | offset 포함 |
 | `reminder_type` | `push` \| `in_app` | X | - |
@@ -2529,6 +2819,8 @@ Response data:
 - `404 REMINDER_NOT_FOUND`
 - `404 SCHEDULE_NOT_FOUND`
 - `404 TASK_NOT_FOUND`
+- `404 PROJECT_WORK_ITEM_NOT_FOUND`
+- `404 PROJECT_WORK_ASSIGNMENT_NOT_FOUND`
 
 ### `DELETE /reminders/:reminder_id`
 
@@ -2684,11 +2976,15 @@ Response data:
 | `summary.total_schedule_count` | number | 개인+조직 일정 수 |
 | `summary.task_count` | number | 해당 날짜 마감 할 일 수 |
 | `summary.overdue_task_count` | number | 기한 초과 미완료 할 일 수 |
+| `summary.project_work_item_count` | number | 해당 날짜 프로젝트 업무 수 |
+| `summary.overdue_project_work_item_count` | number | 지연된 프로젝트 업무 수 |
 | `summary.reminder_count` | number | 해당 날짜 리마인더 수 |
 | `schedules` | Schedule[] | 개인 일정 |
 | `company_schedules` | CompanySchedule[] | 조직 일정 |
 | `tasks` | Task[] | 해당 날짜 마감 할 일 |
 | `overdue_tasks` | Task[] | 기한 초과 미완료 할 일 |
+| `project_work_items` | object[] | 실제 담당자로 배정된 해당 날짜 프로젝트 업무 |
+| `overdue_project_work_items` | object[] | 실제 담당자로 배정된 지연 프로젝트 업무 |
 | `reminders` | Reminder[] | 해당 날짜 리마인더 |
 
 ## Home
@@ -2723,6 +3019,8 @@ Response data:
 | `summary.today_personal_schedule_count` | number | 미완료 개인 일정 수 |
 | `summary.today_company_schedule_count` | number | 조직 일정 수 |
 | `summary.today_deadline_schedule_count` | number | 마감 유형 일정 수 |
+| `summary.today_project_work_item_count` | number | 오늘 표시할 프로젝트 업무 수 |
+| `summary.overdue_project_work_item_count` | number | 지연된 프로젝트 업무 수 |
 | `summary.incomplete_task_count` | number | 전체 미완료 할 일 수 |
 | `summary.current_completion_streak_days` | number | 개인 일정 연속 완료 일수 |
 | `summary.best_completion_streak_days` | number | 최근 집계 기간 내 최고 연속 완료 일수 |
@@ -2737,6 +3035,8 @@ Response data:
 | `today_schedules` | object[] | 오늘 개인 일정 |
 | `organization_schedules` | object[] | 오늘 조직 일정 |
 | `due_today_tasks` | object[] | 오늘 마감 미완료 할 일 |
+| `project_work_items` | object[] | 실제 담당자로 배정된 오늘 프로젝트 업무 |
+| `overdue_project_work_items` | object[] | 실제 담당자로 배정된 지연 프로젝트 업무 |
 | `focus_items` | object[] | 상위 3개 집중 항목 |
 
 `today_schedules[]` 항목:
@@ -2801,12 +3101,44 @@ Response data:
 - `schedule_id`
 - `category_id`
 
+`project_work_items[]` 항목:
+
+- `id`
+- `assignment_id`
+- `project_id`
+- `project_name`
+- `title`
+- `description`
+- `priority`
+- `status`
+- `progress_percent`
+- `work_item_progress_percent`
+- `due_datetime`
+- `planned_start_date`
+- `planned_end_date`
+- `starts_at`
+- `ends_at`
+
+`overdue_project_work_items[]` 항목:
+
+- `id`
+- `assignment_id`
+- `project_id`
+- `project_name`
+- `title`
+- `priority`
+- `status`
+- `progress_percent`
+- `due_datetime`
+- `planned_end_date`
+
 `focus_items[]` 항목:
 
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
-| `item_type` | `schedule` \| `company_schedule` \| `task` | 항목 유형 |
+| `item_type` | `schedule` \| `company_schedule` \| `task` \| `project_work_item` | 항목 유형 |
 | `id` | number | 해당 리소스 ID |
+| `assignment_id` | number | `project_work_item`일 때 assignment ID |
 
 비고:
 
