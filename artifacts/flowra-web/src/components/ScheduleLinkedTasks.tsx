@@ -616,7 +616,7 @@ export default function ScheduleLinkedTasks({
                 <h3 className="truncate text-sm font-black text-slate-950">
                   연결된 할 일
                 </h3>
-                <span className="inline-flex h-6 shrink-0 items-center rounded-full bg-violet-100 px-2 text-xs font-black text-violet-700">
+                <span className="inline-flex h-6 shrink-0 items-center whitespace-nowrap rounded-full bg-violet-100 px-2 text-xs font-black text-violet-700">
                   {doneCount}/{sortedTasks.length}
                 </span>
               </div>

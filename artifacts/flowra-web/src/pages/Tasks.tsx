@@ -447,11 +447,11 @@ function MiniCalendar({
               >
                 {date.getDate()}
                 {count > 0 && (
-                  <span className="pointer-events-none absolute inset-x-0 bottom-1 flex items-center justify-center">
+                  <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-1 flex items-center justify-center">
                     <span
                       className={`h-1 w-1 rounded-full ${
                         highlight
-                          ? "bg-white"
+                          ? "bg-current"
                           : meta?.hasDeadline
                             ? "bg-rose-500"
                             : "bg-violet-500"
@@ -640,7 +640,7 @@ function ScheduleCard({
           </div>
         </button>
         {!schedule.is_company_schedule && (
-          <TaskCompletionToggleButton
+          <TaskCompletionToggleButton showLabel
             completed={scheduleCompleted}
             disabled={scheduleCompletionUpdating}
             compact
@@ -691,7 +691,7 @@ function ScheduleCard({
                         selected ? "bg-violet-50/70" : ""
                       }`}
                     >
-                      <TaskCompletionToggleButton
+                      <TaskCompletionToggleButton showLabel
                         completed={done}
                         disabled={updatingTask}
                         compact
@@ -823,7 +823,7 @@ function IndependentTasksSection({
                     selected ? "bg-violet-50/70" : ""
                   }`}
                 >
-                  <TaskCompletionToggleButton
+                  <TaskCompletionToggleButton showLabel
                     completed={done}
                     disabled={updating}
                     compact
