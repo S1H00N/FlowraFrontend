@@ -2,12 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   applyAiChatMessageAction,
   createAiChatSession,
+  deleteAiChatSession,
   listAiChatMessages,
   listAiChatSessions,
   sendAiChatMessage,
 } from "@/api/aiChat";
 import { SCHEDULES_QUERY_KEY } from "@/hooks/useSchedules";
 import { TASKS_QUERY_KEY } from "@/hooks/useTasks";
+import { REMINDERS_QUERY_KEY } from "@/hooks/useReminders";
 import { TODAY_BRIEFING_QUERY_KEY } from "@/hooks/useTodayBriefing";
 import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
 import type {
@@ -93,6 +95,27 @@ export function useCreateAiChatSession() {
   });
 }
 
+export function useDeleteAiChatSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: deleteAiChatSession,
+    onSuccess: async (_data, sessionId) => {
+      await qc.cancelQueries({ queryKey: [...AI_CHAT_QUERY_KEY, "sessions"] });
+      await qc.cancelQueries({ queryKey: aiChatMessagesKey(sessionId) });
+      qc.setQueriesData<AiChatSession[]>(
+        { queryKey: [...AI_CHAT_QUERY_KEY, "sessions"] },
+        (current) => current?.filter((session) => session.session_id !== sessionId),
+      );
+      qc.removeQueries({ queryKey: aiChatMessagesKey(sessionId) });
+      void qc.invalidateQueries({ queryKey: [...AI_CHAT_QUERY_KEY, "sessions"] });
+    },
+    meta: {
+      successMessage: "대화를 삭제했습니다.",
+      errorMessage: "대화를 삭제하지 못했습니다. 다시 시도해 주세요.",
+    },
+  });
+}
+
 export function useSendAiChatMessage() {
   const qc = useQueryClient();
   return useMutation({
@@ -151,6 +174,7 @@ export function useApplyAiChatMessageAction() {
       qc.invalidateQueries({ queryKey: AI_CHAT_QUERY_KEY });
       qc.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
       qc.invalidateQueries({ queryKey: SCHEDULES_QUERY_KEY });
+      qc.invalidateQueries({ queryKey: REMINDERS_QUERY_KEY });
       qc.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
       qc.invalidateQueries({ queryKey: TODAY_BRIEFING_QUERY_KEY });
     },

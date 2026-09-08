@@ -15,6 +15,8 @@ import {
 } from "@/api/memos";
 import { SCHEDULES_QUERY_KEY } from "@/hooks/useSchedules";
 import { TASKS_QUERY_KEY } from "@/hooks/useTasks";
+import { REMINDERS_QUERY_KEY } from "@/hooks/useReminders";
+import { TODAY_BRIEFING_QUERY_KEY } from "@/hooks/useTodayBriefing";
 import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
 import type {
   ApplyMemoRequest,
@@ -211,6 +213,8 @@ export function useApplyMemo() {
       qc.invalidateQueries({ queryKey: MEMOS_QUERY_KEY });
       qc.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
       qc.invalidateQueries({ queryKey: SCHEDULES_QUERY_KEY });
+      qc.invalidateQueries({ queryKey: REMINDERS_QUERY_KEY });
+      qc.invalidateQueries({ queryKey: TODAY_BRIEFING_QUERY_KEY });
       qc.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
     },
     meta: {

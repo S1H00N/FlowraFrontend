@@ -70,6 +70,7 @@ import {
   type Task,
 } from "@/types";
 import { getErrorMessage } from "@/lib/error";
+import { canApplyAiAction, isAiActionApplied } from "@/lib/aiActionState";
 import {
   formatAiSuggestedActionDateTime,
   getAiSuggestedActionDateLabel as getActionDateLabel,
@@ -466,7 +467,7 @@ function MemoListPanel({
   return (
     <aside
       className={cn(
-        "relative z-10 flex shrink-0 flex-col overflow-visible border-r border-slate-100 bg-white transition-[width,border-color] duration-200",
+        "absolute inset-y-0 left-0 z-30 flex shrink-0 flex-col overflow-visible border-r border-slate-100 bg-white transition-[width,border-color] duration-200 lg:relative lg:inset-auto",
         leftOpen ? "w-[208px]" : "w-0 border-transparent",
       )}
     >
@@ -1200,21 +1201,8 @@ function AiResultContent({
   const detected = result.detected_type as DetectedType;
   const effectiveActionStates =
     applyState?.action_states ?? result.action_states;
-  const actionStateByIndex = useMemo(
-    () =>
-      new Map(
-        (effectiveActionStates ?? []).map((state) => [
-          state.action_index,
-          state,
-        ]),
-      ),
-    [effectiveActionStates],
-  );
   const appliedActionIndexes =
     applyState?.applied_action_indexes ?? result.applied_action_indexes;
-  const remainingActionIndexes =
-    applyState?.remaining_action_indexes ?? result.remaining_action_indexes;
-  const hasRemainingActionIndexes = Array.isArray(remainingActionIndexes);
   const applied = useMemo(
     () =>
       new Set(
@@ -1224,10 +1212,6 @@ function AiResultContent({
             .map((state) => state.action_index),
       ),
     [appliedActionIndexes, effectiveActionStates],
-  );
-  const remaining = useMemo(
-    () => new Set(remainingActionIndexes ?? []),
-    [remainingActionIndexes],
   );
   const appliedCount = visibleEntries.filter(({ index }) =>
     applied.has(index),
@@ -1441,20 +1425,12 @@ function AiResultContent({
     return resourceRefs;
   };
 
-  const isSupportedAction = (index: number) => {
-    const action = rawActions[index];
-    return action?.type === "create_schedule" || action?.type === "create_task";
-  };
-
-  const isActionApplied = (index: number) =>
-    applied.has(index) || actionStateByIndex.get(index)?.applied === true;
+  const effectiveResult = { ...result, ...applyState };
+  const isActionApplied = (index: number) => isAiActionApplied(effectiveResult, index);
 
   const canApplyAction = (index: number) => {
-    if (!isSupportedAction(index) || isActionApplied(index)) return false;
-    const state = actionStateByIndex.get(index);
-    if (state?.applicable === false) return false;
-    if (hasRemainingActionIndexes) return remaining.has(index);
-    return true;
+    const action = rawActions[index];
+    return !!action && canApplyAiAction(effectiveResult, action, index);
   };
 
   const getRelatedScheduleIndexForTaskAction = (taskActionIndex: number) => {
@@ -2351,7 +2327,7 @@ function MemoAiPanel({
       <button
         type="button"
         onClick={onToggleOpen}
-        className="fixed right-4 top-1.5 z-50 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-transparent text-slate-500 shadow-none transition hover:bg-slate-100 hover:text-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 min-[600px]:top-3.5"
+        className="fixed right-16 top-1.5 z-30 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-transparent text-slate-500 shadow-none transition hover:bg-slate-100 hover:text-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 min-[600px]:right-4 min-[600px]:top-3.5"
         aria-label="AI 추출 결과 열기"
         title="AI 추출 결과 열기"
       >
@@ -2363,7 +2339,7 @@ function MemoAiPanel({
   return (
     <aside
       data-flowra-memo-ai-result="true"
-      className="fixed inset-y-0 right-0 z-40 flex w-[min(380px,100vw)] shrink-0 flex-col border-l border-slate-200/80 bg-slate-50/95 shadow-2xl shadow-slate-900/10 backdrop-blur transition-transform duration-200"
+      className="fixed top-12 bottom-[calc(4rem+1px+env(safe-area-inset-bottom))] right-0 z-40 flex w-[min(380px,100vw)] shrink-0 flex-col border-l border-slate-200/80 bg-slate-50/95 shadow-2xl shadow-slate-900/10 backdrop-blur transition-transform duration-200 min-[600px]:top-16 min-[600px]:bottom-0 xl:top-0"
     >
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200/80 px-3 min-[600px]:h-16">
         <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-500" />
@@ -2430,8 +2406,25 @@ export default function Memos() {
   const [selectedMemoId, setSelectedMemoId] = useState<number | null>(null);
   const [transientMemo, setTransientMemo] = useState<Memo | null>(null);
   const [mode, setMode] = useState<MemoWorkspaceMode>("read");
-  const [leftOpen, setLeftOpen] = useState(true);
-  const [rightOpen, setRightOpen] = useState(true);
+  const [leftOpen, setLeftOpen] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
+  const [rightOpen, setRightOpen] = useState(() => window.matchMedia("(min-width: 1280px)").matches);
+  const [panelsDocked, setPanelsDocked] = useState(() => window.matchMedia("(min-width: 1280px)").matches);
+
+  useEffect(() => {
+    const wideQuery = window.matchMedia("(min-width: 1280px)");
+    const listQuery = window.matchMedia("(min-width: 1024px)");
+    const updatePanels = () => {
+      setPanelsDocked(wideQuery.matches);
+      if (!wideQuery.matches) setRightOpen(false);
+      if (!listQuery.matches) setLeftOpen(false);
+    };
+    wideQuery.addEventListener("change", updatePanels);
+    listQuery.addEventListener("change", updatePanels);
+    return () => {
+      wideQuery.removeEventListener("change", updatePanels);
+      listQuery.removeEventListener("change", updatePanels);
+    };
+  }, []);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const deleteMutation = useDeleteMemo();
 
@@ -2497,6 +2490,7 @@ export default function Memos() {
   }, [items, mode, selectedMemoId, transientMemo]);
 
   const handleSelect = (memoId: number) => {
+    if (!window.matchMedia("(min-width: 1024px)").matches) setLeftOpen(false);
     setSelectedMemoId(memoId);
     setMode("read");
     setConfirmDeleteId(null);
@@ -2528,7 +2522,7 @@ export default function Memos() {
           )}`
         : `${items.length}개 메모`;
   const aiPanelOpen = mode !== "create" && rightOpen;
-  const headerRightOffset = aiPanelOpen
+  const headerRightOffset = aiPanelOpen && panelsDocked
     ? MEMO_AI_PANEL_WIDTH
     : mode !== "create"
       ? "44px"
@@ -2538,13 +2532,13 @@ export default function Memos() {
     <AppShell
       fullBleed
       titleMeta={titleMeta}
-      aiChatButtonOffset={aiPanelOpen ? MEMO_AI_PANEL_WIDTH : "0px"}
+      aiChatButtonOffset={aiPanelOpen && panelsDocked ? MEMO_AI_PANEL_WIDTH : "0px"}
       headerRightOffset={headerRightOffset}
     >
       <div
         className={cn(
           "relative flex h-full overflow-hidden bg-white font-sans text-slate-950 transition-[padding] duration-200",
-          aiPanelOpen && "min-[600px]:pr-[380px]",
+          aiPanelOpen && "xl:pr-[380px]",
         )}
         onClick={() => setConfirmDeleteId(null)}
       >

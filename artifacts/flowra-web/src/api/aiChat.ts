@@ -160,6 +160,15 @@ export async function listAiChatSessions(query: AiChatSessionsQuery = {}) {
   };
 }
 
+export async function deleteAiChatSession(sessionId: number) {
+  const res = await apiClient.delete<ApiResponse<unknown>>(
+    `/ai-chat/sessions/${sessionId}`,
+  );
+  if (res.status !== 204 && !res.data?.success) {
+    throw new Error(res.data?.message || "AI 대화를 삭제하지 못했습니다.");
+  }
+}
+
 export async function sendAiChatMessage(
   sessionId: number,
   payload: SendAiChatMessageRequest,

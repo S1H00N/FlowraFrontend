@@ -19,6 +19,7 @@ import {
   Plus,
   Send,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 import CategorySelect from "@/components/CategorySelect";
@@ -35,6 +36,7 @@ import {
   useAiChatSessions,
   useApplyAiChatMessageAction,
   useCreateAiChatSession,
+  useDeleteAiChatSession,
   useSendAiChatMessage,
 } from "@/hooks/useAiChat";
 import {
@@ -45,6 +47,7 @@ import {
   getAiSuggestedActionReviewMeta,
 } from "@/lib/aiSuggestedActions";
 import { cn } from "@/lib/utils";
+import { canApplyAiAction, isAiActionApplied } from "@/lib/aiActionState";
 import {
   type AiChatMessage,
   type AiChatSession,
@@ -92,36 +95,18 @@ function isMessageFromUser(message: AiChatMessage) {
   return message.role === "user";
 }
 
-function getMessageActionState(message: AiChatMessage, actionIndex: number) {
-  return message.action_states?.find(
-    (state) => state.action_index === actionIndex,
-  );
-}
-
 function isActionApplied(
   message: AiChatMessage,
   actionIndex: number,
   locallyApplied: boolean,
 ): boolean {
   if (locallyApplied) return true;
-  if (getMessageActionState(message, actionIndex)?.applied) return true;
-  if (message.applied_action_indexes?.includes(actionIndex)) return true;
-  if (message.action_status === "applied") return true;
-  return (
-    message.applied_actions?.some(
-      (action) => action.action_index === actionIndex,
-    ) ?? false
-  );
+  return isAiActionApplied(message, actionIndex);
 }
 
 function isActionAvailable(message: AiChatMessage, actionIndex: number) {
-  if (isActionApplied(message, actionIndex, false)) return false;
-  const state = getMessageActionState(message, actionIndex);
-  if (state?.applicable === false) return false;
-  if (Array.isArray(message.remaining_action_indexes)) {
-    return message.remaining_action_indexes.includes(actionIndex);
-  }
-  return true;
+  const action = message.suggested_actions?.[actionIndex];
+  return !!action && canApplyAiAction(message, action, actionIndex);
 }
 
 function EmptyChatState({
@@ -371,11 +356,17 @@ function AiChatSessionList({
   activeSessionId,
   isLoading,
   onSelect,
+  onDelete,
+  deletingId,
+  disabled,
 }: {
   sessions: AiChatSession[];
   activeSessionId: number | null;
   isLoading: boolean;
   onSelect: (sessionId: number) => void;
+  onDelete: (session: AiChatSession) => void;
+  deletingId: number | null;
+  disabled: boolean;
 }) {
   return (
     <aside className="max-h-56 overflow-y-auto border-b border-slate-200 bg-white px-2 py-2 min-[600px]:h-full min-[600px]:max-h-none min-[600px]:w-64 min-[600px]:shrink-0 min-[600px]:border-b-0 min-[600px]:border-r min-[600px]:py-3">
@@ -403,13 +394,14 @@ function AiChatSessionList({
             const timeLabel = formatSessionTime(session);
 
             return (
+              <div key={session.session_id} className="relative">
               <button
-                key={session.session_id}
                 type="button"
+                disabled={disabled}
                 aria-current={selected ? "true" : undefined}
                 onClick={() => onSelect(session.session_id)}
                 className={cn(
-                  "flex w-full min-w-0 flex-col rounded-lg px-3 py-2.5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200",
+                  "flex w-full min-w-0 flex-col rounded-lg py-2.5 pl-3 pr-10 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 disabled:cursor-wait",
                   selected
                     ? "bg-violet-50 text-violet-900 ring-1 ring-violet-200"
                     : "text-slate-700 hover:bg-slate-50",
@@ -434,6 +426,19 @@ function AiChatSessionList({
                   {getSessionPreview(session)}
                 </span>
               </button>
+              <button
+                type="button"
+                onClick={() => onDelete(session)}
+                disabled={disabled}
+                aria-label={`${getSessionTitle(session)} 대화 삭제`}
+                title="대화 삭제"
+                className="absolute right-1 top-2 flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-red-500/15 dark:hover:text-red-400"
+              >
+                {deletingId === session.session_id
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <Trash2 className="h-4 w-4" />}
+              </button>
+              </div>
             );
           })}
         </div>
@@ -465,6 +470,7 @@ export default function AiChatWidget({
   );
   const messagesQuery = useAiChatMessages(activeSessionId, open);
   const createSessionMutation = useCreateAiChatSession();
+  const deleteSessionMutation = useDeleteAiChatSession();
   const sendMessageMutation = useSendAiChatMessage();
   const applyActionMutation = useApplyAiChatMessageAction();
 
@@ -474,7 +480,14 @@ export default function AiChatWidget({
     [activeSessionId, sessions],
   );
   const messages = messagesQuery.data ?? [];
-  const busy = createSessionMutation.isPending || sendMessageMutation.isPending;
+  useEffect(() => {
+    setAppliedKeys((current) => new Set([...current].filter((key) => {
+      const [messageId, index] = key.split(":").map(Number);
+      const message = messagesQuery.data?.find((entry) => entry.message_id === messageId);
+      return !message || isAiActionApplied(message, index);
+    })));
+  }, [messagesQuery.dataUpdatedAt]);
+  const busy = createSessionMutation.isPending || sendMessageMutation.isPending || deleteSessionMutation.isPending;
   const hasMessages = messages.length > 0 || pendingContent !== null;
 
   useEffect(() => {
@@ -489,6 +502,7 @@ export default function AiChatWidget({
   }, [messages.length, open, pendingContent]);
 
   const handleNewSession = () => {
+    if (busy) return;
     setActiveSessionId(null);
     setPreferNewSession(true);
     if (window.matchMedia("(max-width: 599px)").matches) {
@@ -502,6 +516,7 @@ export default function AiChatWidget({
   };
 
   const handleSelectSession = (sessionId: number) => {
+    if (busy) return;
     setActiveSessionId(sessionId);
     setPreferNewSession(false);
     if (window.matchMedia("(max-width: 599px)").matches) {
@@ -510,6 +525,23 @@ export default function AiChatWidget({
     setDraft("");
     setPendingContent(null);
     setAppliedKeys(new Set());
+  };
+
+  const handleDeleteSession = async (session: AiChatSession) => {
+    if (busy || applyActionMutation.isPending) return;
+    if (!window.confirm(`“${getSessionTitle(session)}” 대화를 삭제할까요?\n대화와 메시지는 복구할 수 없습니다.`)) return;
+    try {
+      await deleteSessionMutation.mutateAsync(session.session_id);
+      if (activeSessionId === session.session_id) {
+        setActiveSessionId(null);
+        setPreferNewSession(true);
+        setDraft("");
+        setPendingContent(null);
+        setAppliedKeys(new Set());
+      }
+    } catch {
+      // The mutation cache displays the error; preserve the current conversation.
+    }
   };
 
   const handleSubmit = async (event?: FormEvent) => {
@@ -561,6 +593,7 @@ export default function AiChatWidget({
     categoryId: number | "";
   }) => {
     const key = `${messageId}:${actionIndex}`;
+    if (deleteSessionMutation.isPending) return;
     setApplyingKey(key);
 
     try {
@@ -686,6 +719,9 @@ export default function AiChatWidget({
             {sessionListOpen && (
               <AiChatSessionList
                 sessions={sessions}
+                onDelete={(session) => void handleDeleteSession(session)}
+                deletingId={deleteSessionMutation.isPending ? deleteSessionMutation.variables ?? null : null}
+                disabled={busy || applyActionMutation.isPending}
                 activeSessionId={activeSessionId}
                 isLoading={sessionsQuery.isLoading}
                 onSelect={handleSelectSession}
@@ -693,7 +729,7 @@ export default function AiChatWidget({
             )}
 
             <div className="min-h-0 flex flex-1 flex-col">
-              <div className="min-h-0 flex-1 overflow-y-auto bg-[#f7f8f5] px-4 py-4">
+              <div data-flowra-ai-chat-messages className="min-h-0 flex-1 overflow-y-auto bg-[#f7f8f5] px-4 py-4">
                 {!hasMessages ? (
                   <EmptyChatState
                     isLoading={
