@@ -1392,7 +1392,7 @@ export default function Home() {
 
             <TodaySchedulePanel schedules={schedules} date={homeDate} />
             <ProjectWorkItems items={homeQuery.data?.project_work_items ?? []} title="오늘 프로젝트 업무" />
-            <ProjectWorkItems items={homeQuery.data?.overdue_project_work_items ?? []} title="지연된 프로젝트 업무" />
+            <ProjectWorkItems items={homeQuery.data?.overdue_project_work_items ?? []} title="기한 지난 업무" overdue />
 
             {setTaskCompletion.isPending && (
               <div className="mb-3 flex items-center gap-2 text-xs font-medium text-slate-400">
