@@ -42,6 +42,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import Spinner from "@/components/ui/Spinner";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import AiChatWidget from "@/components/AiChatWidget";
+import SidebarMiniCalendar from "@/components/SidebarMiniCalendar";
 import { formatCompanyAffiliation } from "@/lib/companyAffiliation";
 import type { NotificationRecipient } from "@/types";
 
@@ -450,9 +451,7 @@ export default function AppShell({
         } ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
       >
         <div
-          className={`flex shrink-0 items-center border-b border-slate-200 transition-all ${
-            fullBleed ? "h-12 min-[600px]:h-16" : "h-14 min-[600px]:h-16"
-          } ${
+          className={`flex h-14 shrink-0 items-center border-b border-slate-200 transition-all min-[600px]:h-16 ${
             showSidebarIconRail
               ? "justify-center px-0"
               : "justify-start gap-3 px-5"
@@ -493,13 +492,9 @@ export default function AppShell({
             showSidebarIconRail ? "min-[600px]:px-2" : ""
           }`}
         >
-          {sidebarExtra && (
-            <div
-              className={`mb-4 border-b border-slate-100 pb-4 ${
-                showSidebarIconRail ? "min-[600px]:hidden" : ""
-              }`}
-            >
-              {sidebarExtra}
+          {!showSidebarIconRail && (
+            <div className="mb-4 border-b border-slate-100 pb-4">
+              {sidebarExtra ?? <SidebarMiniCalendar />}
             </div>
           )}
 

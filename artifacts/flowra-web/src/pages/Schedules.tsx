@@ -7404,7 +7404,7 @@ function MiniCalendar({
     visibleMonth.getFullYear() === today.getFullYear() &&
     visibleMonth.getMonth() === today.getMonth();
   const compactCells = useMemo(
-    () => buildFullMonthCells(visibleMonth, { weekStart }),
+    () => buildFullMonthCells(visibleMonth, { weekStart, fixedWeeks: 6 }),
     [visibleMonth, weekStart],
   );
   const weekdayHeaders = useMemo(
@@ -11681,7 +11681,10 @@ export default function Schedules() {
     };
   }, [visibleWindowStart]);
   const miniCalendarHolidayRange = useMemo(() => {
-    const cells = buildFullMonthCells(miniCalendarMonth, { weekStart });
+    const cells = buildFullMonthCells(miniCalendarMonth, {
+      weekStart,
+      fixedWeeks: 6,
+    });
     const first = cells[0]?.date ?? miniCalendarMonth;
     const last = cells[cells.length - 1]?.date ?? miniCalendarMonth;
 
@@ -12675,21 +12678,19 @@ export default function Schedules() {
         </div>
       }
       sidebarExtra={
-        scheduleView !== "month" ? (
-          <div data-flowra-schedule-sidebar>
-            <MiniCalendar
-              visibleMonth={miniCalendarMonth}
-              selectedKey={todayKey}
-              dateMeta={dateMeta}
-              holidaysByDate={miniCalendarHolidaysByDate}
-              weekDates={todayWeekDates}
-              weekStart={weekStart}
-              onMoveMonth={moveMiniCalendarMonth}
-              onResetMonth={resetMiniCalendarMonth}
-              onSelectDate={selectDate}
-            />
-          </div>
-        ) : null
+        <div data-flowra-schedule-sidebar>
+          <MiniCalendar
+            visibleMonth={miniCalendarMonth}
+            selectedKey={todayKey}
+            dateMeta={dateMeta}
+            holidaysByDate={miniCalendarHolidaysByDate}
+            weekDates={todayWeekDates}
+            weekStart={weekStart}
+            onMoveMonth={moveMiniCalendarMonth}
+            onResetMonth={resetMiniCalendarMonth}
+            onSelectDate={selectDate}
+          />
+        </div>
       }
     >
       <div

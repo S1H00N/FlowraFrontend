@@ -78,6 +78,40 @@ test('주요 메뉴를 클릭해 이동하고 브라우저 뒤로가기로 돌�
     .getByRole('heading', { name: '공지사항', exact: true })).toBeVisible();
 });
 
+test('mini calendar keeps all five navigation links stationary', async ({ page }) => {
+  await page.goto('/');
+  await openSidebarIfNeeded(page);
+  const links = sidebar(page).getByRole('navigation').getByRole('link');
+  const positions = () => links.evaluateAll((elements) => elements.map((element) => {
+    const { x, y, width, height } = element.getBoundingClientRect();
+    return { x, y, width, height };
+  }));
+  const initialPositions = await positions();
+  expect(initialPositions).toHaveLength(5);
+
+  for (const path of ['/tasks', '/schedules', '/memos', '/notices', '/']) {
+    await sidebar(page).getByRole('navigation').locator(`a[href="${path}"]`).click();
+    await expect(page).toHaveURL((url) => url.pathname === path);
+    await openSidebarIfNeeded(page);
+    const calendar = sidebar(page).locator('[data-flowra-schedule-sidebar]');
+    await expect(calendar).toBeVisible();
+    await expect(calendar.locator('.grid button')).toHaveCount(42);
+    await expect.poll(positions).toEqual(initialPositions);
+
+    // Traverse months with different natural week counts.
+    for (let month = 0; month < 3; month += 1) {
+      await calendar.getByRole('button', { name: /^(다음 달|Next month)$/ }).click();
+      await expect.poll(positions).toEqual(initialPositions);
+    }
+  }
+
+  const calendar = sidebar(page).locator('[data-flowra-schedule-sidebar]');
+  await calendar.getByRole('button', { name: '이번 달로 이동', exact: true }).click();
+  await calendar.getByRole('button', { name: '9월 9일 (수)', exact: true }).click();
+  await expect(page).toHaveURL((url) =>
+    url.pathname === '/schedules' && url.searchParams.get('date') === '2026-09-09');
+});
+
 test('사이드바 열기와 닫기가 작동하고 데스크톱 접힘 상태가 유지된다', async ({ page }) => {
   await page.goto('/tasks');
   if (mobile(page)) {
