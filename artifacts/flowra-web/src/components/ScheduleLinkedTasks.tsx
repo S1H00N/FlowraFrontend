@@ -277,7 +277,7 @@ function TaskDueDateTimeControl({
       <div className="mt-1 grid grid-cols-[minmax(0,1fr)_5rem] gap-1.5">
         <CompactDateInput
           value={dateKey}
-          ariaLabel="\uB9C8\uAC10 \uB0A0\uC9DC \uC120\uD0DD"
+          ariaLabel="마감 날짜 선택"
           onChange={(nextDateKey) =>
             onChange(
               localInputWithDateKey(
@@ -291,7 +291,7 @@ function TaskDueDateTimeControl({
         />
         <CompactTimeInput
           value={timeValue}
-          ariaLabel="\uB9C8\uAC10 \uC2DC\uAC04"
+          ariaLabel="마감 시간"
           onChange={(nextTime) =>
             onChange(
               localInputWithTime(value || fallbackValue, nextTime, dateKey),

@@ -55,3 +55,19 @@ Thumbs.db
 .local/
 
 .vercel
+
+# Browser QA reports and local authentication state
+**/playwright-report/
+**/test-results/
+**/playwright/.auth/
+**/playwright-report-*/
+**/test-results-*/
+
+# Local design drafts and one-off QA output
+/docs/design/tasks-redesign.html
+/docs/design/tasks-redesign.md
+/docs/design/tasks-app-*.png
+/docs/qa/????-??-??-*.md
+/docs/qa/evidence/
+/docs/qa/report.html
+/docs/qa/run-summary.json

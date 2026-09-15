@@ -669,17 +669,20 @@ export default function AppShell({
         <main
           className={
             fullBleed
-              ? "h-[calc(100dvh-7rem-1px-env(safe-area-inset-bottom))] w-full overflow-hidden min-[600px]:h-[calc(100dvh-4rem)]"
+              ? "h-[calc(100dvh-3rem-var(--flowra-mobile-nav-height))] w-full overflow-hidden min-[600px]:h-[calc(100dvh-4rem)]"
               : wide
-                ? "w-full px-4 py-5 pb-24 min-[600px]:pb-6 sm:px-6 lg:px-8 lg:py-6"
-                : "mx-auto w-full max-w-7xl px-4 py-5 pb-24 min-[600px]:pb-6 sm:px-6 lg:px-8 lg:py-6"
+                ? "w-full px-4 py-5 pb-[calc(var(--flowra-mobile-nav-height)+2rem)] min-[600px]:pb-6 sm:px-6 lg:px-8 lg:py-6"
+                : "mx-auto w-full max-w-7xl px-4 py-5 pb-[calc(var(--flowra-mobile-nav-height)+2rem)] min-[600px]:pb-6 sm:px-6 lg:px-8 lg:py-6"
           }
         >
           {children}
         </main>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-slate-200 bg-white/95 px-2 pb-[calc(0.25rem+env(safe-area-inset-bottom))] pt-1 backdrop-blur min-[600px]:hidden">
+      <nav
+        className="fixed inset-x-0 bottom-0 z-40 grid h-[var(--flowra-mobile-nav-height)] border-t border-slate-200 bg-white/95 px-2 pb-[calc(0.25rem+env(safe-area-inset-bottom))] pt-1 backdrop-blur min-[600px]:hidden"
+        style={{ gridTemplateColumns: `repeat(${navigation.length}, minmax(0, 1fr))` }}
+      >
         {navigation.map((item) => {
           const Icon = item.icon;
           return (

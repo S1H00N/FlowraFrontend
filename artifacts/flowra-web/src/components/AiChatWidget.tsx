@@ -47,6 +47,7 @@ import {
   getAiSuggestedActionReviewMeta,
 } from "@/lib/aiSuggestedActions";
 import { cn } from "@/lib/utils";
+import { getErrorCode, getErrorMessage } from "@/lib/error";
 import { canApplyAiAction, isAiActionApplied } from "@/lib/aiActionState";
 import {
   type AiChatMessage,
@@ -162,9 +163,10 @@ function AiChatActionCard({
     messageId: number;
     actionIndex: number;
     categoryId: number | "";
-  }) => void;
+  }) => Promise<void>;
 }) {
   const [categoryId, setCategoryId] = useState<number | "">("");
+  const [applyError, setApplyError] = useState<string | null>(null);
   const Icon = getActionIcon(action);
   const meta = getAiSuggestedActionChatMeta(action);
   const categoryType = getAiSuggestedActionCategoryType(action);
@@ -173,6 +175,23 @@ function AiChatActionCard({
   });
   const canApply = categoryType !== null && available;
   const disabled = applied || applying || !sessionId || !canApply;
+
+  const handleApplyClick = async () => {
+    setApplyError(null);
+    try {
+      await onApply({
+        messageId: message.message_id,
+        actionIndex,
+        categoryId,
+      });
+    } catch (error) {
+      const code = getErrorCode(error);
+      const message = code === "RECURRENCE_OCCURRENCE_REQUIRED"
+        ? "현재 반복 조건으로 생성할 수 있는 일정이 없습니다. 반복 시작일·종료일과 제외 날짜·요일을 확인해 AI에게 다시 요청해 주세요."
+        : getErrorMessage(error, "AI 제안 적용에 실패했습니다.");
+      setApplyError(code ? `${message} (${code})` : message);
+    }
+  };
 
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -258,13 +277,7 @@ function AiChatActionCard({
             type="button"
             size="sm"
             disabled={disabled}
-            onClick={() =>
-              onApply({
-                messageId: message.message_id,
-                actionIndex,
-                categoryId,
-              })
-            }
+            onClick={() => void handleApplyClick()}
             className="min-w-20"
           >
             {applying ? (
@@ -281,6 +294,11 @@ function AiChatActionCard({
         <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
           날짜, 시간, 유형을 확정한 뒤 일정이나 할 일로 직접 등록하세요.
         </div>
+      )}
+      {applyError && !applied && (
+        <p role="alert" className="mt-2 break-words text-xs leading-5 text-red-600">
+          {applyError}
+        </p>
       )}
     </div>
   );
@@ -301,7 +319,7 @@ function AiChatMessageBubble({
     messageId: number;
     actionIndex: number;
     categoryId: number | "";
-  }) => void;
+  }) => Promise<void>;
 }) {
   const isUser = isMessageFromUser(message);
   const actions = !isUser ? (message.suggested_actions ?? []) : [];
@@ -645,7 +663,7 @@ export default function AiChatWidget({
         <section
           id={PANEL_ID}
           aria-label="Flowra AI 채팅"
-          className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] top-16 z-50 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl shadow-slate-900/20 transition-[right,width] duration-200 min-[600px]:inset-auto min-[600px]:bottom-24 min-[600px]:right-[calc(1.5rem+var(--flowra-ai-chat-button-offset,0px))] min-[600px]:h-[min(72dvh,620px)] min-[600px]:w-[var(--flowra-ai-chat-panel-width)]"
+          className="fixed inset-x-3 bottom-[calc(var(--flowra-mobile-nav-height)+0.75rem)] top-16 z-50 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl shadow-slate-900/20 transition-[right,width] duration-200 min-[600px]:inset-auto min-[600px]:bottom-24 min-[600px]:right-[calc(1.5rem+var(--flowra-ai-chat-button-offset,0px))] min-[600px]:h-[min(72dvh,620px)] min-[600px]:w-[var(--flowra-ai-chat-panel-width)]"
           style={panelStyle}
         >
           <header className="flex min-h-14 items-center justify-between gap-3 border-b border-slate-200 px-4">
@@ -818,7 +836,7 @@ export default function AiChatWidget({
             aria-label={open ? "AI 채팅 닫기" : "AI 채팅 열기"}
             aria-controls={PANEL_ID}
             aria-expanded={open}
-            className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-xl shadow-violet-900/25 transition-[background-color,box-shadow,right] duration-200 hover:bg-violet-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-violet-200 min-[600px]:bottom-6 min-[600px]:right-[calc(1.5rem+var(--flowra-ai-chat-button-offset,0px))]"
+            className="fixed bottom-[calc(var(--flowra-mobile-nav-height)+0.75rem)] right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-xl shadow-violet-900/25 transition-[background-color,box-shadow,right] duration-200 hover:bg-violet-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-violet-200 min-[600px]:bottom-6 min-[600px]:right-[calc(1.5rem+var(--flowra-ai-chat-button-offset,0px))]"
             style={offsetStyle}
             onClick={() => setOpen((value) => !value)}
           >

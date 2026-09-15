@@ -8,10 +8,17 @@
     "build": "vite build --config vite.config.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:api": "node --test tests/api-contract.test.mjs"
+    "test:api": "node --test tests/api-contract.test.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:report": "playwright show-report",
+    "test:e2e:typecheck": "tsc -p tests/e2e/tsconfig.json",
+    "test:e2e:live": "playwright test --config playwright.live.config.ts",
+    "test:e2e:live:typecheck": "tsc -p tests/live/tsconfig.json"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
+    "@playwright/test": "1.58.2",
     "@radix-ui/react-accordion": "^1.2.4",
     "@radix-ui/react-alert-dialog": "^1.1.7",
     "@radix-ui/react-aspect-ratio": "^1.1.3",

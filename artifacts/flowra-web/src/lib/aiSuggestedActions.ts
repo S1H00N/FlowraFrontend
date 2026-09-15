@@ -11,6 +11,7 @@ export type AiSuggestedActionPriorityTone = "high" | "medium" | "low";
 
 export function formatAiSuggestedActionDateTime(
   value?: string | null,
+  options: Intl.DateTimeFormatOptions = {},
 ): string | null {
   if (!value) return null;
   const date = new Date(value);
@@ -20,6 +21,7 @@ export function formatAiSuggestedActionDateTime(
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    ...options,
   });
 }
 
@@ -106,8 +108,11 @@ export function getAiSuggestedActionChatMeta(action: AiSuggestedAction) {
   const meta: string[] = [];
 
   if (action.type === "create_schedule") {
-    const start = formatAiSuggestedActionDateTime(action.start_datetime);
-    const end = formatAiSuggestedActionDateTime(action.end_datetime);
+    const dateOptions: Intl.DateTimeFormatOptions = action.recurrence
+      ? { year: "numeric" }
+      : {};
+    const start = formatAiSuggestedActionDateTime(action.start_datetime, dateOptions);
+    const end = formatAiSuggestedActionDateTime(action.end_datetime, dateOptions);
     if (start) meta.push(end ? `${start} - ${end}` : start);
     if (action.all_day) meta.push("하루 종일");
     if (action.schedule_type && action.schedule_type in SCHEDULE_TYPE_LABELS) {
@@ -129,6 +134,11 @@ export function getAiSuggestedActionChatMeta(action: AiSuggestedAction) {
   }
   if (action.recurrence?.repeat_interval_days) {
     meta.push(`${action.recurrence.repeat_interval_days}일마다 반복`);
+  }
+  if (action.recurrence?.repeat_until) {
+    meta.push(`반복 종료 ${formatAiSuggestedActionDateTime(action.recurrence.repeat_until, {
+      year: "numeric",
+    })}`);
   }
   if (action.reminders?.length) {
     meta.push(`알림 ${action.reminders.length}개`);

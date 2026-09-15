@@ -164,6 +164,7 @@ body {
 }
 
 .flowra-app-shell {
+  --flowra-mobile-nav-height: calc(4rem + 1px + env(safe-area-inset-bottom, 0px));
   background: var(--flowra-shell-bg);
   color: var(--flowra-text-strong);
 }

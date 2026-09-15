@@ -14,6 +14,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import { FloatingPanelPortal } from "@/components/ui/FloatingPanelPortal";
 import { useSearchParams } from "react-router-dom";
 import {
   Building2,
@@ -2687,8 +2688,7 @@ function getRepeatOptionMenuParts(
 }
 
 function renderFloatingPortal(content: ReactNode) {
-  if (typeof document === "undefined") return null;
-  return createPortal(content, document.body);
+  return <FloatingPanelPortal>{content}</FloatingPanelPortal>;
 }
 
 function formFromSchedule(schedule: Schedule): ScheduleFormState {
@@ -10762,6 +10762,11 @@ function WeekScheduleGrid({
     lastAutoScrolledRangeKeyRef.current = visibleRangeKey;
     const frame = requestAnimationFrame(() => {
       container.scrollTop = Math.max(0, nowTop - container.clientHeight / 2);
+      const dayWidth = (container.scrollWidth - weekTimeColumnWidth) / dayCount;
+      container.scrollLeft = Math.max(
+        0,
+        weekTimeColumnWidth + (todayIndex + 0.5) * dayWidth - container.clientWidth / 2,
+      );
     });
 
     return () => window.cancelAnimationFrame(frame);
@@ -10779,6 +10784,7 @@ function WeekScheduleGrid({
   return (
     <div
       ref={scrollContainerRef}
+      data-flowra-week-scroll
       className="scrollbar-none h-full overflow-auto bg-white"
     >
       {createContextMenu && (
@@ -10812,7 +10818,12 @@ function WeekScheduleGrid({
           </button>
         </div>
       )}
-      <div className="min-w-0">
+      <div
+        className="min-w-0 max-[600px]:min-w-[var(--flowra-week-min-width)]"
+        style={{
+          "--flowra-week-min-width": dayCount > 1 ? `${weekTimeColumnWidth + dayCount * 192}px` : "0px",
+        } as CSSProperties}
+      >
         <div
           className="flowra-calendar-week-heading sticky top-0 z-30 grid border-b border-slate-100 bg-slate-50/95 shadow-[0_1px_0_rgba(226,232,240,0.9)] backdrop-blur"
           style={{
@@ -10902,6 +10913,7 @@ function WeekScheduleGrid({
                 >
                   <button
                     type="button"
+                    aria-label={`${day.getMonth() + 1}월 ${day.getDate()}일 종일 일정 추가`}
                     onPointerDown={(event) => event.stopPropagation()}
                     onClick={(event) => {
                       event.stopPropagation();

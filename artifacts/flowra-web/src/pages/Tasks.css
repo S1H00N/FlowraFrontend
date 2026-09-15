@@ -1,0 +1,391 @@
+.tasks-workspace {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tasks-main-region {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tasks-management-header {
+  flex-shrink: 0;
+  padding: 18px 28px 16px;
+  border-bottom: 1px solid var(--flowra-border);
+  background: var(--flowra-surface);
+  container: task-controls / inline-size;
+}
+
+.tasks-management-title,
+.tasks-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 1040px;
+  min-width: 0;
+  margin-inline: auto;
+}
+
+.tasks-management-title {
+  flex-wrap: wrap;
+}
+.tasks-management-title h1 {
+  flex-shrink: 0;
+}
+.tasks-overall-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--flowra-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.tasks-overall-progress > span {
+  white-space: nowrap;
+}
+.tasks-overall-track {
+  width: 96px;
+  height: 5px;
+  border-radius: 10px;
+  background: var(--flowra-surface-soft);
+  overflow: hidden;
+}
+.tasks-overall-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--flowra-primary);
+  transition: width 160ms ease;
+}
+
+.tasks-toolbar {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+.tasks-filters {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--flowra-surface-soft);
+}
+.tasks-filters .tasks-filter {
+  min-height: 38px;
+  min-width: 54px;
+  padding-inline: 13px;
+  color: var(--flowra-text-muted);
+}
+.tasks-filters .tasks-filter[aria-pressed="true"] {
+  color: var(--flowra-accent-text);
+}
+.tasks-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+.tasks-sort {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--flowra-text-muted);
+}
+.tasks-sort select {
+  min-width: 72px;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: var(--flowra-surface);
+  color: var(--flowra-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.tasks-select-mode,
+.tasks-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--flowra-border);
+  border-radius: 10px;
+  background: var(--flowra-surface);
+  color: var(--flowra-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.tasks-select-mode:hover,
+.tasks-reset:hover {
+  border-color: var(--flowra-primary);
+  color: var(--flowra-accent-text);
+}
+.tasks-select-mode[aria-pressed="true"] {
+  border-color: var(--flowra-primary);
+  background: var(--flowra-accent-bg);
+  color: var(--flowra-accent-text);
+}
+.tasks-select-mode:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.tasks-board-search {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  flex: 1 0 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--flowra-border);
+  border-radius: 10px;
+  background: var(--flowra-surface);
+  color: var(--flowra-text-muted);
+}
+.tasks-board-search input {
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--flowra-text-strong);
+  font-size: 13px;
+}
+.tasks-board-search input::placeholder {
+  color: var(--flowra-text-muted);
+}
+.tasks-board-search:focus-within {
+  outline: 2px solid var(--flowra-primary);
+  outline-offset: 2px;
+}
+.tasks-date-filter {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 0 4px 0 12px;
+  border-radius: 12px;
+  background: var(--flowra-accent-bg);
+  color: var(--flowra-accent-text);
+  font-size: 12px;
+}
+.tasks-date-filter button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+}
+.tasks-selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  max-width: 1040px;
+  margin: 14px auto 0;
+  color: var(--flowra-text-muted);
+  font-size: 12px;
+}
+.tasks-selection-actions > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: var(--flowra-accent-bg);
+  color: var(--flowra-accent-text);
+}
+.tasks-selection-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 8px;
+  gap: 5px;
+  border-radius: 8px;
+}
+.tasks-selection-actions button:hover {
+  background: var(--flowra-surface);
+}
+.tasks-selection-actions .tasks-delete-selection {
+  background: var(--flowra-destructive);
+  color: var(--flowra-destructive-foreground);
+}
+.tasks-selection-actions button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.tasks-board-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 24px 28px 64px;
+  container: task-board / inline-size;
+}
+.tasks-list-container {
+  width: 100%;
+  max-width: 1040px;
+  margin-inline: auto;
+}
+.tasks-result-summary {
+  margin: 0 0 24px;
+  color: var(--flowra-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.tasks-empty {
+  text-align: center;
+}
+.tasks-empty .tasks-reset {
+  margin-bottom: 20px;
+}
+.tasks-mobile-create {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  gap: 6px;
+  margin-left: auto;
+  padding-inline: 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.tasks-panel-spacer {
+  flex-shrink: 0;
+  width: 340px;
+}
+.tasks-panel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgb(9 9 11 / 25%);
+}
+.tasks-add-panel {
+  position: fixed;
+  z-index: 51;
+  top: var(--tasks-panel-top);
+  right: var(--tasks-panel-right);
+  bottom: auto;
+  left: auto;
+  display: flex;
+  flex-direction: column;
+  width: min(420px, 100vw);
+  height: var(--tasks-panel-height);
+  max-width: none;
+  max-height: none;
+  min-height: 0;
+  overflow: hidden;
+  border: 0;
+  border-left: 1px solid var(--flowra-border);
+  border-radius: 0;
+  background: var(--flowra-surface);
+  color: var(--flowra-text-strong);
+  box-shadow: -8px 0 28px rgb(15 23 42 / 8%);
+}
+.tasks-add-panel[data-docked="true"] {
+  width: 340px;
+  box-shadow: none;
+}
+.tasks-panel-content > div.fixed[aria-hidden] {
+  display: none;
+}
+.tasks-panel-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.tasks-panel-content > aside {
+  position: static;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.tasks-add-panel button[aria-label="할 일 추가 패널 닫기"] {
+  width: 44px;
+  height: 44px;
+}
+.tasks-management-header :is(button, select):focus-visible,
+.tasks-reset:focus-visible {
+  outline: 2px solid var(--flowra-primary);
+  outline-offset: 3px;
+}
+
+@container task-controls (max-width: 560px) {
+  .tasks-toolbar {
+    column-gap: 8px;
+  }
+  .tasks-toolbar-actions {
+    gap: 6px;
+  }
+  .tasks-filters {
+    flex: 1;
+  }
+  .tasks-filters .tasks-filter {
+    flex: 1;
+    min-width: 0;
+    padding-inline: 9px;
+  }
+  .tasks-overall-track {
+    width: 56px;
+  }
+}
+@container task-controls (max-width: 380px) {
+  .tasks-toolbar-actions {
+    flex: 1 0 100%;
+    justify-content: space-between;
+  }
+  .tasks-overall-track {
+    display: none;
+  }
+  .tasks-management-title {
+    column-gap: 10px;
+  }
+}
+@media (max-width: 759px) {
+  .tasks-board-search {
+    display: flex;
+  }
+}
+@media (max-width: 599px) {
+  .tasks-management-header {
+    padding: 16px 16px 14px;
+  }
+  .tasks-board-content {
+    padding: 20px 16px 72px;
+  }
+  .tasks-mobile-create {
+    display: inline-flex;
+  }
+  .tasks-overall-progress {
+    font-size: 11px;
+  }
+  .tasks-overall-track {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tasks-overall-track > span {
+    transition: none;
+  }
+}

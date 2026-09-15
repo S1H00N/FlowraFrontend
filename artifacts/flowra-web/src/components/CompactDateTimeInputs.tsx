@@ -9,7 +9,7 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
-import { createPortal } from "react-dom";
+import { FloatingPanelPortal } from "@/components/ui/FloatingPanelPortal";
 import { ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUserSettings, type WeekStartDay } from "@/lib/userSettings";
@@ -196,8 +196,7 @@ function buildMonthCells(
 }
 
 function renderFloatingPortal(content: ReactNode) {
-  if (typeof document === "undefined") return null;
-  return createPortal(content, document.body);
+  return <FloatingPanelPortal>{content}</FloatingPanelPortal>;
 }
 
 export function CompactDateInput({

@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
+import { FloatingPanelPortal } from "@/components/ui/FloatingPanelPortal";
 import { cn } from "@/lib/utils";
 
 export type CustomSelectValue = string | number;
@@ -355,109 +355,108 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
   };
 
   const menu =
-    open && typeof document !== "undefined"
-      ? createPortal(
-          <div
-            id={menuId}
-            ref={menuRef}
-            role="listbox"
-            aria-label={ariaLabel}
-            tabIndex={-1}
-            data-state="open"
-            data-side={side}
-            onKeyDown={handleMenuKeyDown}
-            onMouseLeave={clearPreview}
-            style={{
-              ...(menuStyle ?? {
-                left: 0,
-                top: 0,
-                width: 224,
-                maxHeight: 288,
-                visibility: "hidden",
-              }),
-              position: "fixed",
-            }}
-            className={cn(
-              "z-[130] min-w-56 overflow-y-auto overflow-x-hidden rounded-xl border p-1.5 shadow-2xl outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
-              darkMenu
-                ? "border-zinc-800 bg-zinc-950 text-zinc-100 shadow-zinc-950/30"
-                : "border-slate-200 bg-white text-slate-900 shadow-slate-200/80",
-              contentClassName,
-            )}
-          >
-            {options.map((option, index) => {
-              const selected = option.value === value;
-              const active = activeIndex === index;
+    open && typeof document !== "undefined" ? (
+      <FloatingPanelPortal>
+        <div
+          id={menuId}
+          ref={menuRef}
+          role="listbox"
+          aria-label={ariaLabel}
+          tabIndex={-1}
+          data-state="open"
+          data-side={side}
+          onKeyDown={handleMenuKeyDown}
+          onMouseLeave={clearPreview}
+          style={{
+            ...(menuStyle ?? {
+              left: 0,
+              top: 0,
+              width: 224,
+              maxHeight: 288,
+              visibility: "hidden",
+            }),
+            position: "fixed",
+          }}
+          className={cn(
+            "z-[130] min-w-56 overflow-y-auto overflow-x-hidden rounded-xl border p-1.5 shadow-2xl outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+            darkMenu
+              ? "border-zinc-800 bg-zinc-950 text-zinc-100 shadow-zinc-950/30"
+              : "border-slate-200 bg-white text-slate-900 shadow-slate-200/80",
+            contentClassName,
+          )}
+        >
+          {options.map((option, index) => {
+            const selected = option.value === value;
+            const active = activeIndex === index;
 
-              return (
-                <button
-                  key={String(option.value)}
-                  ref={(node) => {
-                    optionRefs.current[index] = node;
-                  }}
-                  type="button"
-                  role="option"
-                  aria-selected={selected}
-                  disabled={option.disabled}
-                  onClick={() => commitOption(option)}
-                  onMouseEnter={() => {
-                    if (!option.disabled) {
-                      setActiveIndex(index);
-                      previewOption(option);
-                    }
-                  }}
-                  onFocus={() => {
-                    if (!option.disabled) {
-                      setActiveIndex(index);
-                      previewOption(option);
-                    }
-                  }}
+            return (
+              <button
+                key={String(option.value)}
+                ref={(node) => {
+                  optionRefs.current[index] = node;
+                }}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                disabled={option.disabled}
+                onClick={() => commitOption(option)}
+                onMouseEnter={() => {
+                  if (!option.disabled) {
+                    setActiveIndex(index);
+                    previewOption(option);
+                  }
+                }}
+                onFocus={() => {
+                  if (!option.disabled) {
+                    setActiveIndex(index);
+                    previewOption(option);
+                  }
+                }}
+                className={cn(
+                  "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm outline-none transition disabled:cursor-not-allowed disabled:opacity-50",
+                  darkMenu
+                    ? "text-zinc-200 hover:bg-white/10 hover:text-white focus:bg-white/10 focus:text-white"
+                    : "hover:bg-violet-50/70 focus:bg-violet-50/70 focus:text-slate-950",
+                  active &&
+                    (darkMenu
+                      ? "bg-white/10 text-white"
+                      : "bg-violet-50/70 text-slate-950"),
+                  selected &&
+                    (darkMenu
+                      ? "bg-white/10 text-white"
+                      : "bg-violet-50 text-violet-700"),
+                )}
+              >
+                <OptionMarker option={option} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-semibold">
+                    {option.label}
+                  </span>
+                  {option.description ? (
+                    <span
+                      className={cn(
+                        "mt-0.5 block truncate text-xs font-medium",
+                        darkMenu ? "text-zinc-500" : "text-slate-500",
+                      )}
+                    >
+                      {option.description}
+                    </span>
+                  ) : null}
+                </span>
+                <span
                   className={cn(
-                    "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm outline-none transition disabled:cursor-not-allowed disabled:opacity-50",
-                    darkMenu
-                      ? "text-zinc-200 hover:bg-white/10 hover:text-white focus:bg-white/10 focus:text-white"
-                      : "hover:bg-violet-50/70 focus:bg-violet-50/70 focus:text-slate-950",
-                    active &&
-                      (darkMenu
-                        ? "bg-white/10 text-white"
-                        : "bg-violet-50/70 text-slate-950"),
-                    selected &&
-                      (darkMenu
-                        ? "bg-white/10 text-white"
-                        : "bg-violet-50 text-violet-700"),
+                    "flex h-5 w-5 shrink-0 items-center justify-center",
+                    darkMenu ? "text-violet-400" : "text-violet-600",
                   )}
                 >
-                  <OptionMarker option={option} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-semibold">
-                      {option.label}
-                    </span>
-                    {option.description ? (
-                      <span
-                        className={cn(
-                          "mt-0.5 block truncate text-xs font-medium",
-                          darkMenu ? "text-zinc-500" : "text-slate-500",
-                        )}
-                      >
-                        {option.description}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span
-                    className={cn(
-                      "flex h-5 w-5 shrink-0 items-center justify-center",
-                      darkMenu ? "text-violet-400" : "text-violet-600",
-                    )}
-                  >
-                    {selected ? <Check className="h-4 w-4" /> : null}
-                  </span>
-                </button>
-              );
-            })}
-          </div>,
-          document.body,
-        )
-      : null;
+                  {selected ? <Check className="h-4 w-4" /> : null}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </FloatingPanelPortal>
+    ) : null;
 
   return (
     <>
