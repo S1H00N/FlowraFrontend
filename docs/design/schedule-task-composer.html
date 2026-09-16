@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flowra · 일정과 할 일 디자인 시안</title>
+<style>
+:root{font-family:Inter,"Pretendard","Malgun Gothic",sans-serif;color:#0f172a;background:#f8fafc;font-synthesis:none;--primary:#7c3aed;--border:#e2e8f0;--muted:#64748b}
+*{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}button{cursor:pointer}button:disabled{opacity:.45;cursor:default}button,input,select{min-height:44px}button{border:1px solid var(--border);border-radius:8px;background:white;padding:9px 14px;color:inherit;font-size:13px;font-weight:600}button:hover:not(:disabled){background:#f5f3ff}button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #c4b5fd;outline-offset:2px}input:not([type=checkbox],[type=radio]),select{width:100%;min-width:0;border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:white;color:inherit;font-size:14px}input[type=checkbox],input[type=radio]{width:18px;height:18px;min-height:18px;accent-color:var(--primary);flex-shrink:0}h1,h2,h3,p{margin:0}a{color:#6d28d9}button.primary{background:var(--primary);color:white;border-color:var(--primary)}button.primary:hover{background:#6d28d9}.muted{color:var(--muted);font-size:12px;line-height:1.7}.eyebrow{font-size:11px;letter-spacing:2px;font-weight:800;color:var(--primary)}.topbar{padding:18px 32px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;background:white}.brand{font-weight:850;font-size:19px;letter-spacing:-.6px}.brand span{color:var(--primary)}.topnote{font-size:12px;color:var(--muted)}main{max-width:1160px;margin:auto;padding:42px 28px;display:grid;grid-template-columns:minmax(0,1fr) 460px;gap:60px;align-items:start}.intro{padding-top:22px}.intro h1{font-size:36px;line-height:1.35;letter-spacing:-1.5px;margin:16px 0}.intro>p{color:var(--muted);font-size:15px;line-height:1.9;max-width:470px}.scenario{display:flex;gap:8px;margin:26px 0 32px;flex-wrap:wrap}.scenario [aria-pressed=true]{background:#ede9fe;color:#6d28d9;border-color:#c4b5fd}.guide{display:grid;gap:23px}.guide article{display:flex;gap:14px}.number{display:grid;place-items:center;width:28px;height:28px;border:1px solid var(--border);background:white;border-radius:50%;font-size:11px;font-weight:800;flex-shrink:0}.guide h3{font-size:14px;margin:3px 0 5px}.guide p{font-size:13px;line-height:1.8;color:var(--muted)}.doclink{display:inline-block;margin-top:28px;font-size:13px}.panel{background:white;border:1px solid var(--border);border-radius:16px;box-shadow:0 18px 55px #0f172a0b;overflow:hidden}.panelhead{padding:21px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}.panelhead h2{font-size:18px;margin-top:5px}.icon{padding:0;min-width:44px;background:transparent;border-color:transparent;font-size:21px;color:var(--muted)}.body{padding:22px;max-height:calc(100vh - 300px);min-height:340px;overflow:auto}.field{display:block;margin-bottom:16px}.field>span{display:block;font-size:12px;font-weight:700;color:#475569;margin-bottom:7px}.split{display:grid;grid-template-columns:1fr 1fr;gap:10px}.sectionhead{display:flex;align-items:center;justify-content:space-between;margin:25px 0 14px;border-top:1px solid var(--border);padding-top:22px}.sectionhead h3{font-size:16px}.count{display:inline-block;background:#f1f5f9;border-radius:6px;padding:2px 7px;font-size:12px;margin-left:6px;vertical-align:middle}.quick{display:flex;gap:8px}.quick button{white-space:nowrap}.bring{width:100%;margin:8px 0 16px;color:#6d28d9;border-color:#ddd6fe;background:#faf8ff}.tasks{display:grid;gap:8px}.task{border:1px solid var(--border);border-radius:8px;padding:8px;background:white}.task.pending{border-color:#ddd6fe}.task.removing{background:#f8fafc}.taskrow{display:flex;align-items:flex-start;gap:2px}.tick{width:38px;min-height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0}.placeholder{height:17px;width:17px;border:1.5px dashed #cbd5e1;border-radius:50%}.tasktitle{padding:8px 4px;border:0;text-align:left;background:transparent;min-width:0;flex:1}.tasktitle strong{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;font-size:14px;line-height:1.5}.done strong{text-decoration:line-through;color:var(--muted)}.meta{font-size:11px;line-height:1.8;color:var(--muted);display:block;margin-top:5px;font-weight:400}.tag{font-size:10px;padding:3px 6px;border-radius:4px;background:#f5f3ff;color:#6d28d9;display:inline-block;margin-top:5px;font-weight:650}.tag.move{background:#fff7ed;color:#9a3412}.origin{display:block;font-size:11px;line-height:1.6;color:#9a3412;margin-top:4px;font-weight:400}.remove{font-size:11px;padding:5px;min-width:44px;color:var(--muted);border-color:transparent}.details{border-top:1px solid var(--border);padding:14px 5px 0;margin-top:6px}.details label{display:block;font-size:12px;color:var(--muted);margin-bottom:12px}.details input,.details select{margin-top:5px}.empty{padding:27px 12px;text-align:center;border:1px dashed var(--border);border-radius:8px}.empty strong{display:block;font-size:13px;margin-bottom:5px}.savehint{margin-top:15px}.footer{border-top:1px solid var(--border);padding:15px 22px 20px;background:white}.actions{display:grid;grid-template-columns:1fr 1.55fr;gap:8px;margin-top:9px}.summary{font-size:11px;color:#6d28d9;min-height:17px}.demofoot{font-size:11px;text-align:center;color:var(--muted);margin-top:12px}.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0f172a;color:white;font-size:13px;padding:14px 20px;border-radius:10px;box-shadow:0 8px 30px #0f172a20;z-index:9;max-width:90%;width:max-content}.toast:empty{display:none}dialog{padding:0;border:1px solid var(--border);border-radius:16px;box-shadow:0 24px 100px #0f172a30;color:inherit;width:min(600px,calc(100% - 32px));max-height:88vh}dialog::backdrop{background:#0f172a55;backdrop-filter:blur(3px)}.modalwrap{display:flex;flex-direction:column;max-height:85vh}.modalhead{padding:22px 24px 14px}.headingrow{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.headingrow h2{font-size:18px}.tabs{display:flex;padding:0 24px;gap:20px;border-bottom:1px solid var(--border)}.tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;padding:12px 0;color:var(--muted)}.tabs button[aria-selected=true]{border-bottom-color:var(--primary);color:#6d28d9}.filters{padding:14px 24px 0}.checklabel{display:flex;align-items:center;gap:7px;min-height:44px;font-size:12px;color:var(--muted)}.methods{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}.method{border:1px solid var(--border);border-radius:8px;padding:10px;display:flex;align-items:flex-start;gap:7px;font-size:13px;cursor:pointer}.method:has(input:checked){background:#faf5ff;border-color:#a78bfa}.method small{display:block;font-size:11px;color:var(--muted);line-height:1.6;margin-top:5px}.results{padding:4px 24px 18px;overflow:auto;min-height:150px}.result{display:flex;gap:11px;padding:14px 4px;border-bottom:1px solid #f1f5f9;cursor:pointer;align-items:flex-start}.result input{margin-top:4px}.result strong{font-size:14px;font-weight:600}.result small{display:block;font-size:12px;line-height:1.7;color:var(--muted);margin-top:3px}.result:has(input:checked){background:#faf8ff}.result:has(input:disabled){opacity:.55;cursor:default}.modalfooter{border-top:1px solid var(--border);padding:14px 24px 20px}.selectionline{display:flex;justify-content:space-between;align-items:center;gap:8px}.textbutton{min-height:36px;border:0;color:#6d28d9;font-size:12px;padding:4px}.discardcontent{padding:24px}.discardcontent h2{font-size:18px;margin-bottom:12px}.discardcontent p{font-size:13px;color:var(--muted);line-height:1.8;margin-bottom:22px}[hidden]{display:none!important}
+@media(max-width:850px){main{grid-template-columns:1fr;gap:28px;max-width:570px;padding:24px 16px}.intro{padding-top:0}.intro h1{font-size:27px;margin:10px 0}.guide,.doclink{display:none}.scenario{margin:18px 0 0}.body{max-height:none;min-height:0}.footer{position:sticky;bottom:0;padding-bottom:max(16px,env(safe-area-inset-bottom))}.panel{overflow:visible}.topbar{padding:16px}.topnote{font-size:10px}.intro>p{font-size:13px}.panelhead{padding:18px}.body{padding:18px}}
+@media(max-width:480px){dialog{width:100%;max-width:none;max-height:100dvh;height:100dvh;margin:0;border-radius:0}.modalwrap{height:100%;max-height:100%;}.results{flex:1}.modalhead,.filters,.modalfooter{padding-left:16px;padding-right:16px}.tabs{padding:0 16px}.results{padding-left:16px;padding-right:16px}.modalfooter{padding-bottom:max(16px,env(safe-area-inset-bottom))}#discard{height:auto;margin:auto;width:calc(100% - 32px);border-radius:12px}.methods{gap:6px}.method{padding:9px;font-size:12px}.split{grid-template-columns:1fr}.panelhead h2{font-size:17px}}
+</style>
+</head>
+<body>
+<header class="topbar"><div class="brand"><span>Flowra</span> / Design</div><span class="topnote">일정 × 할 일 · 인터랙션 시안 01</span></header>
+<main>
+<section class="intro">
+  <div class="eyebrow">SCHEDULE TASK COMPOSER</div>
+  <h1>일정을 만들 때,<br>할 일도 함께 준비합니다.</h1>
+  <p>떠오른 할 일은 바로 적고, 이미 있는 할 일은 골라 담으세요. 어디에서 가져오는지, 저장하면 무엇이 바뀌는지 함께 보여줍니다.</p>
+  <div class="scenario" aria-label="시안 시나리오"><button id="newMode" aria-pressed="true">새 일정</button><button id="editMode" aria-pressed="false">기존 일정</button><button id="reset">시안 초기화</button></div>
+  <div class="guide">
+    <article><span class="number">01</span><div><h3>제목만으로 빠르게 추가</h3><p>Enter로 연속 입력합니다. 마감과 우선순위는<br>항목 제목을 눌러 필요할 때 수정합니다.</p></div></article>
+    <article><span class="number">02</span><div><h3>연결 · 이동 · 복사를 명확하게</h3><p>독립 할 일은 연결하고, 다른 일정의 할 일은<br>원래 일정과 가져오는 방식을 함께 표시합니다.</p></div></article>
+    <article><span class="number">03</span><div><h3>검토한 뒤 한 번에 저장</h3><p>목록에 담는 동안에는 원본이 유지됩니다.<br>일정을 저장할 때 모든 변경을 함께 반영합니다.</p></div></article>
+  </div>
+  <a class="doclink" href="schedule-task-composer.md">전체 기능·예외·구현 명세 보기 ↗</a>
+</section>
+<section>
+ <div class="panel">
+  <header class="panelhead"><div><div class="eyebrow">PERSONAL SCHEDULE</div><h2 id="editorTitle">새 일정</h2></div><button class="icon" id="closeEditor" aria-label="일정 편집 닫기">×</button></header>
+  <div class="body">
+   <label class="field"><span>일정 제목</span><input id="scheduleTitle" value="다음 주 제품 회의" placeholder="일정 제목 입력"></label>
+   <div class="split"><label class="field"><span>시작</span><input id="start" type="datetime-local" value="2026-09-21T10:00"></label><label class="field"><span>종료</span><input id="end" type="datetime-local" value="2026-09-21T11:00"></label></div>
+   <div class="sectionhead"><h3>할 일 <span class="count" id="taskCount">0</span></h3><span class="muted" id="progress"></span></div>
+   <div class="quick"><input id="quick" aria-label="새 할 일 제목" placeholder="새 할 일 입력…" autocomplete="off"><button id="add" class="primary">추가</button></div>
+   <button class="bring" id="openPicker">＋ 기존 할 일 가져오기</button>
+   <div class="tasks" id="tasks"></div>
+   <p class="muted savehint">일정을 저장하면 할 일 변경도 함께 반영됩니다.</p>
+  </div>
+  <footer class="footer"><div class="summary" id="changeSummary"></div><div class="actions"><button id="cancelEditor">취소</button><button class="primary" id="save">일정 만들기</button></div></footer>
+ </div>
+ <p class="demofoot">샘플 데이터로 동작하는 시안입니다. 실제 데이터는 변경되지 않습니다.</p>
+</section>
+</main>
+<dialog id="picker" aria-labelledby="pickerTitle">
+ <div class="modalwrap">
+  <header class="modalhead"><div class="headingrow"><h2 id="pickerTitle">기존 할 일 가져오기</h2><button class="icon" id="closePicker" aria-label="가져오기 닫기">×</button></div><input id="search" placeholder="할 일 또는 일정 이름 검색" aria-label="할 일 또는 일정 이름 검색"></header>
+  <div class="tabs" role="tablist" aria-label="할 일 연결 상태"><button id="tabUnlinked" role="tab" aria-controls="results" aria-selected="true">일정 없는 할 일</button><button id="tabLinked" role="tab" aria-controls="results" aria-selected="false" tabindex="-1">다른 일정의 할 일</button></div>
+  <div class="filters">
+   <div class="methods" id="methods" hidden><label class="method"><input type="radio" name="method" value="move" checked><span>옮기기<small>원래 일정에서 제외하고<br>이 일정에 연결합니다.</small></span></label><label class="method"><input type="radio" name="method" value="copy"><span>복사하기<small>원본은 유지하고<br>미완료 할 일을 만듭니다.</small></span></label></div>
+   <label class="checklabel"><input id="includeDone" type="checkbox">완료된 항목 포함</label>
+  </div>
+  <div class="results" id="results" role="tabpanel" aria-labelledby="tabUnlinked"></div>
+  <footer class="modalfooter"><div class="selectionline"><span class="summary" id="selectionSummary" aria-live="polite">선택한 할 일이 없습니다.</span><button class="textbutton" id="clearSelection">선택 초기화</button></div><div class="actions"><button id="cancelPicker">취소</button><button class="primary" id="applySelection" disabled>목록에 담기</button></div><p class="muted" style="margin-top:8px">담은 항목은 일정 저장 시 반영됩니다.</p></footer>
+ </div>
+</dialog>
+<dialog id="discard" aria-labelledby="discardTitle"><div class="discardcontent"><h2 id="discardTitle">작성 중인 변경사항을 버릴까요?</h2><p>새로 작성하거나 가져온 할 일은 저장되지 않습니다.<br>기존 할 일과 연결 관계는 그대로 유지됩니다.</p><div class="actions"><button id="keepEditing" autofocus>계속 작성</button><button class="primary" id="discardChanges">변경 버리기</button></div></div></dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+const $=id=>document.getElementById(id);
+const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const sourceSeed=[
+ {id:1,title:'고객 피드백 정리',priority:'보통',due:'2026-09-18T18:00',origin:'',done:false},
+ {id:2,title:'온보딩 화면 문구 점검',priority:'높음',due:'',origin:'',done:false},
+ {id:3,title:'사용성 테스트 질문 작성',priority:'보통',due:'2026-09-20T15:00',origin:'',done:false},
+ {id:4,title:'지난달 지표 정리',priority:'낮음',due:'2026-09-10T18:00',origin:'',done:true},
+ {id:5,title:'견적서 전달',priority:'높음',due:'2026-09-22T16:00',origin:'영업 미팅',done:false},
+ {id:6,title:'프로토타입 리뷰 준비',priority:'보통',due:'2026-09-18T10:00',origin:'디자인 리뷰',done:false},
+ {id:7,title:'회의실과 장비 확인',priority:'낮음',due:'2026-09-14T09:00',origin:'지난주 제품 회의',done:true}
+];
+let sources=structuredClone(sourceSeed),tasks=[],mode='new',dirty=false,expanded=null,tab='unlinked',method='move',selected=new Set(),serial=100,pendingAction=null,toastTimer;
+let savedTasks=[],savedTitle='',savedStart='',savedEnd='';
+const kinds={create:'새로 작성',link:'연결 예정',move:'이동 예정',copy:'복사 예정',update:'수정 예정',unlink:'연결 해제 예정'};
+function notify(message){$('toast').textContent=message;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').textContent='',4200)}
+function dateText(d){return d?d.slice(5,10).replace('-','.')+' '+d.slice(11,16):'마감 없음'}
+function capture(){savedTasks=structuredClone(tasks);savedTitle=$('scheduleTitle').value;savedStart=$('start').value;savedEnd=$('end').value}
+function initialize(next='new'){
+ mode=next;tasks=next==='edit'?[{id:91,key:++serial,title:'제품 지표 확인',priority:'높음',due:'2026-09-21T10:00',dueMode:'custom',kind:'saved',done:true},{id:92,key:++serial,title:'논의할 안건 정리',priority:'보통',due:'2026-09-21T11:00',dueMode:'custom',kind:'saved',done:false}]:[];
+ $('scheduleTitle').value='다음 주 제품 회의';$('start').value='2026-09-21T10:00';$('end').value='2026-09-21T11:00';$('quick').value='';expanded=null;dirty=false;capture();render();
+}
+function mark(task){dirty=true;if(task?.kind==='saved')task.kind='update'}
+function summary(items){const labels={create:'새로 작성',link:'연결',move:'이동',copy:'복사',update:'수정',unlink:'연결 해제'};return Object.entries(labels).map(([k,label])=>{const n=items.filter(t=>t.kind===k).length;return n?`${label} ${n}`:''}).filter(Boolean).join(' · ')}
+function render(){
+ $('editorTitle').textContent=mode==='new'?'새 일정':'일정 수정';$('save').textContent=mode==='new'?'일정 만들기':'변경사항 저장';$('newMode').setAttribute('aria-pressed',mode==='new');$('editMode').setAttribute('aria-pressed',mode==='edit');
+ const active=tasks.filter(t=>t.kind!=='unlink');$('taskCount').textContent=active.length;$('progress').textContent=mode==='edit'?`완료 ${active.filter(t=>t.done).length} / ${active.length}`:'';
+ $('changeSummary').textContent=summary(tasks)||(dirty?'일정 정보 변경 예정':'');
+ $('tasks').innerHTML=tasks.length?tasks.map(t=>{
+ const stored=['saved','update','unlink'].includes(t.kind),open=expanded===t.key;
+ return `<article class="task ${t.kind==='saved'?'':'pending'} ${t.kind==='unlink'?'removing':''}">
+ <div class="taskrow"><span class="tick">${stored?`<input type="checkbox" data-complete="${t.key}" aria-label="${esc(t.title)} 완료" ${t.done?'checked':''} ${t.kind==='unlink'?'disabled':''}>`:'<span class="placeholder" aria-hidden="true"></span>'}</span>
+ <button class="tasktitle ${t.done?'done':''}" data-expand="${t.key}" aria-expanded="${open}" ${t.kind==='unlink'?'disabled':''}><strong>${esc(t.title)}</strong><span class="meta">${esc(t.priority)} · ${t.dueMode==='schedule'?'일정 종료 · ':''}${dateText(t.due)}</span>${kinds[t.kind]?`<span class="tag ${t.kind==='move'?'move':''}">${kinds[t.kind]}</span>`:''}${t.origin&&['move','copy'].includes(t.kind)?`<span class="origin">${esc(t.origin)}${t.kind==='move'?' → 이 일정':'에서 복사'}</span>`:''}</button>
+ <button class="remove" data-remove="${t.key}" aria-label="${esc(t.title)} ${t.kind==='unlink'?'연결 해제 되돌리기':stored?'연결 해제':'목록에서 제외'}">${t.kind==='unlink'?'되돌리기':stored?'연결 해제':'×'}</button></div>
+ ${open&&t.kind!=='unlink'?`<div class="details"><label>할 일 제목<input data-field="title" data-key="${t.key}" value="${esc(t.title)}"></label><label>우선순위<select data-field="priority" data-key="${t.key}">${['낮음','보통','높음','긴급'].map(p=>`<option ${t.priority===p?'selected':''}>${p}</option>`).join('')}</select></label><label>마감 방식<select data-field="dueMode" data-key="${t.key}">${[['schedule','일정 종료에 맞춤'],['custom','직접 지정'],['none','마감 없음']].map(([v,l])=>`<option value="${v}" ${t.dueMode===v?'selected':''}>${l}</option>`).join('')}</select></label>${t.dueMode==='custom'?`<label>마감 날짜와 시간<input type="datetime-local" data-field="due" data-key="${t.key}" value="${esc(t.due)}"></label>`:''}<p class="muted">${['link','move','update','saved'].includes(t.kind)?'저장하면 같은 할 일에 변경사항이 반영됩니다.':'이 항목의 설정만 변경됩니다.'}</p></div>`:''}</article>`;
+ }).join(''):'<div class="empty"><strong>이 일정에 필요한 할 일을 담아보세요.</strong><p class="muted">새로 적거나 기존 할 일을 가져올 수 있어요.</p></div>';
+}
+function addTask(){const title=$('quick').value.trim();if(!title){$('quick').focus();return false}tasks.push({key:++serial,title,priority:'보통',due:$('end').value||$('start').value,dueMode:'schedule',kind:'create',done:false});$('quick').value='';dirty=true;render();$('quick').focus();notify('할 일을 목록에 추가했습니다.');return true}
+$('add').onclick=addTask;$('quick').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.isComposing&&e.keyCode!==229){e.preventDefault();addTask()}});
+$('tasks').onclick=e=>{
+ const expand=e.target.closest('[data-expand]'),remove=e.target.closest('[data-remove]');
+ if(expand){expanded=expanded===+expand.dataset.expand?null:+expand.dataset.expand;render();$('tasks').querySelector(`[data-expand="${expand.dataset.expand}"]`)?.focus()}
+ if(remove){const t=tasks.find(t=>t.key===+remove.dataset.remove);if(t.kind==='unlink'){t.kind=t.previousKind;delete t.previousKind}else if(['saved','update'].includes(t.kind)){t.previousKind=t.kind;t.kind='unlink'}else tasks=tasks.filter(x=>x!==t);dirty=true;render();$('tasks').querySelector(`[data-remove="${t.key}"]`)?.focus();if(!tasks.includes(t))$('quick').focus()}
+};
+$('tasks').addEventListener('change',e=>{
+ const key=+(e.target.dataset.key||e.target.dataset.complete),t=tasks.find(t=>t.key===key);if(!t)return;
+ if(e.target.dataset.complete){t.done=e.target.checked;mark(t)}else{const field=e.target.dataset.field;if(!field)return;if(field==='title'&&!e.target.value.trim()){e.target.value=t.title;notify('할 일 제목을 입력해 주세요.');return}t[field]=e.target.value.trim();if(field==='dueMode')t.due=t.dueMode==='schedule'?$('end').value||$('start').value:t.dueMode==='none'?'':t.due||$('end').value;mark(t)}render();
+ const control=e.target.dataset.complete?`[data-complete="${key}"]`:`[data-key="${key}"][data-field="${e.target.dataset.field}"]`;$('tasks').querySelector(control)?.focus();
+});
+['scheduleTitle','start','end'].forEach(id=>$(id).addEventListener('input',()=>{dirty=true;tasks.filter(t=>t.dueMode==='schedule').forEach(t=>{t.due=$('end').value||$('start').value;mark(t)});render()}));
+function setTab(next){tab=next;['unlinked','linked'].forEach(v=>{const el=$(v==='unlinked'?'tabUnlinked':'tabLinked');el.setAttribute('aria-selected',v===tab);el.tabIndex=v===tab?0:-1});$('results').setAttribute('aria-labelledby',tab==='unlinked'?'tabUnlinked':'tabLinked');$('methods').hidden=tab!=='linked';renderPicker()}
+function renderPicker(){
+ const q=$('search').value.trim().toLowerCase();const rows=sources.filter(t=>!t.current&&Boolean(t.origin)===(tab==='linked')&&($('includeDone').checked||!t.done)&&`${t.title} ${t.origin}`.toLowerCase().includes(q));
+ $('results').innerHTML=rows.length?rows.map(t=>{const added=tasks.some(x=>x.sourceId===t.id||x.id===t.id);return `<label class="result"><input type="checkbox" value="${t.id}" ${selected.has(t.id)?'checked':''} ${added?'disabled':''}><span><strong>${esc(t.title)}</strong><small>${t.priority} · ${dateText(t.due)}${t.done?' · 완료':''}</small>${t.origin?`<small>연결 일정 · ${esc(t.origin)}</small>`:''}${added?'<span class="tag">추가됨</span>':''}</span></label>`}).join(''):`<div class="empty"><strong>${q?'일치하는 할 일이 없습니다.':'연결할 할 일이 없습니다.'}</strong>${q?'<button class="textbutton" id="resetSearch">검색 초기화</button>':''}</div>`;
+ if($('resetSearch'))$('resetSearch').onclick=()=>{$('search').value='';renderPicker();$('search').focus()};
+ const chosen=sources.filter(t=>selected.has(t.id)),a=chosen.filter(t=>!t.origin).length,b=chosen.length-a;$('selectionSummary').textContent=[a?`연결 ${a}`:'',b?`${method==='move'?'이동':'복사'} ${b}`:''].filter(Boolean).join(' · ')||'선택한 할 일이 없습니다.';$('applySelection').textContent=chosen.length?`${chosen.length}개 목록에 담기`:'목록에 담기';$('applySelection').disabled=!chosen.length;
+}
+$('openPicker').onclick=()=>{selected.clear();method='move';document.querySelector('[name=method][value=move]').checked=true;$('search').value='';$('includeDone').checked=false;setTab('unlinked');$('picker').showModal();$('search').focus()};
+['closePicker','cancelPicker'].forEach(id=>$(id).onclick=()=>$('picker').close());
+$('tabUnlinked').onclick=()=>setTab('unlinked');$('tabLinked').onclick=()=>setTab('linked');
+document.querySelector('.tabs').addEventListener('keydown',e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();setTab(e.key==='Home'?'unlinked':e.key==='End'?'linked':tab==='linked'?'unlinked':'linked');$(tab==='unlinked'?'tabUnlinked':'tabLinked').focus()}});
+document.querySelectorAll('[name=method]').forEach(el=>el.onchange=()=>{method=el.value;renderPicker()});
+$('search').oninput=renderPicker;$('includeDone').onchange=renderPicker;$('clearSelection').onclick=()=>{selected.clear();renderPicker()};
+$('results').onchange=e=>{if(e.target.type==='checkbox'){e.target.checked?selected.add(+e.target.value):selected.delete(+e.target.value);renderPicker();$('results').querySelector(`[value="${e.target.value}"]`)?.focus()}};
+$('applySelection').onclick=()=>{for(const id of selected){const t=sources.find(t=>t.id===id),kind=t.origin?method:'link';tasks.push({...t,key:++serial,sourceId:t.id,kind,done:kind==='copy'?false:t.done,dueMode:t.due?'custom':'none'})}dirty=true;expanded=null;render();$('picker').close();notify(`${selected.size}개를 담았습니다. 일정 저장 시 반영됩니다.`)};
+function requestExit(action){if(dirty||$('quick').value.trim()){pendingAction=action;$('discard').showModal()}else action()}
+function restore(){tasks=structuredClone(savedTasks);$('scheduleTitle').value=savedTitle;$('start').value=savedStart;$('end').value=savedEnd;$('quick').value='';dirty=false;expanded=null;render();notify('편집을 취소했습니다. 시안 화면은 유지됩니다.')}
+['closeEditor','cancelEditor'].forEach(id=>$(id).onclick=()=>requestExit(restore));
+$('newMode').onclick=()=>requestExit(()=>initialize('new'));$('editMode').onclick=()=>requestExit(()=>initialize('edit'));$('reset').onclick=()=>requestExit(()=>{sources=structuredClone(sourceSeed);initialize('new');notify('샘플 데이터를 초기화했습니다.')});
+$('keepEditing').onclick=()=>$('discard').close();$('discardChanges').onclick=()=>{$('discard').close();pendingAction?.();pendingAction=null};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('picker').open&&!$('discard').open){e.preventDefault();requestExit(restore)}});
+$('save').onclick=()=>{
+ if(!$('scheduleTitle').value.trim()){notify('일정 제목을 입력해 주세요.');$('scheduleTitle').focus();return}
+ if(!$('start').value||!$('end').value||$('end').value<$('start').value){notify('시작·종료 시간을 확인해 주세요.');$('end').focus();return}
+ if($('quick').value.trim())addTask();
+ if(tasks.some(t=>t.kind!=='unlink'&&t.dueMode==='custom'&&!t.due)){notify('직접 지정한 마감 날짜와 시간을 입력해 주세요.');return}
+ let count=tasks.filter(t=>t.kind!=='saved').length;
+ for(const t of tasks){let original=sources.find(s=>s.id===(t.sourceId||t.id));if(t.kind==='unlink'){if(original)Object.assign(original,{title:t.title,priority:t.priority,due:t.due,done:t.done,origin:'',current:false});else sources.push({id:t.id,title:t.title,priority:t.priority,due:t.due,done:t.done,origin:'',current:false});continue}if(['link','move'].includes(t.kind)&&original)Object.assign(original,{current:true});if(['create','copy'].includes(t.kind))t.id=++serial;t.kind='saved';t.dueMode=t.due?'custom':'none';delete t.sourceId;delete t.origin;delete t.previousKind}
+ tasks=tasks.filter(t=>t.kind!=='unlink');mode='edit';dirty=false;expanded=null;capture();render();notify(`가상 저장 완료 · ${count}개 할 일 변경을 반영했습니다.`)
+};
+initialize();
+</script>
+</body>
+</html>

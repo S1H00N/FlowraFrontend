@@ -90,6 +90,20 @@ test("chat deletion rejects failed responses and network errors", async (t) => {
   await assert.rejects(() => api.chat.deleteAiChatSession(42), /Network unavailable/);
 });
 
+test("chat deletion accepts only the documented missing-session 404", async (t) => {
+  const failure = {
+    isAxiosError: true,
+    response: { status: 404, data: { error: { code: "AI_CHAT_SESSION_NOT_FOUND" } } },
+  };
+  t.mock.method(clientMock, "delete", async () => { throw failure; });
+  await assert.doesNotReject(() => api.chat.deleteAiChatSession(42));
+  failure.response.data.error.code = "NOT_FOUND";
+  await assert.rejects(() => api.chat.deleteAiChatSession(42), (error) => error === failure);
+  failure.response.status = 400;
+  failure.response.data.error.code = "AI_CHAT_SESSION_NOT_FOUND";
+  await assert.rejects(() => api.chat.deleteAiChatSession(42), (error) => error === failure);
+});
+
 test("create omits absent relation IDs, patch preserves explicit null unlinking", async () => {
   for (const [name, create, update, wrapper] of [
     ["schedules", "createSchedule", "updateSchedule", "schedule"],

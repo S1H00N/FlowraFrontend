@@ -377,6 +377,7 @@ function AiChatSessionList({
   onDelete,
   deletingId,
   disabled,
+  deleteDisabled,
 }: {
   sessions: AiChatSession[];
   activeSessionId: number | null;
@@ -385,6 +386,7 @@ function AiChatSessionList({
   onDelete: (session: AiChatSession) => void;
   deletingId: number | null;
   disabled: boolean;
+  deleteDisabled: boolean;
 }) {
   return (
     <aside className="max-h-56 overflow-y-auto border-b border-slate-200 bg-white px-2 py-2 min-[600px]:h-full min-[600px]:max-h-none min-[600px]:w-64 min-[600px]:shrink-0 min-[600px]:border-b-0 min-[600px]:border-r min-[600px]:py-3">
@@ -447,7 +449,7 @@ function AiChatSessionList({
               <button
                 type="button"
                 onClick={() => onDelete(session)}
-                disabled={disabled}
+                disabled={deleteDisabled}
                 aria-label={`${getSessionTitle(session)} 대화 삭제`}
                 title="대화 삭제"
                 className="absolute right-1 top-2 flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-red-500/15 dark:hover:text-red-400"
@@ -481,6 +483,7 @@ export default function AiChatWidget({
   const [applyingKey, setApplyingKey] = useState<string | null>(null);
   const [appliedKeys, setAppliedKeys] = useState<Set<string>>(() => new Set());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const conversationVersion = useRef(0);
 
   const sessionsQuery = useAiChatSessions(
     { status: "active", limit: SESSION_LIST_LIMIT },
@@ -521,6 +524,7 @@ export default function AiChatWidget({
 
   const handleNewSession = () => {
     if (busy) return;
+    conversationVersion.current += 1;
     setActiveSessionId(null);
     setPreferNewSession(true);
     if (window.matchMedia("(max-width: 599px)").matches) {
@@ -535,6 +539,7 @@ export default function AiChatWidget({
 
   const handleSelectSession = (sessionId: number) => {
     if (busy) return;
+    conversationVersion.current += 1;
     setActiveSessionId(sessionId);
     setPreferNewSession(false);
     if (window.matchMedia("(max-width: 599px)").matches) {
@@ -546,11 +551,13 @@ export default function AiChatWidget({
   };
 
   const handleDeleteSession = async (session: AiChatSession) => {
-    if (busy || applyActionMutation.isPending) return;
+    if (createSessionMutation.isPending || deleteSessionMutation.isPending || applyActionMutation.isPending) return;
     if (!window.confirm(`“${getSessionTitle(session)}” 대화를 삭제할까요?\n대화와 메시지는 복구할 수 없습니다.`)) return;
     try {
       await deleteSessionMutation.mutateAsync(session.session_id);
       if (activeSessionId === session.session_id) {
+        conversationVersion.current += 1;
+        sendMessageMutation.reset();
         setActiveSessionId(null);
         setPreferNewSession(true);
         setDraft("");
@@ -566,6 +573,7 @@ export default function AiChatWidget({
     event?.preventDefault();
     const content = draft.trim();
     if (!content || busy) return;
+    const version = conversationVersion.current;
 
     setDraft("");
     setPendingContent(content);
@@ -589,9 +597,9 @@ export default function AiChatWidget({
         payload: { content },
       });
     } catch {
-      setDraft(content);
+      if (conversationVersion.current === version) setDraft(content);
     } finally {
-      setPendingContent(null);
+      if (conversationVersion.current === version) setPendingContent(null);
     }
   };
 
@@ -740,6 +748,7 @@ export default function AiChatWidget({
                 onDelete={(session) => void handleDeleteSession(session)}
                 deletingId={deleteSessionMutation.isPending ? deleteSessionMutation.variables ?? null : null}
                 disabled={busy || applyActionMutation.isPending}
+                deleteDisabled={createSessionMutation.isPending || deleteSessionMutation.isPending || applyActionMutation.isPending}
                 activeSessionId={activeSessionId}
                 isLoading={sessionsQuery.isLoading}
                 onSelect={handleSelectSession}
@@ -777,7 +786,7 @@ export default function AiChatWidget({
                         onApply={handleApply}
                       />
                     )}
-                    {busy && (
+                    {(createSessionMutation.isPending || (sendMessageMutation.isPending && pendingContent !== null)) && (
                       <div className="flex justify-start">
                         <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-500 shadow-sm">
                           <Loader2 className="h-4 w-4 animate-spin text-violet-600" />
@@ -836,7 +845,10 @@ export default function AiChatWidget({
             aria-label={open ? "AI 채팅 닫기" : "AI 채팅 열기"}
             aria-controls={PANEL_ID}
             aria-expanded={open}
-            className="fixed bottom-[calc(var(--flowra-mobile-nav-height)+0.75rem)] right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-xl shadow-violet-900/25 transition-[background-color,box-shadow,right] duration-200 hover:bg-violet-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-violet-200 min-[600px]:bottom-6 min-[600px]:right-[calc(1.5rem+var(--flowra-ai-chat-button-offset,0px))]"
+            className={cn(
+              "fixed bottom-[calc(var(--flowra-mobile-nav-height)+0.75rem)] right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-xl shadow-violet-900/25 transition-[background-color,box-shadow,right] duration-200 hover:bg-violet-700 focus:outline-none focus-visible:ring-4 focus-visible:ring-violet-200 min-[600px]:bottom-6 min-[600px]:right-[calc(1.5rem+var(--flowra-ai-chat-button-offset,0px))]",
+              open && "max-[599px]:hidden",
+            )}
             style={offsetStyle}
             onClick={() => setOpen((value) => !value)}
           >

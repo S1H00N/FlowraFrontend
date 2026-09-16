@@ -1,3 +1,4 @@
+import axios from "axios";
 import apiClient from "./client";
 import { compactParams, toOptionalString } from "./normalize";
 import type {
@@ -161,11 +162,20 @@ export async function listAiChatSessions(query: AiChatSessionsQuery = {}) {
 }
 
 export async function deleteAiChatSession(sessionId: number) {
-  const res = await apiClient.delete<ApiResponse<unknown>>(
-    `/ai-chat/sessions/${sessionId}`,
-  );
-  if (res.status !== 204 && !res.data?.success) {
-    throw new Error(res.data?.message || "AI 대화를 삭제하지 못했습니다.");
+  try {
+    const res = await apiClient.delete<ApiResponse<Record<string, never>>>(
+      `/ai-chat/sessions/${sessionId}`,
+    );
+    if (res.status !== 204 && !res.data?.success) {
+      throw new Error(res.data?.message || "AI 대화를 삭제하지 못했습니다.");
+    }
+  } catch (error) {
+    if (
+      axios.isAxiosError(error) &&
+      error.response?.status === 404 &&
+      error.response.data?.error?.code === "AI_CHAT_SESSION_NOT_FOUND"
+    ) return;
+    throw error;
   }
 }
 

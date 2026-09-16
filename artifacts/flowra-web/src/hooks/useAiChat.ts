@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   applyAiChatMessageAction,
   createAiChatSession,
@@ -22,6 +22,13 @@ import type {
 } from "@/types";
 
 export const AI_CHAT_QUERY_KEY = ["ai-chat"] as const;
+
+// Keep deletion markers outside the query cache so late mutations cannot recreate it.
+const deletedSessions = new WeakMap<QueryClient, Set<number>>();
+
+function isDeletedSession(qc: QueryClient, sessionId: number) {
+  return deletedSessions.get(qc)?.has(sessionId) ?? false;
+}
 
 export function aiChatSessionsKey(query: AiChatSessionsQuery = {}) {
   return [...AI_CHAT_QUERY_KEY, "sessions", query] as const;
@@ -100,6 +107,9 @@ export function useDeleteAiChatSession() {
   return useMutation({
     mutationFn: deleteAiChatSession,
     onSuccess: async (_data, sessionId) => {
+      const deleted = deletedSessions.get(qc) ?? new Set<number>();
+      deleted.add(sessionId);
+      deletedSessions.set(qc, deleted);
       await qc.cancelQueries({ queryKey: [...AI_CHAT_QUERY_KEY, "sessions"] });
       await qc.cancelQueries({ queryKey: aiChatMessagesKey(sessionId) });
       qc.setQueriesData<AiChatSession[]>(
@@ -126,12 +136,20 @@ export function useSendAiChatMessage() {
       sessionId: number;
       payload: SendAiChatMessageRequest;
     }) => {
-      const res = await sendAiChatMessage(sessionId, payload);
-      if (!res.success)
-        throw new Error(res.message || "AI 메시지 전송에 실패했습니다.");
-      return res.data;
+      try {
+        const res = await sendAiChatMessage(sessionId, payload);
+        if (isDeletedSession(qc, sessionId)) return;
+        if (!res.success)
+          throw new Error(res.message || "AI 메시지 전송에 실패했습니다.");
+        return res.data;
+      } catch (error) {
+        // A request already running on the server can finish with 404 after deletion.
+        if (isDeletedSession(qc, sessionId)) return;
+        throw error;
+      }
     },
     onSuccess: (data, variables) => {
+      if (!data || isDeletedSession(qc, variables.sessionId)) return;
       qc.setQueryData<AiChatMessage[]>(
         aiChatMessagesKey(variables.sessionId),
         (current) =>
