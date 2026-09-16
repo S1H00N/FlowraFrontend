@@ -12,6 +12,7 @@ import { authStorage } from "@/lib/auth-storage";
 import * as authApi from "@/api/auth";
 import { unregisterPushDevice } from "@/api/pushDevices";
 import { setOnAuthFailure } from "@/api/client";
+import { pushInbox } from "@/lib/pushInbox";
 import {
   clearStoredBrowserPushToken,
   deleteCurrentBrowserPushToken,
@@ -52,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    await pushInbox.setOwner(null).catch(() => {});
     const browserPushToken = getStoredBrowserPushToken();
     if (browserPushToken) {
       try {
@@ -80,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setOnAuthFailure(() => {
+      void pushInbox.setOwner(null).catch(() => {});
       const browserPushToken = getStoredBrowserPushToken();
       if (browserPushToken) {
         void deleteCurrentBrowserPushToken({ keepEnabledPreference: true }).catch(() =>
@@ -93,6 +96,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     return () => setOnAuthFailure(null);
   }, [navigate]);
+
+  useEffect(() => {
+    const syncSession = (event: StorageEvent) => {
+      if (event.key === null || event.key === "auth_user" || event.key === "access_token") {
+        setUser(authStorage.getAccessToken() ? authStorage.getUser<User>() : null);
+      }
+    };
+    window.addEventListener("storage", syncSession);
+    return () => window.removeEventListener("storage", syncSession);
+  }, []);
 
   const persistLogin = useCallback((data: {
     user: User;

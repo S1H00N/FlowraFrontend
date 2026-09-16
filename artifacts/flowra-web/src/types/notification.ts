@@ -1,6 +1,9 @@
 import type { Pagination } from "./api";
 
 export interface NotificationRecipient {
+  /** Browser receipt IDs associated with this item; never sent to the server. */
+  local_push_ids?: string[];
+  local_only?: boolean;
   notification_recipient_id: number;
   notification_id: number;
   type: string;

@@ -71,6 +71,7 @@ self.addEventListener("notificationclick", (event) => {
   );
 });
 
+importScripts(new URL("push-inbox-store.js", getAppBaseUrl()).href);
 importScripts("https://www.gstatic.com/firebasejs/12.14.0/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/12.14.0/firebase-messaging-compat.js");
 
@@ -85,8 +86,24 @@ async function initializeFirebaseMessaging() {
   firebase.initializeApp(firebaseConfig);
   const messaging = firebase.messaging();
 
-  messaging.onBackgroundMessage((payload) => {
-    console.log("[firebase-messaging-sw.js] Received background message:", payload);
+  messaging.onBackgroundMessage(async (payload) => {
+    try {
+      await self.FlowraPushInbox.save(payload);
+    } catch {
+      // Storage may be unavailable. Still deliver the OS notification and API refresh.
+    }
+    // Persist before notifying tabs, including when no app windows are open.
+    try {
+      const clientList = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      for (const client of clientList) {
+        client.postMessage({ type: "flowra-notifications-changed" });
+      }
+    } catch {
+      // A tab closing must not prevent the OS notification from being displayed.
+    }
 
     const data = payload.data || {};
     const notification = payload.notification || {};

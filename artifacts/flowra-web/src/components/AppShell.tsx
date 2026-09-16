@@ -199,7 +199,7 @@ function formatNotificationTime(value?: string) {
 
 function NotificationCenter() {
   const [open, setOpen] = useState(false);
-  const notificationsQuery = useNotifications({ page_size: 8 }, open);
+  const notificationsQuery = useNotifications({ page_size: 100 }, open);
   const unreadCountQuery = useNotificationUnreadCount();
   const markReadMutation = useMarkNotificationRead();
   const markAllReadMutation = useMarkAllNotificationsRead();
@@ -208,11 +208,17 @@ function NotificationCenter() {
 
   const markRead = (notification: NotificationRecipient) => {
     if (notification.read_at || markReadMutation.isPending) return;
-    markReadMutation.mutate(notification.notification_recipient_id);
+    markReadMutation.mutate(notification);
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (nextOpen) void unreadCountQuery.refetch();
+      }}
+    >
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -255,6 +261,11 @@ function NotificationCenter() {
           </button>
         </div>
 
+        {notificationsQuery.data?.server_unavailable && (
+          <p role="status" className="border-b border-slate-100 px-4 py-2 text-xs text-amber-700">
+            일부 알림을 불러오지 못했습니다. 저장된 알림을 표시합니다.
+          </p>
+        )}
         <div className="max-h-[min(420px,70vh)] overflow-y-auto">
           {notificationsQuery.isLoading ? (
             <div className="flex items-center gap-2 px-4 py-6 text-sm font-medium text-slate-500">
@@ -275,7 +286,7 @@ function NotificationCenter() {
                 const unread = !notification.read_at;
 
                 return (
-                  <li key={notification.notification_recipient_id}>
+                  <li key={notification.local_only ? notification.local_push_ids?.[0] : notification.notification_recipient_id}>
                     <button
                       type="button"
                       onClick={() => markRead(notification)}
@@ -298,6 +309,7 @@ function NotificationCenter() {
                         )}
                         <span className="mt-1 block text-[11px] font-semibold text-slate-400">
                           {formatNotificationTime(notification.created_at)}
+                          {notification.local_only && " · 이 브라우저에서 수신"}
                         </span>
                       </span>
                     </button>

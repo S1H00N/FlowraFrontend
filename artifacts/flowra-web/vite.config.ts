@@ -2,9 +2,13 @@ import { defineConfig, loadEnv, type PluginOption } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
+import { readFileSync } from "node:fs";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
 function firebaseConfigPlugin(env: Record<string, string>): PluginOption {
+  const inboxStoreSource = () => readFileSync(
+    new URL("./src/lib/pushInboxStore.js", import.meta.url), "utf8",
+  );
   const firebaseConfig = {
     apiKey: env.VITE_FIREBASE_API_KEY ?? "",
     authDomain: env.VITE_FIREBASE_AUTH_DOMAIN ?? "",
@@ -21,6 +25,12 @@ function firebaseConfigPlugin(env: Record<string, string>): PluginOption {
       server.middlewares.use((req, res, next) => {
         const pathname = req.url?.split("?")[0];
         const base = server.config.base.replace(/\/$/, "");
+        if (pathname === "/push-inbox-store.js" || pathname === `${base}/push-inbox-store.js`) {
+          res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+          res.setHeader("Cache-Control", "no-store");
+          res.end(inboxStoreSource());
+          return;
+        }
         if (pathname !== "/firebase-config.json" && pathname !== `${base}/firebase-config.json`) {
           next();
           return;
@@ -31,6 +41,7 @@ function firebaseConfigPlugin(env: Record<string, string>): PluginOption {
       });
     },
     generateBundle() {
+      this.emitFile({ type: "asset", fileName: "push-inbox-store.js", source: inboxStoreSource() });
       this.emitFile({
         type: "asset",
         fileName: "firebase-config.json",
