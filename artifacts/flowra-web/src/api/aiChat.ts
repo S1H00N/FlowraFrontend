@@ -3,37 +3,29 @@ import apiClient from "./client";
 import { compactParams, toOptionalString } from "./normalize";
 import type {
   AiChatMessage,
+  AiChatMessagesQuery,
+  AiChatCursorPagination,
   AiChatSessionsQuery,
   AiChatSession,
-  ApiListData,
   ApiResponse,
   ApplyAiChatMessageRequest,
   ApplyAiChatMessageResponse,
   CreateAiChatSessionRequest,
   SendAiChatMessageRequest,
   SendAiChatMessageResponse,
+  UpdateAiChatSessionRequest,
 } from "@/types";
 
-interface ApiErrorBody {
-  success?: boolean;
-  message?: string;
-  error?: {
-    code?: string;
-    details?: {
-      issues?: Array<{
-        path?: string | string[];
-        message?: string;
-      }>;
-    };
-  };
-}
-
 type AiChatSessionData = AiChatSession | { session: AiChatSession };
-type AiChatSessionsData = ApiListData<AiChatSession> & {
+type AiChatSessionsData = {
+  items?: AiChatSession[];
   sessions?: AiChatSession[];
+  pagination?: AiChatCursorPagination;
 };
-type AiChatMessagesData = ApiListData<AiChatMessage> & {
+type AiChatMessagesData = {
+  items?: AiChatMessage[];
   messages?: AiChatMessage[];
+  pagination?: AiChatCursorPagination;
 };
 
 function normalizeMessage(message: AiChatMessage): AiChatMessage {
@@ -80,46 +72,6 @@ function unwrapMessages(data: AiChatMessagesData): AiChatMessage[] {
   return (data.items ?? data.messages ?? []).map(normalizeMessage);
 }
 
-function getValidationIssues(err: unknown) {
-  const response = err as {
-    response?: {
-      data?: ApiErrorBody;
-    };
-  };
-  const body = response.response?.data;
-  if (body?.error?.code !== "VALIDATION_ERROR") return [];
-  return body.error.details?.issues ?? [];
-}
-
-function includesIssuePath(
-  issues: Array<{ path?: string | string[]; message?: string }>,
-  field: string,
-) {
-  return issues.some((issue) => {
-    const path = Array.isArray(issue.path)
-      ? issue.path.join(".")
-      : issue.path;
-    return path === field || path?.startsWith(`${field}.`);
-  });
-}
-
-function hasUnknownFieldIssue(
-  issues: Array<{ path?: string | string[]; message?: string }>,
-  field: string,
-) {
-  return issues.some((issue) => {
-    const path = Array.isArray(issue.path)
-      ? issue.path.join(".")
-      : issue.path;
-    return (
-      path === field &&
-      /unknown|unrecognized|not allowed|unexpected/i.test(
-        issue.message ?? "",
-      )
-    );
-  });
-}
-
 export async function createAiChatSession(
   payload: CreateAiChatSessionRequest = {},
 ) {
@@ -127,21 +79,21 @@ export async function createAiChatSession(
     title: payload.title?.trim() || undefined,
   });
 
-  let res;
-  try {
-    res = await apiClient.post<ApiResponse<AiChatSessionData>>(
-      "/ai-chat/sessions",
-      body,
-    );
-  } catch (err) {
-    const issues = getValidationIssues(err);
-    if (!hasUnknownFieldIssue(issues, "title")) throw err;
+  const res = await apiClient.post<ApiResponse<AiChatSessionData>>(
+    "/ai-chat/sessions",
+    body,
+  );
+  return { ...res.data, data: { session: unwrapSession(res.data.data) } };
+}
 
-    res = await apiClient.post<ApiResponse<AiChatSessionData>>(
-      "/ai-chat/sessions",
-      {},
-    );
-  }
+export async function updateAiChatSession(
+  sessionId: number,
+  payload: UpdateAiChatSessionRequest,
+) {
+  const res = await apiClient.patch<ApiResponse<AiChatSessionData>>(
+    `/ai-chat/sessions/${sessionId}`,
+    compactParams({ title: payload.title?.trim(), status: payload.status }),
+  );
   return { ...res.data, data: { session: unwrapSession(res.data.data) } };
 }
 
@@ -184,26 +136,11 @@ export async function sendAiChatMessage(
   payload: SendAiChatMessageRequest,
 ) {
   const content = payload.content.trim();
-  let res;
-
-  try {
-    res = await apiClient.post<ApiResponse<SendAiChatMessageResponse>>(
-      `/ai-chat/sessions/${sessionId}/messages`,
-      { content },
-    );
-  } catch (err) {
-    const issues = getValidationIssues(err);
-    const shouldRetryWithMessage =
-      includesIssuePath(issues, "message") ||
-      hasUnknownFieldIssue(issues, "content");
-
-    if (!shouldRetryWithMessage) throw err;
-
-    res = await apiClient.post<ApiResponse<SendAiChatMessageResponse>>(
-      `/ai-chat/sessions/${sessionId}/messages`,
-      { message: content },
-    );
-  }
+  // A validation error can follow saving the user message; never resend it automatically.
+  const res = await apiClient.post<ApiResponse<SendAiChatMessageResponse>>(
+    `/ai-chat/sessions/${sessionId}/messages`,
+    { content },
+  );
 
   return {
     ...res.data,
@@ -215,9 +152,10 @@ export async function sendAiChatMessage(
   };
 }
 
-export async function listAiChatMessages(sessionId: number) {
+export async function listAiChatMessages(sessionId: number, query: AiChatMessagesQuery = {}) {
   const res = await apiClient.get<ApiResponse<AiChatMessagesData>>(
     `/ai-chat/sessions/${sessionId}/messages`,
+    { params: compactParams({ ...query }) },
   );
   return {
     ...res.data,

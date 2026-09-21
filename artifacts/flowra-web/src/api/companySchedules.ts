@@ -60,7 +60,8 @@ function normalizeCreateCompanySchedulePayload(
     ...payload,
     company_id: toOptionalString(payload.company_id),
     description: payload.description || undefined,
-    end_datetime: payload.end_datetime || undefined,
+    start_datetime: toUtcDateTimeParam(payload.start_datetime),
+    end_datetime: toUtcDateTimeParam(payload.end_datetime ?? undefined),
     location: payload.location || undefined,
     target_department_ids:
       targetDepartmentIds && targetDepartmentIds.length > 0
@@ -124,7 +125,14 @@ export async function updateCompanySchedule(
 ) {
   const res = await apiClient.patch<ApiResponse<CompanyScheduleData>>(
     `/company-schedules/${companyScheduleId}`,
-    compactParams(payload as Record<string, unknown>),
+    compactParams({
+      ...payload,
+      start_datetime: toUtcDateTimeParam(payload.start_datetime),
+      end_datetime:
+        payload.end_datetime === null
+          ? null
+          : toUtcDateTimeParam(payload.end_datetime),
+    }),
   );
   return {
     ...res.data,

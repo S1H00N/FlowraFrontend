@@ -43,6 +43,7 @@ import { useCompanyAdminMe } from "@/hooks/useCompanyAdmin";
 import {
   useAcceptMyCompanyInvite,
   useMyCompanyInvites,
+  useRejectMyCompanyInvite,
 } from "@/hooks/useCompanyInvites";
 import {
   useCompanyMemberships,
@@ -1288,6 +1289,8 @@ function formatInviteDate(value?: string) {
 function CompanyInviteInboxSection() {
   const invitesQuery = useMyCompanyInvites();
   const acceptInviteMutation = useAcceptMyCompanyInvite();
+  const rejectInviteMutation = useRejectMyCompanyInvite();
+  const [rejectingInviteId, setRejectingInviteId] = useState<number | null>(null);
   const [acceptingInviteId, setAcceptingInviteId] = useState<number | null>(
     null,
   );
@@ -1301,6 +1304,17 @@ function CompanyInviteInboxSection() {
       /* mutation cache handles toast */
     } finally {
       setAcceptingInviteId(null);
+    }
+  };
+
+  const rejectInvite = async (companyInviteId: number) => {
+    setRejectingInviteId(companyInviteId);
+    try {
+      await rejectInviteMutation.mutateAsync(companyInviteId);
+    } catch {
+      /* mutation cache handles toast */
+    } finally {
+      setRejectingInviteId(null);
     }
   };
 
@@ -1379,7 +1393,7 @@ function CompanyInviteInboxSection() {
                 <button
                   type="button"
                   onClick={() => void acceptInvite(invite.company_invite_id)}
-                  disabled={acceptInviteMutation.isPending}
+                  disabled={acceptInviteMutation.isPending || rejectInviteMutation.isPending}
                   className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-violet-500 px-3 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-600 disabled:opacity-60"
                 >
                   {accepting ? (
@@ -1391,6 +1405,15 @@ function CompanyInviteInboxSection() {
                     <Check className="h-4 w-4" />
                   )}
                   초대 수락
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void rejectInvite(invite.company_invite_id)}
+                  disabled={acceptInviteMutation.isPending || rejectInviteMutation.isPending}
+                  className="mt-2 inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"
+                >
+                  {rejectingInviteId === invite.company_invite_id && <Spinner size="xs" />}
+                  초대 거절
                 </button>
               </li>
             );

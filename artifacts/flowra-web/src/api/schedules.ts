@@ -10,17 +10,22 @@ import type {
   CreateScheduleRequest,
   CreateScheduleShareLinkRequest,
   CreateScheduleShareLinkResponse,
+  DeleteScheduleSeriesRequest,
   JoinScheduleShareLinkResponse,
   Schedule,
   ScheduleShare,
   ScheduleShareLink,
   ScheduleShareLinkPreview,
   ScheduleListQuery,
+  ScheduleSeries,
+  ScheduleSeriesImpact,
   SharedSchedule,
   SharedSchedulesQuery,
   UpdateScheduleShareLinkRequest,
   UpdateScheduleShareRequest,
   UpdateScheduleRequest,
+  UpdateScheduleSeriesRequest,
+  UpdateScheduleSeriesResponse,
 } from "@/types";
 
 type ScheduleListData = Partial<ApiListData<Schedule>> & {
@@ -136,6 +141,45 @@ export async function updateSchedule(
 export async function deleteSchedule(scheduleId: number) {
   const res = await apiClient.delete<ApiResponse<Record<string, never>>>(
     `/schedules/${scheduleId}`,
+  );
+  return res.data;
+}
+
+export async function getScheduleSeries(scheduleId: number) {
+  const res = await apiClient.get<ApiResponse<ScheduleSeries>>(
+    `/schedules/${scheduleId}/series`,
+  );
+  return res.data;
+}
+
+export async function updateScheduleSeries(
+  scheduleId: number,
+  payload: UpdateScheduleSeriesRequest,
+) {
+  const res = await apiClient.patch<ApiResponse<UpdateScheduleSeriesResponse>>(
+    `/schedules/${scheduleId}/series`,
+    compactParams({
+      ...payload,
+      changes: payload.changes ? normalizeSchedulePayload(payload.changes) : undefined,
+    }),
+  );
+  return res.data;
+}
+
+export async function deleteScheduleSeries(
+  scheduleId: number,
+  payload: DeleteScheduleSeriesRequest,
+) {
+  const res = await apiClient.delete<ApiResponse<ScheduleSeriesImpact>>(
+    `/schedules/${scheduleId}/series`,
+    { data: payload },
+  );
+  return res.data;
+}
+
+export async function leaveSharedSchedule(scheduleShareId: number) {
+  const res = await apiClient.post<ApiResponse<Record<string, never>>>(
+    `/shared-schedules/${scheduleShareId}/leave`,
   );
   return res.data;
 }
@@ -275,64 +319,10 @@ export async function listSharedSchedules(query: SharedSchedulesQuery = {}) {
   };
 }
 
-function shouldFallbackBulkDelete(err: unknown) {
-  const response = (
-    err as {
-      response?: {
-        status?: number;
-        data?: {
-          error?: {
-            details?: {
-              issues?: Array<{ path?: string }>;
-            };
-          };
-        };
-      };
-    }
-  ).response;
-  return (
-    response?.status === 400 &&
-    response.data?.error?.details?.issues?.some(
-      (issue) => issue.path === "schedule_id",
-    )
-  );
-}
-
 export async function deleteSchedulesBulk(scheduleIds: Array<number | string>) {
-  try {
-    const res = await apiClient.delete<ApiResponse<DeleteSchedulesBulkData>>(
-      "/schedules/bulk",
-      {
-        data: {
-          schedule_ids: scheduleIds.map((scheduleId) => String(scheduleId)),
-        },
-      },
-    );
-    return res.data;
-  } catch (err) {
-    if (!shouldFallbackBulkDelete(err)) throw err;
-
-    const failedIds: number[] = [];
-    let deletedCount = 0;
-
-    for (const scheduleId of scheduleIds) {
-      const numericId = Number(scheduleId);
-      try {
-        const res = await deleteSchedule(numericId);
-        if (res.success) deletedCount += 1;
-        else failedIds.push(numericId);
-      } catch {
-        failedIds.push(numericId);
-      }
-    }
-
-    return {
-      success: true,
-      message: "일정이 삭제되었습니다.",
-      data: {
-        deleted_count: deletedCount,
-        failed_ids: failedIds,
-      },
-    };
-  }
+  const res = await apiClient.delete<ApiResponse<DeleteSchedulesBulkData>>(
+    "/schedules/bulk",
+    { data: { schedule_ids: scheduleIds.map(String) } },
+  );
+  return res.data;
 }

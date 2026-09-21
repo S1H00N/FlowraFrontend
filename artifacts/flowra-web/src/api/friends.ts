@@ -54,6 +54,13 @@ export async function rejectFriendRequest(friendshipId: number) {
   return res.data;
 }
 
+export async function cancelFriendRequest(friendshipId: number) {
+  const res = await apiClient.post<ApiResponse<Record<string, never>>>(
+    `/friends/requests/${friendshipId}/cancel`,
+  );
+  return res.data;
+}
+
 export async function deleteFriendByPublicUid(publicUid: string) {
   const res = await apiClient.delete<ApiResponse<Record<string, never>>>(
     `/friends/by-public-uid/${encodeURIComponent(publicUid)}`,

@@ -63,6 +63,7 @@ export interface Schedule {
   recurrence_group_id?: string | null;
   recurrence_sequence?: number | null;
   recurrence_rule?: RecurrenceRule | null;
+  recurrence_exception?: boolean;
   source_memo_id?: number | null;
   source_ai_result_id?: number | null;
   source_type?: string | null;
@@ -263,6 +264,41 @@ export interface CreateRecurringScheduleResponse {
   recurrence_rule: RecurrenceRule;
   occurrence_count: number;
   schedules: Schedule[];
+}
+
+export type ScheduleSeriesScope = "single" | "following" | "all";
+
+export interface ScheduleSeries {
+  recurrence_group_id: string;
+  recurrence_rule: RecurrenceRule;
+  schedules: Schedule[];
+}
+
+export interface UpdateScheduleSeriesRequest {
+  scope: ScheduleSeriesScope;
+  changes?: UpdateScheduleRequest;
+  recurrence?: RecurrenceRule;
+  include_exceptions?: boolean;
+  confirm_remove_linked?: boolean;
+}
+
+export interface DeleteScheduleSeriesRequest {
+  scope: ScheduleSeriesScope;
+  confirm_remove_linked?: boolean;
+}
+
+export interface ScheduleSeriesImpact {
+  removed_schedule_ids: number[];
+  unlinked_tasks: number;
+  removed_shares: number;
+  removed_reminders: number;
+  removed_share_links: number;
+}
+
+export interface UpdateScheduleSeriesResponse extends ScheduleSeriesImpact {
+  recurrence_group_id: string;
+  schedules: Schedule[];
+  skipped_exception_ids: number[];
 }
 
 export interface ScheduleListQuery {

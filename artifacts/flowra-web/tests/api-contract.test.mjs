@@ -74,6 +74,35 @@ const api = Object.fromEntries(
 const lastCall = () => calls.at(-1);
 const body = () => JSON.parse(JSON.stringify(lastCall().args[1]));
 
+test("login password boundaries match the authentication DTO", () => {
+  for (const [length, valid] of [[7, false], [8, true], [72, true], [73, false]]) {
+    assert.equal(api.schemas.loginSchema.safeParse({
+      email: "user@example.invalid", password: "a".repeat(length),
+    }).success, valid, `password length ${length}`);
+  }
+});
+
+test("chat cursor pagination and session edits use the current contract", async () => {
+  const pagination = { has_more: true, next_cursor: "opaque-cursor" };
+  response = { sessions: [], pagination };
+  assert.deepEqual((await api.chat.listAiChatSessions({ status: "archived", limit: 30, cursor: "opaque-cursor" })).data.pagination, pagination);
+  assert.deepEqual(body().params, { status: "archived", limit: 30, cursor: "opaque-cursor" });
+  response = { messages: [], pagination };
+  assert.deepEqual((await api.chat.listAiChatMessages(42, { limit: 50, cursor: "older-cursor" })).data.pagination, pagination);
+  assert.deepEqual(body().params, { limit: 50, cursor: "older-cursor" });
+  response = { session: { session_id: 42, status: "archived" } };
+  await api.chat.updateAiChatSession(42, { title: "  Review  ", status: "archived" });
+  assert.deepEqual(lastCall(), { method: "patch", args: ["/ai-chat/sessions/42", { title: "Review", status: "archived" }] });
+});
+
+test("failed chat sends are never repeated with a different body", async (t) => {
+  const failure = { isAxiosError: true, response: { status: 400, data: { error: { code: "VALIDATION_ERROR", details: { issues: [{ path: "content" }] } } } } };
+  const mock = t.mock.method(clientMock, "post", async () => { throw failure; });
+  await assert.rejects(api.chat.sendAiChatMessage(42, { content: "  Review  " }), (error) => error === failure);
+  assert.equal(mock.mock.callCount(), 1);
+  assert.deepEqual(mock.mock.calls[0].arguments, ["/ai-chat/sessions/42/messages", { content: "Review" }]);
+});
+
 test("chat deletion uses the session endpoint and accepts success or no content", async (t) => {
   await api.chat.deleteAiChatSession(42);
   assert.deepEqual(lastCall(), { method: "delete", args: ["/ai-chat/sessions/42"] });

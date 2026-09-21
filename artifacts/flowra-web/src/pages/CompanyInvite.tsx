@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   Building2,
@@ -33,6 +33,7 @@ export default function CompanyInvite() {
   const { isAuthenticated, isInitializing } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const inviteQuery = useQuery({
     queryKey: ["company-invite", token],
@@ -42,9 +43,20 @@ export default function CompanyInvite() {
   });
 
   const acceptMutation = useMutation({
-    mutationFn: () => acceptCompanyInvite(token),
+    mutationFn: async () => {
+      const res = await acceptCompanyInvite(token);
+      if (!res.success) throw new Error(res.message || "초대 수락에 실패했습니다.");
+      return res;
+    },
     onSuccess: (res) => {
       toast.success(res.message || "회사 초대를 수락했습니다.");
+      for (const queryKey of [
+        ["company-invites"], ["company-memberships"], ["company-admin"],
+        ["companies"], ["company-schedules"], ["company-projects"],
+        ["company-schedule-approvals"], ["home", "today"], ["briefings", "today"],
+      ]) {
+        void queryClient.invalidateQueries({ queryKey });
+      }
     },
   });
 

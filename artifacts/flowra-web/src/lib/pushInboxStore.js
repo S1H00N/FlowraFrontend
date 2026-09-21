@@ -60,6 +60,14 @@
           const record = {
             userId, id, recipientId, notificationId, messageId,
             title: title || 'Flowra', body, type: text(data.type) || 'push',
+            data: Object.fromEntries([
+              'target_type', 'resource_type', 'entity_type', 'category',
+              'project_id', 'project_work_item_id', 'task_id', 'schedule_id', 'notice_id',
+              'project_name', 'project_title', 'work_item_title', 'task_title',
+              'target_title', 'schedule_title', 'notice_title',
+              'start_datetime', 'schedule_start_datetime',
+            ].filter((key) => typeof data[key] === 'string' || typeof data[key] === 'number')
+              .map((key) => [key, data[key]])),
             created_at: new Date().toISOString(), read_at: null,
           };
           store.put(record);
@@ -103,5 +111,38 @@
       }
     });
   }
-  globalThis.FlowraPushInbox = { setOwner, save, list, markRead, reconcile };
+  async function remove(userId, localIds, remoteItems = []) {
+    return transaction(['messages'], 'readwrite', (tx) => {
+      const store = tx.objectStore('messages');
+      const ids = new Set(localIds);
+      const deletedAt = new Date().toISOString();
+      // Retain identifiers only, so redelivery and server refetch cannot restore content.
+      const tombstone = (record) => {
+        const { data, ...identifiers } = record;
+        return { ...identifiers, title: '', body: '', deleted_at: deletedAt };
+      };
+      const request = store.getAll(IDBKeyRange.bound([String(userId), ''], [String(userId), '\uffff']));
+      request.onsuccess = () => {
+        for (const record of request.result) {
+          if (ids.has(record.id) || remoteItems.some((item) =>
+            (record.recipientId && record.recipientId === String(item.notification_recipient_id)) ||
+            (record.notificationId && record.notificationId === String(item.notification_id)) ||
+            (record.messageId && record.messageId === item.data?.message_id))) {
+            store.put(tombstone(record));
+          }
+        }
+        for (const item of remoteItems) {
+          const recipientId = String(item.notification_recipient_id);
+          store.put(tombstone({
+            userId: String(userId), id: `recipient:${recipientId}`, recipientId,
+            notificationId: String(item.notification_id),
+            messageId: text(item.data?.message_id), type: item.type,
+            created_at: item.created_at || deletedAt, read_at: item.read_at || null,
+            server_seen: true,
+          }));
+        }
+      };
+    });
+  }
+  globalThis.FlowraPushInbox = { setOwner, save, list, markRead, reconcile, remove };
 })();

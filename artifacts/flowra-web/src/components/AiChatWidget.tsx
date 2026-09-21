@@ -9,6 +9,8 @@ import {
 } from "react";
 import {
   Bot,
+  Archive,
+  ArchiveRestore,
   CalendarPlus,
   CheckCircle2,
   CheckSquare2,
@@ -17,6 +19,7 @@ import {
   Loader2,
   MessageCircle,
   Plus,
+  Pencil,
   Send,
   Sparkles,
   Trash2,
@@ -38,6 +41,7 @@ import {
   useCreateAiChatSession,
   useDeleteAiChatSession,
   useSendAiChatMessage,
+  useUpdateAiChatSession,
 } from "@/hooks/useAiChat";
 import {
   formatAiSuggestedActionDateTime,
@@ -52,6 +56,7 @@ import { canApplyAiAction, isAiActionApplied } from "@/lib/aiActionState";
 import {
   type AiChatMessage,
   type AiChatSession,
+  type AiChatSessionStatus,
   type AiSuggestedAction,
 } from "@/types";
 
@@ -357,7 +362,7 @@ function AiChatMessageBubble({
                   sessionId={sessionId}
                   applied={applied}
                   available={available}
-                  applying={applyingKey === key}
+                  applying={applyingKey !== null}
                   onApply={onApply}
                 />
               );
@@ -378,6 +383,9 @@ function AiChatSessionList({
   deletingId,
   disabled,
   deleteDisabled,
+  hasMore,
+  loadingMore,
+  onLoadMore,
 }: {
   sessions: AiChatSession[];
   activeSessionId: number | null;
@@ -387,6 +395,9 @@ function AiChatSessionList({
   deletingId: number | null;
   disabled: boolean;
   deleteDisabled: boolean;
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
 }) {
   return (
     <aside className="max-h-56 overflow-y-auto border-b border-slate-200 bg-white px-2 py-2 min-[600px]:h-full min-[600px]:max-h-none min-[600px]:w-64 min-[600px]:shrink-0 min-[600px]:border-b-0 min-[600px]:border-r min-[600px]:py-3">
@@ -463,6 +474,12 @@ function AiChatSessionList({
           })}
         </div>
       )}
+      {hasMore && (
+        <Button type="button" variant="ghost" size="sm" className="mt-2 w-full"
+          disabled={loadingMore || disabled} onClick={onLoadMore}>
+          {loadingMore ? "불러오는 중..." : "대화 더 보기"}
+        </Button>
+      )}
     </aside>
   );
 }
@@ -478,15 +495,17 @@ export default function AiChatWidget({
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
   const [preferNewSession, setPreferNewSession] = useState(false);
   const [sessionListOpen, setSessionListOpen] = useState(true);
+  const [sessionStatus, setSessionStatus] = useState<AiChatSessionStatus>("active");
   const [draft, setDraft] = useState("");
   const [pendingContent, setPendingContent] = useState<string | null>(null);
   const [applyingKey, setApplyingKey] = useState<string | null>(null);
   const [appliedKeys, setAppliedKeys] = useState<Set<string>>(() => new Set());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const messageScrollRef = useRef<HTMLDivElement | null>(null);
   const conversationVersion = useRef(0);
 
   const sessionsQuery = useAiChatSessions(
-    { status: "active", limit: SESSION_LIST_LIMIT },
+    { status: sessionStatus, limit: SESSION_LIST_LIMIT },
     open,
   );
   const messagesQuery = useAiChatMessages(activeSessionId, open);
@@ -494,6 +513,7 @@ export default function AiChatWidget({
   const deleteSessionMutation = useDeleteAiChatSession();
   const sendMessageMutation = useSendAiChatMessage();
   const applyActionMutation = useApplyAiChatMessageAction();
+  const updateSessionMutation = useUpdateAiChatSession();
 
   const sessions = sessionsQuery.data ?? [];
   const activeSession = useMemo(
@@ -508,7 +528,8 @@ export default function AiChatWidget({
       return !message || isAiActionApplied(message, index);
     })));
   }, [messagesQuery.dataUpdatedAt]);
-  const busy = createSessionMutation.isPending || sendMessageMutation.isPending || deleteSessionMutation.isPending;
+  const busy = createSessionMutation.isPending || sendMessageMutation.isPending || deleteSessionMutation.isPending || updateSessionMutation.isPending;
+  const archived = activeSession?.status === "archived" || (activeSessionId !== null && sessionStatus === "archived");
   const hasMessages = messages.length > 0 || pendingContent !== null;
 
   useEffect(() => {
@@ -520,13 +541,14 @@ export default function AiChatWidget({
   useEffect(() => {
     if (!open) return;
     messagesEndRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length, open, pendingContent]);
+  }, [messages.at(-1)?.message_id, activeSessionId, open, pendingContent]);
 
   const handleNewSession = () => {
     if (busy) return;
     conversationVersion.current += 1;
     setActiveSessionId(null);
     setPreferNewSession(true);
+    setSessionStatus("active");
     if (window.matchMedia("(max-width: 599px)").matches) {
       setSessionListOpen(false);
     } else {
@@ -569,10 +591,48 @@ export default function AiChatWidget({
     }
   };
 
+  const handleSessionStatus = (status: AiChatSessionStatus) => {
+    if (busy || applyActionMutation.isPending) return;
+    conversationVersion.current += 1;
+    setSessionStatus(status);
+    setActiveSessionId(null);
+    setPreferNewSession(false);
+    setDraft("");
+    setPendingContent(null);
+  };
+
+  const handleRenameSession = async () => {
+    if (!activeSession || busy) return;
+    const title = window.prompt("대화 제목을 입력하세요. (1~100자)", getSessionTitle(activeSession));
+    if (title === null || !title.trim() || title.trim().length > 100) return;
+    try {
+      await updateSessionMutation.mutateAsync({ sessionId: activeSession.session_id, payload: { title: title.trim() } });
+    } catch { /* The mutation cache displays the error. */ }
+  };
+
+  const handleArchiveSession = async () => {
+    if (!activeSession || busy || applyActionMutation.isPending) return;
+    const status = archived ? "active" : "archived";
+    try {
+      await updateSessionMutation.mutateAsync({ sessionId: activeSession.session_id, payload: { status } });
+      setSessionStatus(status);
+    } catch { /* Keep the selected conversation on failure. */ }
+  };
+
+  const handleLoadOlderMessages = async () => {
+    const scroll = messageScrollRef.current;
+    const height = scroll?.scrollHeight ?? 0;
+    const top = scroll?.scrollTop ?? 0;
+    await messagesQuery.fetchNextPage();
+    requestAnimationFrame(() => {
+      if (scroll) scroll.scrollTop = top + scroll.scrollHeight - height;
+    });
+  };
+
   const handleSubmit = async (event?: FormEvent) => {
     event?.preventDefault();
     const content = draft.trim();
-    if (!content || busy) return;
+    if (!content || busy || archived) return;
     const version = conversationVersion.current;
 
     setDraft("");
@@ -596,8 +656,11 @@ export default function AiChatWidget({
         sessionId,
         payload: { content },
       });
-    } catch {
-      if (conversationVersion.current === version) setDraft(content);
+    } catch (error) {
+      if (conversationVersion.current === version) {
+        setDraft(content);
+        if (getErrorCode(error) === "AI_CHAT_SESSION_ARCHIVED") setSessionStatus("archived");
+      }
     } finally {
       if (conversationVersion.current === version) setPendingContent(null);
     }
@@ -619,7 +682,7 @@ export default function AiChatWidget({
     categoryId: number | "";
   }) => {
     const key = `${messageId}:${actionIndex}`;
-    if (deleteSessionMutation.isPending) return;
+    if (deleteSessionMutation.isPending || applyActionMutation.isPending || archived) return;
     setApplyingKey(key);
 
     try {
@@ -642,6 +705,9 @@ export default function AiChatWidget({
         appliedIndexes.forEach((index) => next.add(`${messageId}:${index}`));
         return next;
       });
+    } catch (error) {
+      if (getErrorCode(error) === "AI_CHAT_SESSION_ARCHIVED") setSessionStatus("archived");
+      throw error;
     } finally {
       setApplyingKey(null);
     }
@@ -693,6 +759,18 @@ export default function AiChatWidget({
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              {activeSession && (
+                <>
+                  <Button type="button" variant="ghost" size="icon" aria-label="대화 제목 수정"
+                    disabled={busy} onClick={() => void handleRenameSession()}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button type="button" variant="ghost" size="icon" aria-label={archived ? "대화 복원" : "대화 보관"}
+                    disabled={busy || applyActionMutation.isPending} onClick={() => void handleArchiveSession()}>
+                    {archived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
+                  </Button>
+                </>
+              )}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -740,6 +818,12 @@ export default function AiChatWidget({
               </Tooltip>
             </div>
           </header>
+          <div className="flex gap-2 border-b border-slate-200 px-3 py-1">
+            <Button type="button" size="sm" variant={sessionStatus === "active" ? "secondary" : "ghost"}
+              disabled={busy || applyActionMutation.isPending} onClick={() => handleSessionStatus("active")}>진행 중인 대화</Button>
+            <Button type="button" size="sm" variant={sessionStatus === "archived" ? "secondary" : "ghost"}
+              disabled={busy || applyActionMutation.isPending} onClick={() => handleSessionStatus("archived")}>보관한 대화</Button>
+          </div>
 
           <div className="min-h-0 flex flex-1 flex-col min-[600px]:flex-row">
             {sessionListOpen && (
@@ -752,11 +836,20 @@ export default function AiChatWidget({
                 activeSessionId={activeSessionId}
                 isLoading={sessionsQuery.isLoading}
                 onSelect={handleSelectSession}
+                hasMore={sessionsQuery.hasNextPage}
+                loadingMore={sessionsQuery.isFetchingNextPage}
+                onLoadMore={() => void sessionsQuery.fetchNextPage()}
               />
             )}
 
             <div className="min-h-0 flex flex-1 flex-col">
-              <div data-flowra-ai-chat-messages className="min-h-0 flex-1 overflow-y-auto bg-[#f7f8f5] px-4 py-4">
+              <div ref={messageScrollRef} data-flowra-ai-chat-messages className="min-h-0 flex-1 overflow-y-auto bg-[#f7f8f5] px-4 py-4">
+                {messagesQuery.hasNextPage && (
+                  <Button type="button" variant="ghost" size="sm" className="mb-3 w-full"
+                    disabled={messagesQuery.isFetchingNextPage} onClick={() => void handleLoadOlderMessages()}>
+                    {messagesQuery.isFetchingNextPage ? "불러오는 중..." : "이전 메시지 더 보기"}
+                  </Button>
+                )}
                 {!hasMessages ? (
                   <EmptyChatState
                     isLoading={
@@ -771,7 +864,7 @@ export default function AiChatWidget({
                       <AiChatMessageBubble
                         key={message.message_id}
                         message={message}
-                        sessionId={activeSessionId}
+                        sessionId={archived ? null : activeSessionId}
                         appliedKeys={appliedKeys}
                         applyingKey={applyingKey}
                         onApply={handleApply}
@@ -803,12 +896,13 @@ export default function AiChatWidget({
                 className="border-t border-slate-200 bg-white p-3"
                 onSubmit={(event) => void handleSubmit(event)}
               >
+                {archived && <p className="mb-2 text-xs text-slate-500">보관한 대화입니다. 복원하면 메시지 전송과 제안 적용을 이어갈 수 있습니다.</p>}
                 <div className="flex items-end gap-2">
                   <Textarea
                     value={draft}
                     onChange={(event) => setDraft(event.target.value)}
                     onKeyDown={handleKeyDown}
-                    disabled={busy}
+                    disabled={busy || archived}
                     rows={2}
                     placeholder="AI에게 요청하기"
                     className="max-h-28 min-h-11 resize-none py-2.5 text-sm shadow-none"
@@ -818,7 +912,7 @@ export default function AiChatWidget({
                       <Button
                         type="submit"
                         size="icon"
-                        disabled={!draft.trim() || busy}
+                        disabled={!draft.trim() || busy || archived}
                         aria-label="메시지 보내기"
                         className="h-11 w-11 shrink-0 rounded-lg"
                       >

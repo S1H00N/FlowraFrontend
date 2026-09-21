@@ -6,6 +6,7 @@ import type {
   CompanyScheduleApproval,
   CompanyScheduleApprovalActionRequest,
   CompanyScheduleApprovalListQuery,
+  WithdrawCompanyScheduleApprovalData,
 } from "@/types";
 
 type CompanyScheduleApprovalListData =
@@ -125,4 +126,11 @@ export async function rejectCompanyScheduleApproval(
     ...res.data,
     data: { approval: unwrapApproval(res.data.data) },
   };
+}
+
+export async function withdrawCompanyScheduleApproval(approvalId: number) {
+  const res = await apiClient.post<ApiResponse<WithdrawCompanyScheduleApprovalData>>(
+    `/company-schedule-approvals/${approvalId}/withdraw`,
+  );
+  return res.data;
 }

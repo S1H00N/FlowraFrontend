@@ -14,6 +14,7 @@ if (!baseURL) {
 interface RetriableConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
   _skipAuthRefresh?: boolean;
+  _authUserId?: number | null;
 }
 
 interface RefreshResponseData {
@@ -48,6 +49,17 @@ function createRequestId() {
   return `${Date.now().toString(36)}-${Math.random()
     .toString(36)
     .slice(2, 12)}`.slice(0, 40);
+}
+
+function isPublicAuthRequest(config: InternalAxiosRequestConfig) {
+  const pathname = (config.url ?? "").split(/[?#]/, 1)[0];
+  return /\/auth\/(login|signup|refresh|logout|verify-email|resend-verification-email|forgot-password|reset-password)\/?$/.test(pathname);
+}
+
+function prepareRetry(config: RetriableConfig, token: string) {
+  config._retry = true;
+  config.headers.set("Authorization", `Bearer ${token}`);
+  config.headers.set("X-Request-Id", createRequestId());
 }
 
 // ---- Auth failure callback (set by AuthProvider) ----
@@ -101,6 +113,10 @@ async function refreshAccessToken(): Promise<string> {
     throw new Error(res.data?.message || "Failed to refresh token");
   }
 
+  if (authStorage.getRefreshToken() !== refreshToken) {
+    throw new axios.CanceledError("Session changed while refreshing");
+  }
+
   authStorage.setTokens(tokens.access_token, tokens.refresh_token);
   return tokens.access_token;
 }
@@ -112,7 +128,12 @@ function handleAuthFailure() {
 
 // ---- Request interceptor: attach access token ----
 
-apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+apiClient.interceptors.request.use((config: RetriableConfig) => {
+  const userId = authStorage.getUser<{ user_id: number }>()?.user_id ?? null;
+  if (config._retry && config._authUserId !== userId) {
+    throw new axios.CanceledError("Session changed before retrying");
+  }
+  config._authUserId = userId;
   const token = authStorage.getAccessToken();
   if (token) {
     config.headers.set("Authorization", `Bearer ${token}`);
@@ -144,9 +165,22 @@ apiClient.interceptors.response.use(
       !isAuthError ||
       !original ||
       original._retry ||
-      original._skipAuthRefresh
+      original._skipAuthRefresh ||
+      isPublicAuthRequest(original)
     ) {
       return Promise.reject(error);
+    }
+
+    const userId = authStorage.getUser<{ user_id: number }>()?.user_id ?? null;
+    if (original._authUserId !== userId) return Promise.reject(error);
+
+    // A delayed 401 may refer to the token another request already rotated.
+    // Reuse that token instead of revoking its session with a second refresh.
+    const currentToken = authStorage.getAccessToken();
+    if (userId !== null && currentToken &&
+        original.headers.get("Authorization") !== `Bearer ${currentToken}`) {
+      prepareRetry(original, currentToken);
+      return apiClient(original as AxiosRequestConfig);
     }
 
     // No refresh token? Force logout.
@@ -160,8 +194,7 @@ apiClient.interceptors.response.use(
       return new Promise((resolve, reject) => {
         pendingQueue.push({
           resolve: (token: string) => {
-            original._retry = true;
-            original.headers.set("Authorization", `Bearer ${token}`);
+            prepareRetry(original, token);
             resolve(apiClient(original as AxiosRequestConfig));
           },
           reject,
@@ -171,15 +204,16 @@ apiClient.interceptors.response.use(
 
     original._retry = true;
     isRefreshing = true;
+    const refreshToken = authStorage.getRefreshToken();
 
     try {
       const newToken = await refreshAccessToken();
       flushQueue(null, newToken);
-      original.headers.set("Authorization", `Bearer ${newToken}`);
+      prepareRetry(original, newToken);
       return apiClient(original as AxiosRequestConfig);
     } catch (refreshError) {
       flushQueue(refreshError, null);
-      handleAuthFailure();
+      if (authStorage.getRefreshToken() === refreshToken) handleAuthFailure();
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;

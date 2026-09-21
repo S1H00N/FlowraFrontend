@@ -17,6 +17,8 @@ export interface NotificationRecipient {
 }
 
 export interface NotificationsQuery {
+  /** Client inbox option; not an API parameter. */
+  all_pages?: boolean;
   page?: number;
   page_size?: number;
   unread_only?: boolean;

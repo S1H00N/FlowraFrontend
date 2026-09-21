@@ -70,6 +70,7 @@ import {
   useApproveCompanyScheduleApproval,
   useCompanyScheduleApprovals,
   useRejectCompanyScheduleApproval,
+  useWithdrawCompanyScheduleApproval,
 } from "@/hooks/useCompanyScheduleApprovals";
 import { useCategories } from "@/hooks/useCategories";
 import { useFriendPresets } from "@/hooks/useFriendPresets";
@@ -107,6 +108,7 @@ import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import AppShell from "@/components/AppShell";
 import ScheduleLinkedTasks from "@/components/ScheduleLinkedTasks";
+import ScheduleSeriesControl from "@/components/ScheduleSeriesControl";
 import TaskCompletionToggleButton from "@/components/TaskCompletionToggleButton";
 import CustomSelect, {
   type CustomSelectOption,
@@ -2774,17 +2776,17 @@ export function toPayload(form: ScheduleFormState) {
 
   return {
     title: normalizeScheduleTitle(form.title),
-    description: form.description.trim() || undefined,
+    description: form.description.trim() || null,
     schedule_type: form.schedule_type,
     priority: form.priority,
     start_datetime: fromLocalInputValue(form.start_local),
     end_datetime: form.end_local
       ? fromLocalInputValue(form.end_local)
-      : undefined,
+      : null,
     all_day: allDay,
-    location: form.location.trim() || undefined,
+    location: form.location.trim() || null,
     visibility: form.visibility === "private" ? ("private" as const) : undefined,
-    category_id: form.category_id === "" ? undefined : String(form.category_id),
+    category_id: form.category_id === "" ? null : String(form.category_id),
   };
 }
 
@@ -3475,7 +3477,7 @@ export function ScheduleFormPanel({
   mode,
   initial,
   schedule,
-  isPending,
+  isPending: requestPending,
   onClose,
   onDelete,
   deletePending,
@@ -3515,6 +3517,8 @@ export function ScheduleFormPanel({
   floatingStyle: SchedulePanelFloatingStyle;
   panelLayout: SchedulePanelLayout;
 }) {
+  const [seriesPending, setSeriesPending] = useState(false);
+  const isPending = requestPending || seriesPending;
   const ownerInitialForm = formForScheduleOwner(initial, defaultOwner);
   const [form, setForm] = useState<ScheduleFormState>(ownerInitialForm);
   const [allDay, setAllDay] = useState(ownerInitialForm.all_day);
@@ -6792,7 +6796,7 @@ export function ScheduleFormPanel({
               <button
                 type="button"
                 onClick={handleDelete}
-                disabled={deletePending}
+                disabled={deletePending || isPending}
                 aria-label="일정 삭제"
                 title="일정 삭제"
                 className="order-1 inline-flex h-9 w-9 items-center justify-center rounded-md bg-red-50 text-red-500 transition hover:bg-red-100 hover:text-red-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-200 disabled:cursor-not-allowed disabled:opacity-60"
@@ -6822,6 +6826,9 @@ export function ScheduleFormPanel({
           className="min-h-0 flex-1 overflow-y-auto bg-slate-50/70 p-4"
         >
           <div className="space-y-2">
+            {mode === "edit" && schedule?.recurrence_group_id && !schedule.is_shared && (
+              <ScheduleSeriesControl schedule={schedule} changes={toPayload(form)} disabled={isPending || deletePending} onComplete={onClose} onBusyChange={setSeriesPending} />
+            )}
             {mode === "edit" && schedule && onCompletionChange ? (
               <div className="px-1 pb-1">
                 <button
@@ -7909,6 +7916,8 @@ function companyScheduleTargetStatusLabel(status?: string | null) {
       return "반려";
     case "removed":
       return "제외됨";
+    case "withdrawn":
+      return "철회됨";
     case "pending":
       return "승인 대기";
     case "approved":
@@ -7922,7 +7931,7 @@ function companyScheduleStatusClassName(status?: string | null) {
   if (status === "active" || status === "approved") {
     return "border-violet-100 bg-violet-50 text-violet-700";
   }
-  if (status === "rejected" || status === "removed" || status === "cancelled") {
+  if (status === "rejected" || status === "removed" || status === "cancelled" || status === "withdrawn") {
     return "border-red-100 bg-red-50 text-red-700";
   }
   return "border-amber-100 bg-amber-50 text-amber-700";
@@ -7994,6 +8003,7 @@ function CompanyScheduleApprovalPopover({
   actionPending,
   onApprove,
   onReject,
+  onWithdraw,
 }: {
   approverApprovals: CompanyScheduleApproval[];
   requestedApprovals: CompanyScheduleApproval[];
@@ -8001,6 +8011,7 @@ function CompanyScheduleApprovalPopover({
   actionPending?: boolean;
   onApprove: (approval: CompanyScheduleApproval) => void;
   onReject: (approval: CompanyScheduleApproval) => void;
+  onWithdraw: (approval: CompanyScheduleApproval) => void;
 }) {
   const pendingCount = approverApprovals.length + requestedApprovals.length;
 
@@ -8051,6 +8062,11 @@ function CompanyScheduleApprovalPopover({
                     )}
                   </div>
                 </div>
+                {!actionable && approval.status === "pending" && (
+                  <div className="mt-3 flex justify-end">
+                    <button type="button" onClick={() => onWithdraw(approval)} disabled={actionPending || !approvalId} className="inline-flex h-7 items-center justify-center rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50">요청 철회</button>
+                  </div>
+                )}
                 {actionable && (
                   <div className="mt-3 flex justify-end gap-1.5">
                     <button
@@ -11561,6 +11577,7 @@ export default function Schedules() {
     useApproveCompanyScheduleApproval();
   const rejectCompanyScheduleApprovalMutation =
     useRejectCompanyScheduleApproval();
+  const withdrawCompanyScheduleApprovalMutation = useWithdrawCompanyScheduleApproval();
 
   const categoryColors = useMemo(
     () =>
@@ -12477,6 +12494,16 @@ export default function Schedules() {
       .catch(() => undefined);
   };
 
+  const handleWithdrawCompanyScheduleApproval = (approval: CompanyScheduleApproval) => {
+    const approvalId = toPositiveScheduleNumber(getCompanyScheduleApprovalId(approval));
+    if (!approvalId) {
+      toast.error("승인 요청 ID를 찾지 못했습니다.");
+      return;
+    }
+    if (!window.confirm("이 승인 요청을 철회할까요? 생성 요청을 철회하면 일정이 취소됩니다.")) return;
+    void withdrawCompanyScheduleApprovalMutation.mutateAsync(approvalId).catch(() => undefined);
+  };
+
   return (
     <AppShell
       fullBleed
@@ -12658,10 +12685,12 @@ export default function Schedules() {
               }
               actionPending={
                 approveCompanyScheduleApprovalMutation.isPending ||
-                rejectCompanyScheduleApprovalMutation.isPending
+                rejectCompanyScheduleApprovalMutation.isPending ||
+                withdrawCompanyScheduleApprovalMutation.isPending
               }
               onApprove={handleApproveCompanyScheduleApproval}
               onReject={handleRejectCompanyScheduleApproval}
+              onWithdraw={handleWithdrawCompanyScheduleApproval}
             />
           )}
           {!dockedPanelOpen && (

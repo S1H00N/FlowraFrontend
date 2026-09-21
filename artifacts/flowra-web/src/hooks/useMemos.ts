@@ -29,6 +29,11 @@ import type {
 
 export const MEMOS_QUERY_KEY = ["memos"] as const;
 
+export function isMemoParseInFlight(memo: Pick<Memo, "parse_status" | "parse_requested">) {
+  return memo.parse_status === "processing" ||
+    (memo.parse_status === "pending" && memo.parse_requested === true);
+}
+
 export function memosListKey(query: MemoListQuery = {}) {
   return [...MEMOS_QUERY_KEY, "list", query] as const;
 }
@@ -53,9 +58,7 @@ export function useMemos(query: MemoListQuery = {}) {
     },
     refetchInterval: (q) => {
       const data = q.state.data as Memo[] | undefined;
-      const hasInflight = data?.some(
-        (m) => m.parse_status === "pending" || m.parse_status === "processing",
-      );
+      const hasInflight = data?.some(isMemoParseInFlight);
       return hasInflight ? 3000 : false;
     },
   });
@@ -186,10 +189,7 @@ export function useMemoParseResult(memoId: number | null, enabled = true) {
     refetchInterval: (q) => {
       const data = q.state.data as MemoParseResult | undefined;
       if (!data) return false;
-      return data.memo.parse_status === "pending" ||
-        data.memo.parse_status === "processing"
-        ? 3000
-        : false;
+      return isMemoParseInFlight(data.memo) ? 3000 : false;
     },
   });
 }

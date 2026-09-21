@@ -11,6 +11,7 @@ import {
   listMyCompanyProjectCalendarItems,
   listMyCompanyProjectWorkItems,
   updateCompanyProjectWorkAssignment,
+  updateCompanyProject,
 } from "@/api/companyProjects";
 import { COMPANY_SCHEDULES_QUERY_KEY } from "@/hooks/useCompanySchedules";
 import { TODAY_BRIEFING_QUERY_KEY } from "@/hooks/useTodayBriefing";
@@ -34,6 +35,7 @@ import type {
   MyCompanyProjectWorkItemsData,
   MyCompanyProjectWorkItemsQuery,
   UpdateCompanyProjectWorkAssignmentRequest,
+  UpdateCompanyProjectRequest,
 } from "@/types";
 
 export const COMPANY_PROJECTS_QUERY_KEY = ["company-projects"] as const;
@@ -256,6 +258,27 @@ export function useCreateCompanyProject() {
     meta: {
       successMessage: "회사 프로젝트를 추가했습니다.",
       errorMessage: "회사 프로젝트 생성에 실패했습니다.",
+    },
+  });
+}
+
+export function useUpdateCompanyProject() {
+  const invalidate = useInvalidateCompanyProjectSurfaces();
+  return useMutation({
+    mutationFn: async ({ companyProjectId, payload }: {
+      companyProjectId: number;
+      payload: UpdateCompanyProjectRequest;
+    }) => {
+      const res = await updateCompanyProject(companyProjectId, payload);
+      if (!res.success) {
+        throw new Error(res.message || "회사 프로젝트 수정에 실패했습니다.");
+      }
+      return res.data.project;
+    },
+    onSettled: invalidate,
+    meta: {
+      successMessage: "회사 프로젝트를 변경했습니다.",
+      errorMessage: "회사 프로젝트 수정에 실패했습니다.",
     },
   });
 }

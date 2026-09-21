@@ -50,6 +50,12 @@ function companyScheduleMatchesListQuery(
   schedule: CompanySchedule,
   query: CompanyScheduleListQuery,
 ) {
+  if (schedule.status === "pending_approval" || schedule.status === "cancelled") {
+    return false;
+  }
+  if (schedule.approval_status === "pending" || schedule.approval_status === "withdrawn") {
+    return false;
+  }
   const start = dateTimeValue(schedule.start_datetime);
 
   if (query.start_from || query.start_to) {
@@ -227,6 +233,7 @@ export function useUpdateCompanyDepartmentApprovalDelegateMode() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: COMPANY_ADMIN_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: ["company-schedule-approvals"] });
     },
   });
 }
@@ -249,6 +256,7 @@ export function useCreateCompanyAdminSchedule() {
       });
       void queryClient.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: COMPANY_ADMIN_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: ["company-schedule-approvals"] });
     },
     meta: {
       successMessage: "회사 일정을 추가했습니다.",

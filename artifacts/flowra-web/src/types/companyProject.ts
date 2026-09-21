@@ -185,6 +185,38 @@ export interface CompanyProjectDetailData {
   detail_policy?: Record<string, unknown>;
 }
 
+export interface UpdateCompanyProjectRequest {
+  name?: string;
+  description?: string | null;
+  status?: CompanyProjectStatus;
+  visibility?: CompanyProjectVisibility;
+  origin_department_id?: string | number | null;
+  planned_start_date?: string | null;
+  planned_end_date?: string | null;
+  actual_start_date?: string | null;
+  actual_end_date?: string | null;
+  completed_at?: string | null;
+}
+
+export interface CompanyProjectMember {
+  project_member_id?: number;
+  company_project_member_id?: number;
+  company_member_id: number;
+  role: string;
+  status?: string;
+  [key: string]: unknown;
+}
+
+export interface CreateCompanyProjectMemberRequest {
+  company_member_id: string | number;
+  role?: string;
+}
+
+export interface UpdateCompanyProjectMemberRequest {
+  role?: string;
+  status?: string;
+}
+
 export interface CompanyProjectGanttQuery {
   mode?: CompanyProjectGanttMode;
   max_depth?: number;

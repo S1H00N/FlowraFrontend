@@ -90,7 +90,7 @@ export async function deleteMemo(memoId: number) {
 
 export async function parseMemo(memoId: number, force = false) {
   const res = await apiClient.post<
-    ApiResponse<Pick<Memo, "memo_id" | "parse_status"> | { memo: Pick<Memo, "memo_id" | "parse_status"> }>
+    ApiResponse<Pick<Memo, "memo_id" | "parse_status"> | { memo: Memo | null }>
   >(
     `/memos/${memoId}/parse`,
     { force },

@@ -16,13 +16,18 @@ export function formatAiSuggestedActionDateTime(
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("ko-KR", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    ...options,
-  });
+  try {
+    return date.toLocaleString("ko-KR", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      ...options,
+    });
+  } catch {
+    // Historical suggestions can contain an invalid timezone; retain the source value.
+    return value;
+  }
 }
 
 export function getSuggestedActions(
@@ -106,11 +111,12 @@ export function getAiSuggestedActionSummaryMeta(action: AiSuggestedAction) {
 
 export function getAiSuggestedActionChatMeta(action: AiSuggestedAction) {
   const meta: string[] = [];
+  const recurrence = action.recurrence;
+  const dateOptions: Intl.DateTimeFormatOptions = recurrence
+    ? { year: "numeric", timeZone: recurrence.timezone || undefined }
+    : {};
 
   if (action.type === "create_schedule") {
-    const dateOptions: Intl.DateTimeFormatOptions = action.recurrence
-      ? { year: "numeric" }
-      : {};
     const start = formatAiSuggestedActionDateTime(action.start_datetime, dateOptions);
     const end = formatAiSuggestedActionDateTime(action.end_datetime, dateOptions);
     if (start) meta.push(end ? `${start} - ${end}` : start);
@@ -136,9 +142,17 @@ export function getAiSuggestedActionChatMeta(action: AiSuggestedAction) {
     meta.push(`${action.recurrence.repeat_interval_days}일마다 반복`);
   }
   if (action.recurrence?.repeat_until) {
-    meta.push(`반복 종료 ${formatAiSuggestedActionDateTime(action.recurrence.repeat_until, {
-      year: "numeric",
-    })}`);
+    meta.push(`반복 종료 ${formatAiSuggestedActionDateTime(action.recurrence.repeat_until, dateOptions)}`);
+  }
+  if (recurrence) {
+    meta.push(recurrence.timezone ? `시간대 ${recurrence.timezone}` : "반복 시간대: 사용자 설정");
+    const weekdays = { monday: "월요일", tuesday: "화요일", wednesday: "수요일", thursday: "목요일", friday: "금요일", saturday: "토요일", sunday: "일요일" };
+    const adjustments = { skip: "제외", move_next_day: "다음 날로 이동", move_previous_day: "이전 날로 이동" };
+    recurrence.weekday_rules?.forEach((rule) => {
+      meta.push(`${weekdays[rule.weekday] ?? rule.weekday} ${adjustments[rule.action] ?? rule.action}`);
+    });
+    if (recurrence.excluded_dates?.length) meta.push(`제외 날짜 ${recurrence.excluded_dates.join(", ")}`);
+    if (recurrence.max_occurrences) meta.push(`생성 한도 ${recurrence.max_occurrences}건`);
   }
   if (action.reminders?.length) {
     meta.push(`알림 ${action.reminders.length}개`);

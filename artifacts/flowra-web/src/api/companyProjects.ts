@@ -10,6 +10,7 @@ import type {
   CompanyProjectGanttData,
   CompanyProjectGanttQuery,
   CompanyProjectListData,
+  CompanyProjectMember,
   CompanyProjectWorkItem,
   CompanyProjectWorkItemChildrenData,
   CompanyProjectWorkItemChildrenQuery,
@@ -18,11 +19,14 @@ import type {
   CompanyProjectWorkRemindersQuery,
   CompanyProjectsQuery,
   CreateCompanyProjectRequest,
+  CreateCompanyProjectMemberRequest,
   CreateCompanyProjectWorkReminderRequest,
   MyCompanyProjectWorkItemsData,
   MyCompanyProjectWorkItemsQuery,
   ProjectCalendarItem,
   UpdateCompanyProjectWorkAssignmentRequest,
+  UpdateCompanyProjectRequest,
+  UpdateCompanyProjectMemberRequest,
 } from "@/types";
 
 type ListResponseData<T> = Partial<ApiListData<T>> & Record<string, unknown>;
@@ -216,6 +220,66 @@ export async function getCompanyProject(companyProjectId: number) {
       detail_policy: res.data.data.detail_policy,
     } satisfies CompanyProjectDetailData,
   };
+}
+
+// These are user API routes; the server checks the project's owner/manager role.
+export async function updateCompanyProject(
+  companyProjectId: number,
+  payload: UpdateCompanyProjectRequest,
+) {
+  const res = await apiClient.patch<ApiResponse<CompanyProjectData>>(
+    `/company-projects/${companyProjectId}`,
+    compactParams({
+      ...payload,
+      origin_department_id:
+        payload.origin_department_id === null
+          ? null
+          : toOptionalString(payload.origin_department_id),
+      completed_at:
+        payload.completed_at ? new Date(payload.completed_at).toISOString() : payload.completed_at,
+    }),
+  );
+  return { ...res.data, data: { project: unwrapProject(res.data.data) } };
+}
+
+export async function listCompanyProjectMembers(companyProjectId: number) {
+  const res = await apiClient.get<ApiResponse<{ members: CompanyProjectMember[] }>>(
+    `/company-projects/${companyProjectId}/members`,
+  );
+  return res.data;
+}
+
+export async function createCompanyProjectMember(
+  companyProjectId: number,
+  payload: CreateCompanyProjectMemberRequest,
+) {
+  const res = await apiClient.post<ApiResponse<{ member: CompanyProjectMember }>>(
+    `/company-projects/${companyProjectId}/members`,
+    compactParams({ ...payload, company_member_id: toOptionalString(payload.company_member_id) }),
+  );
+  return res.data;
+}
+
+export async function updateCompanyProjectMember(
+  companyProjectId: number,
+  projectMemberId: number,
+  payload: UpdateCompanyProjectMemberRequest,
+) {
+  const res = await apiClient.patch<ApiResponse<{ member: CompanyProjectMember }>>(
+    `/company-projects/${companyProjectId}/members/${projectMemberId}`,
+    compactParams({ ...payload }),
+  );
+  return res.data;
+}
+
+export async function removeCompanyProjectMember(
+  companyProjectId: number,
+  projectMemberId: number,
+) {
+  const res = await apiClient.delete<ApiResponse<{ member: CompanyProjectMember }>>(
+    `/company-projects/${companyProjectId}/members/${projectMemberId}`,
+  );
+  return res.data;
 }
 
 export async function getCompanyProjectGantt(

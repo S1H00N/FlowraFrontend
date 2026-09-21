@@ -48,7 +48,10 @@ export function useLeaveCompanyMembership() {
       for (const queryKey of [
         ["company-schedules"],
         ["company-projects"],
+        ["company-schedule-approvals"],
         ["companies"],
+        ["home", "today"],
+        ["briefings", "today"],
         ["users", "me"],
       ]) {
         void queryClient.invalidateQueries({ queryKey });

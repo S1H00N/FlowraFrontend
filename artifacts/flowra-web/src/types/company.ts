@@ -138,6 +138,8 @@ export interface UpdateCompanyScheduleRequest {
 export interface CompanyScheduleApprovalStatusData {
   schedule: CompanySchedule;
   approvals: CompanyScheduleApproval[];
+  change_requests?: unknown[];
+  approval_summary?: Record<string, unknown> | null;
 }
 
 export type CompanyAdminPermission =
@@ -156,7 +158,8 @@ export interface CompanyAdminRole {
 }
 
 export interface CompanyAdminMe {
-  company_admin_id: number;
+  company_admin_id?: number;
+  company_member_id?: number;
   user_id?: number | null;
   user_public_uid?: string | null;
   email: string;
@@ -182,6 +185,7 @@ export interface CompanyAdminDepartment {
   external_department_id?: string | null;
   status?: string;
   schedule_create_policy?: string | null;
+  project_create_policy?: "disabled" | "leader_only" | "members" | null;
   sort_order?: number | null;
   children?: CompanyAdminDepartment[];
   _count?: Record<string, number>;
@@ -234,7 +238,8 @@ export interface CreateCompanyScheduleApiRequest {
 export type CompanyScheduleApprovalStatus =
   | "pending"
   | "approved"
-  | "rejected";
+  | "rejected"
+  | "withdrawn";
 
 export type CompanyScheduleApprovalRole = "approver" | "requested";
 
@@ -276,4 +281,10 @@ export interface CompanyScheduleApprovalListQuery {
 export interface CompanyScheduleApprovalActionRequest {
   comment?: string;
   reason?: string;
+}
+
+export interface WithdrawCompanyScheduleApprovalData {
+  company_schedule_id: number;
+  change_request_id: number | null;
+  status: "withdrawn";
 }

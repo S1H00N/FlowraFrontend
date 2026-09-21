@@ -63,6 +63,22 @@ export interface CreateAiChatSessionRequest {
 export interface AiChatSessionsQuery {
   status?: AiChatSessionStatus;
   limit?: number;
+  cursor?: string;
+}
+
+export interface AiChatMessagesQuery {
+  limit?: number;
+  cursor?: string;
+}
+
+export interface AiChatCursorPagination {
+  has_more: boolean;
+  next_cursor: string | null;
+}
+
+export interface UpdateAiChatSessionRequest {
+  title?: string;
+  status?: AiChatSessionStatus;
 }
 
 export interface SendAiChatMessageRequest {

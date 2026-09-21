@@ -27,23 +27,29 @@ export function mergeInbox(
 ) {
   const matched = new Set<string>();
   let locallyReadServerItems = 0;
-  const notifications: NotificationRecipient[] = remote.map((notification) => {
+  let deletedServerUnread = 0;
+  const notifications: NotificationRecipient[] = remote.flatMap((notification) => {
     const copies = local.filter((item) =>
       (item.recipientId && item.recipientId === String(notification.notification_recipient_id)) ||
       (item.notificationId && item.notificationId === String(notification.notification_id)) ||
       (item.messageId && item.messageId === notification.data?.message_id),
     );
     copies.forEach((item) => matched.add(item.id));
+    if (copies.some((item) => item.deleted_at)) {
+      if (!notification.read_at) deletedServerUnread += 1;
+      return [];
+    }
     const readAt = notification.read_at || copies.find((item) => item.read_at)?.read_at;
     if (!notification.read_at && readAt) locallyReadServerItems += 1;
-    return { ...notification, read_at: readAt, local_push_ids: copies.map((item) => item.id) };
+    return [{ ...notification, read_at: readAt, local_push_ids: copies.map((item) => item.id) }];
   });
-  const pending = local.filter((item) => !matched.has(item.id) && (includeServerReceipts || !item.server_seen));
+  const pending = local.filter((item) => !item.deleted_at && !matched.has(item.id) && (includeServerReceipts || !item.server_seen));
   for (const item of pending) {
     notifications.push({
       notification_recipient_id: 0,
       notification_id: 0,
       type: item.type,
+      data: item.data,
       title: item.title,
       body: item.body,
       created_at: item.created_at,
@@ -55,6 +61,6 @@ export function mergeInbox(
   notifications.sort((a, b) => Date.parse(b.created_at || '') - Date.parse(a.created_at || ''));
   return {
     notifications,
-    unreadCount: Math.max(0, serverUnread - locallyReadServerItems) + pending.filter((item) => !item.read_at).length,
+    unreadCount: Math.max(0, serverUnread - locallyReadServerItems - deletedServerUnread) + pending.filter((item) => !item.read_at).length,
   };
 }

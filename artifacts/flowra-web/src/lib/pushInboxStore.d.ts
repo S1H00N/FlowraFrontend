@@ -1,4 +1,7 @@
+import type { NotificationRecipient } from '@/types';
+
 export interface StoredPushNotification {
+  deleted_at?: string;
   server_seen?: boolean;
   userId: string;
   id: string;
@@ -8,6 +11,7 @@ export interface StoredPushNotification {
   title: string;
   body: string;
   type: string;
+  data?: Record<string, unknown>;
   created_at: string;
   read_at: string | null;
 }
@@ -19,5 +23,6 @@ declare global {
     list(userId: string | number | null): Promise<StoredPushNotification[]>;
     reconcile(userId: string | number, ids: string[]): Promise<void>;
     markRead(userId: string | number, ids: string[]): Promise<void>;
+    remove(userId: string | number, localIds: string[], remoteItems?: NotificationRecipient[]): Promise<void>;
   };
 }

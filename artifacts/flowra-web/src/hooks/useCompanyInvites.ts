@@ -3,6 +3,7 @@ import {
   acceptMyCompanyInviteById,
   getMyCompanyInviteById,
   listMyCompanyInvites,
+  rejectMyCompanyInviteById,
 } from "@/api/companyInvites";
 import { COMPANY_ADMIN_QUERY_KEY } from "@/hooks/useCompanyAdmin";
 import type { CompanyInvite } from "@/types";
@@ -52,12 +53,42 @@ export function useAcceptMyCompanyInvite() {
       return res.data;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: COMPANY_INVITES_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: COMPANY_ADMIN_QUERY_KEY });
+      for (const queryKey of [
+        ["company-memberships"], ["companies"], ["company-schedules"],
+        ["company-projects"], ["company-schedule-approvals"],
+        ["home", "today"], ["briefings", "today"],
+      ]) {
+        void queryClient.invalidateQueries({ queryKey });
+      }
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: COMPANY_INVITES_QUERY_KEY });
     },
     meta: {
       successMessage: "회사 초대를 수락했습니다.",
       errorMessage: "회사 초대 수락에 실패했습니다.",
+    },
+  });
+}
+
+export function useRejectMyCompanyInvite() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (companyInviteId: number) => {
+      const res = await rejectMyCompanyInviteById(companyInviteId);
+      if (!res.success) {
+        throw new Error(res.message || "회사 초대 거절에 실패했습니다.");
+      }
+      return res.data;
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: COMPANY_INVITES_QUERY_KEY });
+    },
+    meta: {
+      successMessage: "회사 초대를 거절했습니다.",
+      errorMessage: "회사 초대 거절에 실패했습니다.",
     },
   });
 }

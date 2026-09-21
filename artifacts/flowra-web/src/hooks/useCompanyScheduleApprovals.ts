@@ -4,9 +4,11 @@ import {
   getCompanyScheduleApproval,
   listCompanyScheduleApprovals,
   rejectCompanyScheduleApproval,
+  withdrawCompanyScheduleApproval,
 } from "@/api/companyScheduleApprovals";
 import { COMPANY_SCHEDULES_QUERY_KEY } from "@/hooks/useCompanySchedules";
 import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
+import { TODAY_BRIEFING_QUERY_KEY } from "@/hooks/useTodayBriefing";
 import type {
   CompanyScheduleApproval,
   CompanyScheduleApprovalActionRequest,
@@ -36,6 +38,7 @@ function useInvalidateCompanyScheduleApprovals() {
     });
     void queryClient.invalidateQueries({ queryKey: COMPANY_SCHEDULES_QUERY_KEY });
     void queryClient.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
+    void queryClient.invalidateQueries({ queryKey: TODAY_BRIEFING_QUERY_KEY });
   };
 }
 
@@ -95,7 +98,7 @@ export function useApproveCompanyScheduleApproval() {
       }
       return res.data.approval;
     },
-    onSuccess: invalidate,
+    onSettled: invalidate,
     meta: {
       successMessage: "회사 일정 요청을 승인했습니다.",
       errorMessage: "회사 일정 승인에 실패했습니다.",
@@ -120,10 +123,30 @@ export function useRejectCompanyScheduleApproval() {
       }
       return res.data.approval;
     },
-    onSuccess: invalidate,
+    onSettled: invalidate,
     meta: {
       successMessage: "회사 일정 요청을 반려했습니다.",
       errorMessage: "회사 일정 반려에 실패했습니다.",
+    },
+  });
+}
+
+export function useWithdrawCompanyScheduleApproval() {
+  const invalidate = useInvalidateCompanyScheduleApprovals();
+
+  return useMutation({
+    mutationFn: async (approvalId: number) => {
+      const res = await withdrawCompanyScheduleApproval(approvalId);
+      if (!res.success) {
+        throw new Error(res.message || "회사 일정 요청 철회에 실패했습니다.");
+      }
+      return res.data;
+    },
+    // A competing approval can settle the request before withdrawal (409).
+    onSettled: invalidate,
+    meta: {
+      successMessage: "회사 일정 요청을 철회했습니다.",
+      errorMessage: "회사 일정 요청 철회에 실패했습니다.",
     },
   });
 }

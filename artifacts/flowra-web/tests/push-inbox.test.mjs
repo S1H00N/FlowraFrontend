@@ -131,3 +131,23 @@ test('server outages can still show previously reconciled browser receipts', () 
   assert.equal(result.notifications.length, 1);
   assert.equal(result.unreadCount, 1);
 });
+
+test('deleted receipts stay hidden, including when the server copy arrives later', () => {
+  const deleted = receipt({ recipientId: '42', deleted_at: '2026-09-16T02:00:00Z' });
+  assert.equal(mergeInbox([], [deleted], 0).notifications.length, 0);
+  const server = { notification_recipient_id: 42, notification_id: 7, title: '알림', read_at: null };
+  const result = mergeInbox([server], [deleted], 1);
+  assert.equal(result.notifications.length, 0);
+  assert.equal(result.unreadCount, 0);
+});
+
+test('deleting one item retains other notifications and their unread counts', () => {
+  const deleted = receipt({ recipientId: '42', deleted_at: '2026-09-16T02:00:00Z', read_at: '2026-09-16T01:00:00Z' });
+  const server = [
+    { notification_recipient_id: 42, notification_id: 7, title: '알림', read_at: null },
+    { notification_recipient_id: 43, notification_id: 8, title: '새 알림', read_at: null },
+  ];
+  const result = mergeInbox(server, [deleted, receipt({ id: 'message:new', messageId: 'new' })], 2);
+  assert.equal(result.notifications.length, 2);
+  assert.equal(result.unreadCount, 2);
+});

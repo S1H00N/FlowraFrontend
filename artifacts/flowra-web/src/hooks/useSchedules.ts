@@ -16,6 +16,7 @@ import {
   getSchedule,
   getScheduleShareLinkPreview,
   joinScheduleShareLink,
+  leaveSharedSchedule,
   listScheduleShareLinks,
   listScheduleShares,
   listSharedSchedules,
@@ -135,7 +136,7 @@ function scheduleMatchesListQuery(
 
   if (query.q?.trim()) {
     const keyword = query.q.trim().toLowerCase();
-    const haystack = [schedule.title, schedule.description, schedule.location]
+    const haystack = [schedule.title, schedule.description]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
@@ -632,6 +633,22 @@ export function useJoinScheduleShareLink() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: SCHEDULES_QUERY_KEY });
       void qc.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
+    },
+  });
+}
+
+export function useLeaveSharedSchedule() {
+  const invalidate = useInvalidateSchedules();
+  return useMutation({
+    mutationFn: async (scheduleShareId: number) => {
+      const res = await leaveSharedSchedule(scheduleShareId);
+      if (!res.success) throw new Error(res.message || "공유 일정 나가기에 실패했습니다.");
+      return res.data;
+    },
+    onSettled: () => invalidate(),
+    meta: {
+      successMessage: "공유 일정에서 나갔습니다.",
+      errorMessage: "공유 일정 나가기에 실패했습니다.",
     },
   });
 }

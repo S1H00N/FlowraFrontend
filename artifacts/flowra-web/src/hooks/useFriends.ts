@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   acceptFriendRequest,
+  cancelFriendRequest,
   createFriendRequest,
   deleteFriendByPublicUid,
   deleteFriendByUserId,
@@ -9,6 +10,7 @@ import {
   rejectFriendRequest,
 } from "@/api/friends";
 import type { CreateFriendRequestPayload } from "@/types";
+import { FRIEND_PRESETS_QUERY_KEY } from "@/hooks/useFriendPresets";
 
 export const FRIENDS_QUERY_KEY = ["friends"] as const;
 
@@ -78,6 +80,7 @@ export function useRejectFriendRequest() {
 
 export function useDeleteFriend() {
   const invalidate = useInvalidateFriends();
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async (
       target: { public_uid: string } | { friend_user_id: number },
@@ -89,6 +92,25 @@ export function useDeleteFriend() {
       if (!res.success) throw new Error(res.message || "친구 삭제에 실패했습니다.");
       return res.data;
     },
-    onSuccess: () => invalidate(),
+    onSuccess: () => Promise.all([
+      invalidate(),
+      qc.invalidateQueries({ queryKey: FRIEND_PRESETS_QUERY_KEY }),
+    ]),
+  });
+}
+
+export function useCancelFriendRequest() {
+  const invalidate = useInvalidateFriends();
+  return useMutation({
+    mutationFn: async (friendshipId: number) => {
+      const res = await cancelFriendRequest(friendshipId);
+      if (!res.success) throw new Error(res.message || "친구 요청 취소에 실패했습니다.");
+      return res.data;
+    },
+    onSettled: () => invalidate(),
+    meta: {
+      successMessage: "친구 요청을 취소했습니다.",
+      errorMessage: "친구 요청 취소에 실패했습니다.",
+    },
   });
 }

@@ -35,6 +35,11 @@ export interface Memo {
   memo_type: MemoType;
   source_type: MemoSourceType;
   parse_status: ParseStatus;
+  parse_requested?: boolean;
+  parse_generation?: number;
+  parse_attempts?: number;
+  parse_lease_until?: string | null;
+  parse_next_attempt_at?: string | null;
   parsed_at?: string | null;
   parse_error_message?: string | null;
   last_ai_result_id?: number | null;

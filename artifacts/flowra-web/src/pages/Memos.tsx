@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import {
   MEMOS_QUERY_KEY,
+  isMemoParseInFlight,
   memoParseResultKey,
   useApplyMemo,
   useCreateMemo,
@@ -961,7 +962,7 @@ function MemoReaderPanel({
             삭제
           </button>
 
-          {status !== "processing" && status !== "pending" && (
+          {!isMemoParseInFlight({ ...memo, parse_status: status }) && (
             <button
               type="button"
               onClick={handleParse}
@@ -1073,10 +1074,12 @@ function EmptyMemoPanel({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-function PendingPanel() {
+function PendingPanel({ requested }: { requested: boolean }) {
   return (
     <div className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-4 text-center text-xs text-slate-400">
-      AI 분석 대기열에 들어갔습니다.
+      {requested
+        ? "AI 분석 대기열에 들어갔습니다."
+        : "아직 AI 분석을 요청하지 않았습니다. 본문의 AI 분석하기를 눌러 주세요."}
     </div>
   );
 }
@@ -2376,10 +2379,10 @@ function MemoAiPanel({
         ) : status === "processing" ? (
           <ProcessingPanel />
         ) : status === "pending" ? (
-          <PendingPanel />
+          <PendingPanel requested={(data?.memo ?? memo).parse_requested === true} />
         ) : status === "failed" ? (
           <FailedPanel
-            message={memo.parse_error_message}
+            message={(data?.memo ?? memo).parse_error_message}
             onRetry={retry}
             retrying={parseMutation.isPending}
           />
@@ -2573,14 +2576,13 @@ export default function Memos() {
           <MemoCreatePanel
             onCreated={(memo) => {
               setTransientMemo(memo);
-              setSelectedMemoId(memo.memo_id);
-              setMode("read");
+              handleSelect(memo.memo_id);
             }}
             onCancel={() => setMode("read")}
           />
         ) : selectedMemo ? (
           <MemoReaderPanel
-            memo={selectedMemo}
+            memo={parseResultQuery.data?.memo ?? selectedMemo}
             parseStatus={selectedStatus}
             latestResult={selectedResult}
             onDeleted={handleDeleted}

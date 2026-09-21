@@ -33,12 +33,17 @@ pnpm.cmd --filter @workspace/flowra-web run test:e2e
 | `tests/e2e/shell.spec.ts` | 사이드바, 설정, 테마, AI 패널, 캘린더 보기 |
 | `tests/e2e/tasks-design.spec.ts` | 할 일 카드, 완료·선택 분리, 검색·필터, 반응형 입력 패널과 포커스 |
 | `tests/e2e/ai-chat-apply.spec.ts` | AI 제안 적용 실패 표시와 재시도 |
+| `tests/e2e/ai-chat-delete.spec.ts` | 삭제 중 메시지 전송·응답 경합과 캐시 복구 |
+| `tests/e2e/company-invites.spec.ts` | 회사 초대 거절과 409 이후 목록 재조회 |
+| `tests/e2e/spec-lifecycle.spec.ts` | 채팅 페이지 조회·제목·보관·복원, 전송 실패 후 재조회, 반복 일정 범위 수정·삭제 |
 | `tests/e2e/layout.spec.ts` | 화면 캡처, 가로 넘침, 하단 메뉴의 콘텐츠·컨트롤 가림, 빈 목록·긴 내용·서버 오류 |
 | `tests/e2e/visual.spec.ts` | 로그인 2개 크기, 데스크톱 메모·공지의 기준 이미지 비교 |
 
 기능 시나리오는 1280×900 데스크톱과 390×844 모바일 에뮬레이션에서 실행합니다.
 레이아웃 검사는 360, 390, 599, 600, 768, 1024, 1280, 1920px 너비를 사용합니다.
 599/600px는 앱의 사이드바·하단 메뉴 전환 경계입니다. 추가로 다크 테마와 공개 인증 화면을 확인합니다.
+
+`test:api`는 `tests/*.test.mjs`의 API 요청·응답 계약, 토큰 갱신 경합, 회사·개인 일정 및 메모 계약, 로컬 알림함을 검사합니다. 최신 API 명세 반영 범위와 이번 검증 결과는 [명세 대조 기록](spec-alignment.md)에 정리합니다.
 
 가상 API는 브라우저 요청을 가로채고, 실제 서비스 API 및 외부 자원 요청을 차단합니다.
 테스트용 API 주소는 `http://qa-api.invalid/api/v1`이며 실제 서버가 아닙니다.

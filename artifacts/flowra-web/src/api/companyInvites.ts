@@ -48,6 +48,13 @@ export async function acceptMyCompanyInviteById(companyInviteId: number) {
   return res.data;
 }
 
+export async function rejectMyCompanyInviteById(companyInviteId: number) {
+  const res = await apiClient.post<ApiResponse<Record<string, never>>>(
+    `/company-memberships/invites/by-id/${companyInviteId}/reject`,
+  );
+  return res.data;
+}
+
 export async function getCompanyInvite(token: string) {
   const res = await apiClient.get<
     ApiResponse<CompanyInvite | { invite: CompanyInvite }>

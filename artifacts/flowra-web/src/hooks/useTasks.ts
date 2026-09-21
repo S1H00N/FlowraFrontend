@@ -78,12 +78,14 @@ function taskMatchesListQuery(task: Task, query: TaskListQuery) {
   if (!matchesFilter(query.category_id, task.category_id)) return false;
   if (!matchesFilter(query.schedule_id, task.schedule_id)) return false;
 
-  if (query.schedule_filter === "linked" && !task.schedule_id) return false;
-  if (query.schedule_filter === "unlinked" && task.schedule_id) return false;
+  if (!query.schedule_id) {
+    if (query.schedule_filter === "linked" && !task.schedule_id) return false;
+    if (query.schedule_filter === "unlinked" && task.schedule_id) return false;
+  }
 
   if (query.q?.trim()) {
     const keyword = query.q.trim().toLowerCase();
-    const haystack = [task.title, task.description, task.location]
+    const haystack = [task.title, task.description]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();

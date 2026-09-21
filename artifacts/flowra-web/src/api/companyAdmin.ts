@@ -244,8 +244,7 @@ function companyAdminMeFromMembership(
   const department = membershipDepartment(membership);
 
   return {
-    company_admin_id:
-      toPositiveNumber(membership.company_member_id) ?? company.company_id,
+    company_member_id: toPositiveNumber(membership.company_member_id) ?? undefined,
     user_id: toPositiveNumber(membership.user_id),
     user_public_uid: membership.user_public_uid ?? null,
     email: membership.email ?? "",
