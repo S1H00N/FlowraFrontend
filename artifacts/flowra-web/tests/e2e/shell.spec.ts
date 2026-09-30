@@ -59,7 +59,7 @@ test('주요 메뉴를 클릭해 이동하고 브라우저 뒤로가기로 돌�
     : sidebar(page).getByRole('navigation');
 
   for (const [label, path] of [
-    ['할일', '/tasks'],
+    ['할 일', '/tasks'],
     ['캘린더', '/schedules'],
     ['메모', '/memos'],
     ['공지사항', '/notices'],

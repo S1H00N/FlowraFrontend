@@ -38,6 +38,9 @@ import CustomSelect, {
   type CustomSelectOption,
 } from "@/components/ui/CustomSelect";
 import TaskCompletionToggleButton from "@/components/TaskCompletionToggleButton";
+import "@/components/tasks/TaskReorder.css";
+import { useLinkedTaskDrag, type TaskReorderProps } from "@/hooks/useLinkedTaskDrag";
+import { useScheduleTaskOrder } from "@/hooks/useScheduleTaskOrder";
 import type { Schedule, Task, TaskPriority } from "@/types";
 
 type ScheduleLinkedTasksVariant = "section" | "panel";
@@ -88,9 +91,9 @@ function defaultTaskDueLocal(schedule: Schedule) {
 }
 
 function formatTaskDue(iso?: string | null) {
-  if (!iso) return "마감 없음";
+  if (!iso) return null;
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "마감 없음";
+  if (Number.isNaN(date.getTime())) return null;
 
   return date.toLocaleString("ko-KR", {
     month: "short",
@@ -101,22 +104,12 @@ function formatTaskDue(iso?: string | null) {
 }
 
 function formatTaskDueCompact(iso?: string | null) {
-  if (!iso) return "마감 없음";
+  if (!iso) return null;
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "마감 없음";
+  if (Number.isNaN(date.getTime())) return null;
   const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
 
   return `${pad(date.getMonth() + 1)}.${pad(date.getDate())}(${weekdays[date.getDay()]}) ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function sortLinkedTasks(tasks: Task[]) {
-  return [...tasks].sort((a, b) => {
-    if (a.status === "done" && b.status !== "done") return 1;
-    if (a.status !== "done" && b.status === "done") return -1;
-    const aDue = a.due_datetime ? new Date(a.due_datetime).getTime() : Infinity;
-    const bDue = b.due_datetime ? new Date(b.due_datetime).getTime() : Infinity;
-    return aDue - bDue;
-  });
 }
 
 function LinkedTaskListItem({
@@ -128,6 +121,7 @@ function LinkedTaskListItem({
   unlinking,
   onUnlink,
   onCompletionChange,
+  reorder,
 }: {
   task: Task;
   highlighted?: boolean;
@@ -137,6 +131,7 @@ function LinkedTaskListItem({
   unlinking?: boolean;
   onUnlink?: () => void;
   onCompletionChange: (completed: boolean) => void;
+  reorder: TaskReorderProps;
 }) {
   const isDone = task.status === "done";
   const classificationSettings = useClassificationSettings();
@@ -145,6 +140,8 @@ function LinkedTaskListItem({
     "taskPriorities",
     task.priority,
   );
+  const dueLabel = formatTaskDue(task.due_datetime);
+  const compactDueLabel = formatTaskDueCompact(task.due_datetime);
   const titleClass = cn(
     "block truncate text-sm font-bold",
     isDone ? "text-slate-400 line-through" : "text-slate-800",
@@ -164,8 +161,18 @@ function LinkedTaskListItem({
   if (compact) {
     return (
       <li
+        data-reorder-drop={reorder.dropPosition ?? undefined}
+        draggable
+        tabIndex={0}
+        aria-label={`${task.title} 순서 변경`}
+        onDragStart={reorder.onDragStart}
+        onDragEnd={reorder.onDragEnd}
+        onDragOver={reorder.onDragOver}
+        onDrop={reorder.onDrop}
+        onKeyDown={reorder.onKeyDown}
         className={cn(
-          "group flex items-start gap-3 rounded-lg border px-3 py-3 transition-colors duration-300",
+          "task-reorderable group flex items-start gap-3 rounded-lg border px-3 py-3 transition-colors duration-300",
+          reorder.dragging && "task-reorder-dragging",
           highlighted
             ? "border-violet-300 bg-violet-50 ring-2 ring-violet-100"
             : isDone
@@ -194,17 +201,18 @@ function LinkedTaskListItem({
             >
               {priorityLabel}
             </span>
-            <span className="inline-flex min-w-0 items-center gap-1 text-xs font-medium text-slate-400">
-              <Clock3 className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">
-                {formatTaskDueCompact(task.due_datetime)}
+            {compactDueLabel && (
+              <span className="inline-flex min-w-0 items-center gap-1 text-xs font-medium text-slate-400">
+                <Clock3 className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{compactDueLabel}</span>
               </span>
-            </span>
+            )}
           </div>
         </div>
         {onUnlink ? (
           <button
             type="button"
+            data-task-drag-exclude
             onClick={onUnlink}
             disabled={unlinking}
             aria-label={`${task.title} 연결 해제`}
@@ -220,8 +228,18 @@ function LinkedTaskListItem({
 
   return (
     <li
+      data-reorder-drop={reorder.dropPosition ?? undefined}
+      draggable
+      tabIndex={0}
+      aria-label={`${task.title} 순서 변경`}
+      onDragStart={reorder.onDragStart}
+      onDragEnd={reorder.onDragEnd}
+      onDragOver={reorder.onDragOver}
+      onDrop={reorder.onDrop}
+      onKeyDown={reorder.onKeyDown}
       className={cn(
-        "flex items-start gap-3 rounded-lg border p-3 transition-colors duration-300",
+        "task-reorderable flex items-start gap-3 rounded-lg border p-3 transition-colors duration-300",
+        reorder.dragging && "task-reorder-dragging",
         highlighted
           ? "border-violet-300 bg-violet-50 ring-2 ring-violet-100"
           : "border-slate-200 bg-white",
@@ -243,10 +261,12 @@ function LinkedTaskListItem({
       <div className="min-w-0 flex-1">
         {title}
         <ListCardMeta className="mt-1">
-          <span className="inline-flex items-center gap-1">
-            <CalendarClock className="h-3.5 w-3.5" />
-            {formatTaskDue(task.due_datetime)}
-          </span>
+          {dueLabel && (
+            <span className="inline-flex items-center gap-1">
+              <CalendarClock className="h-3.5 w-3.5" />
+              {dueLabel}
+            </span>
+          )}
           <PriorityMetaChip priority={task.priority}>
             {priorityLabel}
           </PriorityMetaChip>
@@ -272,7 +292,7 @@ function TaskDueDateTimeControl({
     timeFromLocalInput(value) || timeFromLocalInput(fallbackValue) || "09:00";
 
   return (
-    <div className="block">
+    <div className="border-t border-slate-200 pt-3 dark:border-zinc-700">
       <span className="text-xs font-bold text-slate-500">마감시간</span>
       <div className="mt-1 grid grid-cols-[minmax(0,1fr)_5rem] gap-1.5">
         <CompactDateInput
@@ -287,7 +307,7 @@ function TaskDueDateTimeControl({
               ),
             )
           }
-          className="h-10 w-full border-slate-200 bg-white px-3 shadow-sm hover:border-slate-300"
+          className="h-10 w-full border-transparent bg-transparent px-3 shadow-none hover:border-slate-200 hover:bg-white focus-within:border-violet-300 focus-within:bg-white"
         />
         <CompactTimeInput
           value={timeValue}
@@ -297,7 +317,7 @@ function TaskDueDateTimeControl({
               localInputWithTime(value || fallbackValue, nextTime, dateKey),
             )
           }
-          className="h-10 border-slate-200 bg-white px-2 shadow-sm hover:border-slate-300"
+          className="h-10 border-transparent bg-transparent px-2 shadow-none hover:border-slate-200 hover:bg-white focus-within:border-violet-300 focus-within:bg-white"
         />
       </div>
     </div>
@@ -317,7 +337,11 @@ export default function ScheduleLinkedTasks({
   const unlinkTask = useUnlinkTaskFromSchedule();
   const tasksQuery = useTasks({ schedule_id: schedule.schedule_id });
   const tasks = providedTasks ?? tasksQuery.data ?? [];
-  const sortedTasks = useMemo(() => sortLinkedTasks(tasks), [tasks]);
+  const { orderedTasks: sortedTasks, moveTask } = useScheduleTaskOrder(
+    schedule.schedule_id,
+    tasks,
+  );
+  const getReorderProps = useLinkedTaskDrag(sortedTasks, moveTask);
   const scheduleDueLocal = useMemo(
     () => defaultTaskDueLocal(schedule),
     [schedule.end_datetime, schedule.start_datetime],
@@ -408,7 +432,7 @@ export default function ScheduleLinkedTasks({
     setError(null);
 
     if (!trimmedTitle) {
-      setError("할 일 제목을 입력해 주세요.");
+      setError("할 일을 입력해 주세요.");
       titleInputRef.current?.focus();
       return;
     }
@@ -473,13 +497,13 @@ export default function ScheduleLinkedTasks({
       noValidate
       className={cn(
         "space-y-3",
-        variant === "section" && "rounded-lg border border-violet-100 bg-white p-3",
+        variant === "section" && "p-3",
         variant === "panel" && "mt-3",
       )}
     >
       <div className="flex items-end gap-2">
         <label className="block min-w-0 flex-1">
-          <span className="text-xs font-bold text-slate-500">할 일 제목</span>
+          <span className="text-xs font-bold text-slate-500">할 일</span>
           <input
             ref={titleInputRef}
             type="text"
@@ -487,7 +511,7 @@ export default function ScheduleLinkedTasks({
             onChange={(event) => setTitle(event.target.value)}
             placeholder="새 할 일 입력"
             enterKeyHint="done"
-            className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+            className="mt-1 h-10 w-full rounded-md border border-transparent bg-transparent px-3 text-sm outline-none transition hover:border-slate-200 hover:bg-white/60 focus:border-violet-300 focus:bg-white focus:ring-2 focus:ring-violet-100"
           />
         </label>
         <button
@@ -503,7 +527,7 @@ export default function ScheduleLinkedTasks({
         </button>
       </div>
 
-      <div className="grid gap-2">
+      <div className="grid gap-2 border-t border-slate-200 pt-3 dark:border-zinc-700">
         <div className="block">
           <span className="text-xs font-bold text-slate-500">우선순위</span>
           <CustomSelect<TaskPriority>
@@ -513,7 +537,7 @@ export default function ScheduleLinkedTasks({
             ariaLabel="우선순위 선택"
             side={variant === "panel" ? "left" : "bottom"}
             floatingBoundary={variant === "panel" ? "panel" : "trigger"}
-            className="mt-1 h-10 shadow-none"
+            className="mt-1 h-10 rounded-md border-transparent bg-transparent shadow-none hover:border-slate-200 hover:bg-white hover:shadow-none focus-visible:border-violet-300 data-[state=open]:border-violet-300 data-[state=open]:bg-white"
           />
         </div>
 
@@ -527,24 +551,24 @@ export default function ScheduleLinkedTasks({
         />
       </div>
 
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          aria-pressed={syncDueToSchedule}
-          onClick={toggleScheduleDueSync}
-          className={cn(
-            "inline-flex h-9 min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border px-3 text-xs font-bold transition",
-            syncDueToSchedule
-              ? "border-violet-200 bg-violet-50 text-violet-700"
-              : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900",
-          )}
-        >
-          <Check
-            className={cn("h-3.5 w-3.5", !syncDueToSchedule && "opacity-0")}
-          />
-          <span className="truncate">일정 시간에 맞춤</span>
-        </button>
-        {variant === "section" ? (
+      {variant === "section" && (
+        <div className="flex items-center gap-2 border-t border-slate-200 pt-3 dark:border-zinc-700">
+          <button
+            type="button"
+            aria-pressed={syncDueToSchedule}
+            onClick={toggleScheduleDueSync}
+            className={cn(
+              "inline-flex h-9 min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border px-3 text-xs font-bold transition",
+              syncDueToSchedule
+                ? "border-violet-200 bg-violet-50 text-violet-700"
+                : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900",
+            )}
+          >
+            <Check
+              className={cn("h-3.5 w-3.5", !syncDueToSchedule && "opacity-0")}
+            />
+            <span className="truncate">일정 시간에 맞춤</span>
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -556,8 +580,8 @@ export default function ScheduleLinkedTasks({
           >
             취소
           </button>
-        ) : null}
-      </div>
+        </div>
+      )}
     </form>
   ) : (
     <div className="rounded-lg border border-dashed border-slate-200 bg-white px-3 py-4 text-center text-xs font-bold text-slate-500">
@@ -581,6 +605,7 @@ export default function ScheduleLinkedTasks({
             <LinkedTaskListItem
               key={task.task_id}
               task={task}
+              reorder={getReorderProps(task)}
               highlighted={highlightedTaskId === task.task_id}
               updatingCompletion={completionMutation.isPending}
               linkTask={linkTasks}
@@ -662,6 +687,7 @@ export default function ScheduleLinkedTasks({
                   <LinkedTaskListItem
                     key={task.task_id}
                     task={task}
+                    reorder={getReorderProps(task)}
                     compact
                     highlighted={highlightedTaskId === task.task_id}
                     updatingCompletion={completionMutation.isPending}

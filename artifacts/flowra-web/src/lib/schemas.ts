@@ -60,13 +60,10 @@ export const taskSchema = z.object({
   title: z
     .string()
     .trim()
-    .min(1, "제목을 입력하세요.")
-    .max(100, "제목은 100자 이하여야 합니다."),
+    .min(1, "할 일을 입력하세요.")
+    .max(100, "할 일은 100자 이하여야 합니다."),
   priority: z.enum(TASK_PRIORITIES as [TaskPriority, ...TaskPriority[]]),
   status: z.enum(TASK_STATUSES as [TaskStatus, ...TaskStatus[]]),
-  category_id: z
-    .union([z.number().int().positive(), z.literal("")])
-    .optional(),
   due_datetime: z.string().optional().or(z.literal("")),
 });
 export type TaskFormValues = z.infer<typeof taskSchema>;

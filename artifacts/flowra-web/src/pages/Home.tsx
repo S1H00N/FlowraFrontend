@@ -6,14 +6,8 @@ import {
   Clock3,
   Flame,
   MapPin,
-  PanelRight,
-  Rocket,
   Search,
   Siren,
-  Sparkles,
-  Timer,
-  TrendingUp,
-  Zap,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import ProjectWorkItems from "@/components/ProjectWorkItems";
@@ -28,9 +22,6 @@ import { cn } from "@/lib/utils";
 import {
   SCHEDULE_TYPE_LABELS,
   type Category,
-  type HomeAiInsights,
-  type HomeCompletionStreak,
-  type HomeCompletionStreakDay,
   type HomeInsightData,
   type HomeOrganizationSchedule,
   type HomeSchedule,
@@ -42,7 +33,7 @@ import {
 type DashboardFilter = "all" | "urgent" | "high";
 
 type DashboardTask = HomeTask & {
-  dueLabel: string;
+  dueLabel: string | null;
   overdue: boolean;
   tag: string;
 };
@@ -59,8 +50,6 @@ type DashboardSchedule = {
   link: string;
 };
 
-const weekDayLabels = ["월", "화", "수", "목", "금", "토", "일"];
-
 function insightString(insight: HomeInsightData, keys: string[]) {
   for (const key of keys) {
     const value = insight[key];
@@ -75,21 +64,6 @@ function insightNumber(insight: HomeInsightData, keys: string[]) {
     if (typeof value === "number" && Number.isFinite(value)) return value;
   }
   return null;
-}
-
-function clampPercent(value: number) {
-  return Math.min(100, Math.max(0, Math.round(value)));
-}
-
-function insightPercent(
-  insight: HomeInsightData,
-  percentKeys: string[],
-  ratioKeys: string[],
-) {
-  const percent = insightNumber(insight, percentKeys);
-  if (percent !== null) return clampPercent(percent);
-  const ratio = insightNumber(insight, ratioKeys);
-  return ratio === null ? 0 : clampPercent(ratio * 100);
 }
 
 function formatHour(value: number) {
@@ -118,37 +92,6 @@ function focusTimeLabel(insight: HomeInsightData) {
   }
 
   return "추천 데이터 준비 중";
-}
-
-function streakDayLabel(day: HomeCompletionStreakDay, index: number) {
-  if (day.label) return day.label;
-  if (day.date) {
-    const date = new Date(
-      day.date.includes("T") ? day.date : `${day.date}T00:00:00`,
-    );
-    if (!Number.isNaN(date.getTime())) {
-      return date
-        .toLocaleDateString("ko-KR", { weekday: "short" })
-        .replace("요일", "");
-    }
-  }
-  return weekDayLabels[index] ?? String(index + 1);
-}
-
-function streakDayHeight(day: HomeCompletionStreakDay) {
-  if (day.status === "completed") return 100;
-  if (day.status === "pending") return 55;
-  if (day.status === "missed") return 28;
-  return 12;
-}
-
-function sortedStreakWeek(days: HomeCompletionStreakDay[]) {
-  return [...days]
-    .sort((left, right) => {
-      if (!left.date || !right.date) return 0;
-      return left.date.localeCompare(right.date);
-    })
-    .slice(0, 7);
 }
 
 const priorityOrder: Record<TaskPriority, number> = {
@@ -251,7 +194,7 @@ function daysLate(iso?: string | null) {
 }
 
 function formatDueLabel(iso: string | null | undefined) {
-  if (!iso) return "마감 없음";
+  if (!iso) return null;
 
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
@@ -802,14 +745,16 @@ function TaskRow({
       >
         {task.tag}
       </span>
-      <span
-        className={cn(
-          "w-20 shrink-0 text-right text-xs",
-          task.overdue ? "font-medium text-rose-500" : "text-slate-300",
-        )}
-      >
-        {task.dueLabel}
-      </span>
+      {task.dueLabel && (
+        <span
+          className={cn(
+            "w-20 shrink-0 text-right text-xs",
+            task.overdue ? "font-medium text-rose-500" : "text-slate-300",
+          )}
+        >
+          {task.dueLabel}
+        </span>
+      )}
     </div>
   );
 }
@@ -940,211 +885,6 @@ function TaskListPanel({
   );
 }
 
-function InsightCard({
-  icon,
-  label,
-  value,
-  bar,
-  gradient,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  bar: number;
-  gradient: string;
-}) {
-  return (
-    <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-      <div className="mb-2 flex items-center gap-2">
-        <span className="flex h-6 w-6 items-center justify-center text-slate-400">
-          {icon}
-        </span>
-        <div>
-          <p className="text-[10px] text-slate-400">{label}</p>
-          <p className="text-xs font-semibold text-slate-700">{value}</p>
-        </div>
-      </div>
-      <div className="h-1 overflow-hidden rounded-full bg-slate-200">
-        <div
-          className={cn("h-full rounded-full bg-gradient-to-r", gradient)}
-          style={{ width: `${bar}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function RightAiPanel({
-  open,
-  aiInsights,
-  completionStreak,
-  recommendedTask,
-}: {
-  open: boolean;
-  aiInsights: HomeAiInsights;
-  completionStreak: HomeCompletionStreak;
-  recommendedTask?: DashboardTask;
-}) {
-  if (!open) return null;
-
-  const optimalFocusTime = focusTimeLabel(aiInsights.optimal_focus_time);
-  const focusConfidence = insightPercent(
-    aiInsights.optimal_focus_time,
-    ["confidence_percent", "score_percent", "percent"],
-    ["confidence", "score"],
-  );
-  const weeklyCompletionPercent = insightPercent(
-    aiInsights.weekly_completion_rate,
-    ["percent", "percentage", "completion_percent"],
-    ["rate", "completion_rate"],
-  );
-  const hasWeeklyCompletion =
-    Object.keys(aiInsights.weekly_completion_rate).length > 0;
-  const density = aiInsights.schedule_density;
-  const densityValue = density.peak_time_label
-    ? `${density.percent}% · ${density.peak_time_label}`
-    : `${density.percent}%`;
-  const focusPrompt =
-    optimalFocusTime === "추천 데이터 준비 중"
-      ? "우선순위가 높은 작업부터 차분히 시작해보세요."
-      : `${optimalFocusTime} 집중 시간대를 활용해 우선순위가 높은 작업부터 처리해보세요.`;
-  const week = sortedStreakWeek(completionStreak.week);
-
-  return (
-    <aside className="fixed inset-y-0 right-0 z-40 hidden w-[268px] flex-col border-l border-slate-200 bg-white shadow-2xl shadow-slate-900/10 backdrop-blur xl:flex">
-      <div className="flex h-16 shrink-0 items-center border-b border-slate-200 px-4">
-        <span className="text-xs font-semibold text-slate-500">AI 패널</span>
-      </div>
-
-      <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
-        <section>
-          <div className="mb-3 flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-500">
-              AI 인사이트
-            </span>
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-          </div>
-          <div className="space-y-2">
-            <InsightCard
-              icon={<Zap className="h-4 w-4" />}
-              label="최적 집중 시간"
-              value={optimalFocusTime}
-              bar={focusConfidence}
-              gradient="from-violet-400 to-indigo-400"
-            />
-            <InsightCard
-              icon={<TrendingUp className="h-4 w-4" />}
-              label="이번 주 완료율"
-              value={
-                hasWeeklyCompletion ? `${weeklyCompletionPercent}%` : "집계 중"
-              }
-              bar={weeklyCompletionPercent}
-              gradient="from-emerald-400 to-teal-400"
-            />
-            <InsightCard
-              icon={<Timer className="h-4 w-4" />}
-              label="오늘 일정 밀도"
-              value={densityValue}
-              bar={clampPercent(density.percent)}
-              gradient="from-amber-400 to-orange-400"
-            />
-          </div>
-        </section>
-
-        <section className="rounded-xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50 p-4">
-          <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-violet-600">
-            <Sparkles className="h-3.5 w-3.5" />
-            지금 시작하기 좋아요
-          </p>
-          <p className="mb-3 text-xs leading-relaxed text-slate-500">
-            {focusPrompt}
-          </p>
-          {recommendedTask ? (
-            <div className="mb-3 rounded-xl border border-violet-100 bg-white p-3 shadow-sm">
-              <span className="rounded border border-rose-200 bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-600">
-                {priorityConfig[recommendedTask.priority].label}
-              </span>
-              <p className="mt-1.5 text-sm font-semibold leading-snug text-slate-700">
-                {recommendedTask.title}
-              </p>
-              <div className="mt-1.5 flex items-center gap-2">
-                <span
-                  className={cn(
-                    "text-xs",
-                    recommendedTask.overdue
-                      ? "text-rose-500"
-                      : "text-slate-400",
-                  )}
-                >
-                  {recommendedTask.dueLabel}
-                </span>
-              </div>
-            </div>
-          ) : (
-            <div className="mb-3 rounded-xl border border-violet-100 bg-white p-3 text-xs text-slate-400 shadow-sm">
-              추천할 작업이 아직 없습니다.
-            </div>
-          )}
-          <Link
-            to={recommendedTask ? taskLink(recommendedTask) : "/tasks"}
-            className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-violet-600 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-500"
-          >
-            <Rocket className="h-3.5 w-3.5" />
-            바로 시작
-          </Link>
-        </section>
-
-        <section className="rounded-xl border border-slate-100 bg-slate-50 p-4">
-          <p className="mb-3 text-xs font-semibold text-slate-400">
-            이번 주 진행 현황
-          </p>
-          {week.length > 0 ? (
-            <div className="grid h-16 grid-cols-7 gap-1.5">
-              {week.map((day, index) => (
-                <div
-                  key={day.date ?? `${day.status}-${index}`}
-                  className="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-1"
-                  title={day.status}
-                >
-                  <div className="flex min-h-0 items-end">
-                    <div
-                      className={cn(
-                        "w-full rounded-sm",
-                        day.status === "completed" &&
-                          "bg-gradient-to-t from-emerald-500 to-teal-300",
-                        day.status === "missed" && "bg-rose-300",
-                        day.status === "pending" &&
-                          "bg-gradient-to-t from-violet-600 to-indigo-300",
-                        (day.status === "empty" || day.status === "future") &&
-                          "bg-slate-200",
-                      )}
-                      style={{ height: `${streakDayHeight(day)}%` }}
-                    />
-                  </div>
-                  <span
-                    className={cn(
-                      "text-center text-[9px]",
-                      day.status === "pending"
-                        ? "font-semibold text-violet-500"
-                        : "text-slate-300",
-                    )}
-                  >
-                    {streakDayLabel(day, index)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="py-3 text-center text-xs text-slate-300">
-              주간 완료 기록을 집계 중입니다.
-            </p>
-          )}
-        </section>
-      </div>
-    </aside>
-  );
-}
-
 function LoadingDashboard() {
   return (
     <div>
@@ -1167,26 +907,11 @@ export default function Home() {
   const categoriesQuery = useCategories("task");
   const setTaskCompletion = useSetTaskCompletion();
 
-  const [rightOpen, setRightOpen] = useState(true);
-  const [isXlUp, setIsXlUp] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.matchMedia("(min-width: 1280px)").matches;
-  });
   const [filter, setFilter] = useState<DashboardFilter>("all");
   const [search, setSearch] = useState("");
   const [checkedOverrides, setCheckedOverrides] = useState<
     Record<number, boolean>
   >({});
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(min-width: 1280px)");
-    const handleChange = () => setIsXlUp(mediaQuery.matches);
-
-    handleChange();
-    mediaQuery.addEventListener("change", handleChange);
-
-    return () => mediaQuery.removeEventListener("change", handleChange);
-  }, []);
 
   const displayName = meQuery.data?.name ?? cachedUser?.name ?? "사용자";
   const rawTasks = homeQuery.data?.due_today_tasks ?? [];
@@ -1296,13 +1021,6 @@ export default function Home() {
     );
   };
 
-  const rightPanelVisible = isXlUp && rightOpen;
-  const rightPanelOffset = rightPanelVisible ? "268px" : "0px";
-  const headerRightOffset = rightPanelVisible
-    ? "268px"
-    : isXlUp
-      ? "44px"
-      : "0px";
   return (
     <AppShell
       wide
@@ -1314,15 +1032,8 @@ export default function Home() {
           </h1>
         </div>
       }
-      aiChatButtonOffset={rightPanelOffset}
-      headerRightOffset={headerRightOffset}
     >
-      <div
-        className={cn(
-          "transition-[padding] duration-200",
-          rightOpen && "xl:pr-[268px]",
-        )}
-      >
+      <div>
         {homeQuery.isLoading ? (
           <LoadingDashboard />
         ) : homeQuery.isError ? (
@@ -1413,22 +1124,6 @@ export default function Home() {
           </>
         )}
       </div>
-
-      <RightAiPanel
-        open={rightPanelVisible}
-        aiInsights={aiInsights}
-        completionStreak={completionStreak}
-        recommendedTask={recommendedTask}
-      />
-      <button
-        type="button"
-        onClick={() => setRightOpen((open) => !open)}
-        aria-label={rightPanelVisible ? "AI 패널 접기" : "AI 패널 열기"}
-        title={rightPanelVisible ? "AI 패널 접기" : "AI 패널 열기"}
-        className="fixed right-4 top-3.5 z-50 hidden h-9 w-9 shrink-0 items-center justify-center rounded-md bg-transparent text-slate-500 shadow-none transition hover:bg-slate-100 hover:text-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300 xl:inline-flex"
-      >
-        <PanelRight className="h-4 w-4" />
-      </button>
     </AppShell>
   );
 }

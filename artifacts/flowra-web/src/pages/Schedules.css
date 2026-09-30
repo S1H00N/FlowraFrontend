@@ -1,0 +1,10 @@
+/* Keep category colors intact while drawing attention to the chosen day's events. */
+.flowra-calendar-date-focus {
+  outline: 2px solid var(--flowra-primary);
+  outline-offset: 2px;
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--flowra-primary) 20%, transparent));
+}
+
+.flowra-calendar-date-heading {
+  background-color: color-mix(in srgb, var(--flowra-primary) 16%, transparent);
+}

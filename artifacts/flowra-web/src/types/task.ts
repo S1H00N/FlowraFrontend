@@ -72,6 +72,8 @@ export interface UpdateTaskRequest {
 }
 
 export interface TaskListQuery {
+  page?: number;
+  size?: number;
   status?: TaskStatus | TaskStatus[];
   priority?: TaskPriority | TaskPriority[];
   category_id?: string | number | Array<string | number>;

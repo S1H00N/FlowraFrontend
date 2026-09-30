@@ -5,6 +5,8 @@ import { TASKS_QUERY_KEY } from "@/hooks/useTasks";
 import { REMINDERS_QUERY_KEY } from "@/hooks/useReminders";
 import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
 import { TODAY_BRIEFING_QUERY_KEY } from "@/hooks/useTodayBriefing";
+import { syncLinkedTaskDates } from "@/lib/syncLinkedTaskDates";
+import { toast } from "@/lib/toast";
 import type { DeleteScheduleSeriesRequest, ScheduleSeriesImpact, UpdateScheduleSeriesRequest } from "@/types";
 
 export function useScheduleSeries(scheduleId: number | null, enabled = true) {
@@ -38,6 +40,13 @@ export function useUpdateScheduleSeries() {
       const res = await updateScheduleSeries(scheduleId, payload);
       if (!res.success) throw new Error(res.message || "반복 일정 수정에 실패했습니다.");
       return res.data;
+    },
+    onSuccess: async (impact, { payload }) => {
+      if (payload.changes?.start_datetime === undefined && payload.changes?.end_datetime === undefined) return;
+      const results = await Promise.allSettled(impact.schedules.map(syncLinkedTaskDates));
+      if (results.some((result) => result.status === "rejected")) {
+        toast.error("반복 일정 날짜는 변경됐지만 연결된 할 일 날짜를 모두 갱신하지 못했습니다.");
+      }
     },
     onSettled: (impact) => refresh(impact),
     meta: { suppressErrorToast: true },

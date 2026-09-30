@@ -175,6 +175,19 @@ function removeTaskFromListCaches(queryClient: QueryClient, taskId: number) {
     });
 }
 
+function findCachedTask(queryClient: QueryClient, taskId: number) {
+  const detail = queryClient.getQueryData<Task>(taskDetailKey(taskId));
+  if (detail) return detail;
+
+  for (const query of queryClient.getQueryCache().findAll({ queryKey: TASKS_QUERY_KEY })) {
+    if (!taskListQueryFromKey(query.queryKey)) continue;
+    const task = queryClient.getQueryData<Task[]>(query.queryKey)
+      ?.find((item) => item.task_id === taskId);
+    if (task) return task;
+  }
+  return undefined;
+}
+
 function updateTaskCompletionInListCaches(
   queryClient: QueryClient,
   taskId: number,
@@ -278,9 +291,44 @@ export function useUpdateTask() {
       if (!res.success) throw new Error(res.message || "수정에 실패했습니다.");
       return res.data.task;
     },
+    onMutate: async ({ taskId, payload }) => {
+      await queryClient.cancelQueries({ queryKey: TASKS_QUERY_KEY });
+      const previousTask =
+        queryClient.getQueryData<Task>(taskDetailKey(taskId)) ??
+        queryClient
+          .getQueriesData<Task[]>({ queryKey: TASKS_QUERY_KEY })
+          .flatMap(([, tasks]) => tasks ?? [])
+          .find((task) => task.task_id === taskId);
+
+      if (previousTask) {
+        const optimisticTask: Task = {
+          ...previousTask,
+          ...(payload.title !== undefined && { title: payload.title }),
+          ...(payload.priority !== undefined && { priority: payload.priority }),
+          ...(payload.status !== undefined && { status: payload.status }),
+          ...(payload.due_datetime !== undefined && {
+            due_datetime: payload.due_datetime,
+          }),
+        };
+        syncUpdatedTaskToListCaches(queryClient, optimisticTask);
+        queryClient.setQueryData(taskDetailKey(taskId), optimisticTask);
+      }
+
+      return { previousTask };
+    },
     onSuccess: (task) => {
       syncUpdatedTaskToListCaches(queryClient, task);
       queryClient.setQueryData(taskDetailKey(task.task_id), task);
+      invalidate();
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previousTask) {
+        syncUpdatedTaskToListCaches(queryClient, context.previousTask);
+        queryClient.setQueryData(
+          taskDetailKey(context.previousTask.task_id),
+          context.previousTask,
+        );
+      }
       invalidate();
     },
     meta: {
@@ -402,7 +450,6 @@ export function useCompleteTask() {
 }
 
 export function useSetTaskCompletion() {
-  const invalidate = useInvalidateTasks();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
@@ -417,15 +464,37 @@ export function useSetTaskCompletion() {
         throw new Error(res.message || "완료 상태 변경에 실패했습니다.");
       return res.data.task;
     },
-    onMutate: ({ taskId, completed }) => {
-      void queryClient.cancelQueries({ queryKey: TASKS_QUERY_KEY });
+    onMutate: async ({ taskId, completed }) => {
+      await queryClient.cancelQueries({ queryKey: TASKS_QUERY_KEY });
+      const previousTask = findCachedTask(queryClient, taskId);
       updateTaskCompletionInListCaches(queryClient, taskId, completed);
+      queryClient.setQueryData<Task>(taskDetailKey(taskId), (current) =>
+        current
+          ? {
+              ...current,
+              status: completed ? "done" : "todo",
+              completed_at: completed ? toOffsetISOString(new Date()) : null,
+            }
+          : current,
+      );
+      return { previousTask };
     },
     onSuccess: (task) => {
       syncUpdatedTaskToListCaches(queryClient, task);
-      invalidate();
+      queryClient.setQueryData(taskDetailKey(task.task_id), task);
+      void queryClient.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
     },
-    onError: () => invalidate(),
+    onError: (_error, _variables, context) => {
+      if (context?.previousTask) {
+        syncUpdatedTaskToListCaches(queryClient, context.previousTask);
+        queryClient.setQueryData(
+          taskDetailKey(context.previousTask.task_id),
+          context.previousTask,
+        );
+      }
+      void queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
+    },
     meta: {
       successMessage: "완료 상태를 변경했습니다.",
       errorMessage: "완료 상태 변경에 실패했습니다.",

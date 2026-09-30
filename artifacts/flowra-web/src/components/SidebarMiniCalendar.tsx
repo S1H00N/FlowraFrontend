@@ -3,7 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { addDays, addMonths, startOfMonth } from "date-fns";
 import { ChevronDown, RotateCcw } from "lucide-react";
 import { useHolidaysInRange } from "@/hooks/useHolidays";
+import { useSchedules } from "@/hooks/useSchedules";
+import { groupSchedulesByDate } from "@/lib/scheduleDateMeta";
 import { useUserSettings, type WeekStartDay } from "@/lib/userSettings";
+import { toOffsetISOString } from "@/utils/dateUtils";
 import type { Holiday } from "@/types";
 
 type DayMeta = { count: number; hasDeadline: boolean };
@@ -60,6 +63,7 @@ function buildMonthCells(month: Date, weekStart: WeekStartDay) {
 export function MiniCalendar({
   visibleMonth,
   selectedDateKey,
+  selectedDateKeys,
   dateMode,
   dateMeta,
   holidaysByDate,
@@ -70,6 +74,7 @@ export function MiniCalendar({
 }: {
   visibleMonth: Date;
   selectedDateKey: string;
+  selectedDateKeys?: ReadonlySet<string>;
   dateMode: boolean;
   dateMeta?: Map<string, DayMeta>;
   holidaysByDate: Map<string, Holiday[]>;
@@ -105,7 +110,16 @@ export function MiniCalendar({
     <aside className="w-full px-3 pb-3 pt-2">
       <div className="mb-1 flex h-7 items-center justify-between gap-2">
         {isCurrentMonth ? (
-          <span aria-hidden="true" />
+          <span
+            className="text-[10px] text-slate-400"
+            title={
+              selectedDateKeys
+                ? "날짜를 다시 누르면 선택이 해제됩니다"
+                : undefined
+            }
+          >
+            {selectedDateKeys ? "여러 날짜 선택 가능" : null}
+          </span>
         ) : (
           <h2 className="min-w-0 truncate text-sm font-bold text-slate-950">
             {formatMonthTitle(visibleMonth)}
@@ -162,8 +176,10 @@ export function MiniCalendar({
 
         <div className="mt-2 grid grid-cols-7 gap-y-1 overflow-hidden rounded-xl text-center">
           {cells.map(({ date, key, currentMonth }, index) => {
-            const selected = dateMode && selectedDateKey === key;
-            const today = currentMonth && todayKey === key;
+            const selected =
+              dateMode &&
+              (selectedDateKeys?.has(key) ?? selectedDateKey === key);
+            const today = todayKey === key;
             const highlight = selected || today;
             const meta = dateMeta?.get(key);
             const count = meta?.count ?? 0;
@@ -185,14 +201,19 @@ export function MiniCalendar({
                     ? "rounded-r-xl"
                     : ""
                 } ${selectedWeek && !highlight ? "bg-slate-100" : ""} ${
-                  highlight
-                    ? "z-10 rounded-lg !bg-red-500 !text-white shadow-sm"
-                    : currentMonth
-                      ? isHoliday
-                        ? "rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700"
-                        : "text-slate-700 hover:bg-slate-100 hover:text-slate-950"
-                      : "text-slate-300 hover:bg-slate-100 hover:text-slate-500"
-                }`}
+                  today
+                    ? "z-10 rounded-lg !bg-primary !text-primary-foreground shadow-sm"
+                    : selected
+                      ? "z-10 rounded-lg !bg-transparent !text-accent-foreground"
+                      : currentMonth
+                        ? isHoliday
+                          ? "rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700"
+                          : "text-slate-700 hover:rounded-lg hover:!bg-[var(--flowra-border)] hover:text-slate-950"
+                        : "text-slate-300 hover:rounded-lg hover:!bg-[var(--flowra-border)] hover:text-slate-500"
+                } ${selected ? "ring-2 ring-inset ring-primary" : ""}`}
+                aria-current={today ? "date" : undefined}
+                aria-pressed={selected}
+                title={today ? "오늘" : undefined}
                 aria-label={
                   dateMeta
                     ? `${formatFullDate(date)} 일정 ${count}개`
@@ -239,6 +260,22 @@ export default function SidebarMiniCalendar() {
       public_only: true,
     };
   }, [visibleMonth, weekStart]);
+  const scheduleQuery = useMemo(() => {
+    const cells = buildMonthCells(visibleMonth, weekStart);
+    const start = new Date(cells[0].date);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(cells[cells.length - 1].date);
+    end.setHours(23, 59, 59, 999);
+    return {
+      start_from: toOffsetISOString(start),
+      start_to: toOffsetISOString(end),
+    };
+  }, [visibleMonth, weekStart]);
+  const schedulesQuery = useSchedules(scheduleQuery);
+  const dateMeta = useMemo(
+    () => groupSchedulesByDate(schedulesQuery.data ?? []),
+    [schedulesQuery.data],
+  );
   const holidaysQuery = useHolidaysInRange(holidayRange, {
     enabled: showHolidays,
   });
@@ -261,6 +298,7 @@ export default function SidebarMiniCalendar() {
         visibleMonth={visibleMonth}
         selectedDateKey={toDateKey(new Date())}
         dateMode={false}
+        dateMeta={dateMeta}
         holidaysByDate={holidaysByDate}
         weekStart={weekStart}
         onMoveMonth={(amount) =>

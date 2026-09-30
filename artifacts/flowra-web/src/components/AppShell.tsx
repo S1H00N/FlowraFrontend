@@ -2,6 +2,8 @@ import { Link, NavLink, useLocation } from "react-router-dom";
 import {
   Bell,
   CalendarDays,
+  ChevronDown,
+  ChevronUp,
   LayoutDashboard,
   LogOut,
   NotebookPen,
@@ -10,6 +12,7 @@ import {
   CheckSquare2,
 } from "lucide-react";
 import {
+  Fragment,
   useEffect,
   useState,
   type CSSProperties,
@@ -35,7 +38,6 @@ import { formatCompanyAffiliation } from "@/lib/companyAffiliation";
 
 
 const navigation = [
-  { to: "/notices", label: "공지사항", description: "서비스 공지를 확인합니다.", icon: Bell },
   {
     to: "/",
     label: "홈",
@@ -44,7 +46,7 @@ const navigation = [
   },
   {
     to: "/tasks",
-    label: "할일",
+    label: "할 일",
     description: "작업의 우선순위와 상태를 관리합니다.",
     icon: CheckSquare2,
   },
@@ -60,6 +62,7 @@ const navigation = [
     description: "메모를 남기고 AI 분석을 확인합니다.",
     icon: NotebookPen,
   },
+  { to: "/notices", label: "공지사항", description: "서비스 공지를 확인합니다.", icon: Bell },
 ];
 
 const settingsNavigationItem = {
@@ -73,6 +76,7 @@ const sidebarToggleButtonClass =
   "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-transparent text-slate-500 shadow-none transition hover:bg-slate-100 hover:text-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-300";
 
 export const SIDEBAR_COLLAPSED_STORAGE_KEY = "flowra-sidebar-collapsed";
+const MINI_CALENDAR_COLLAPSED_STORAGE_KEY = "flowra-mini-calendar-collapsed";
 
 function ProfileMenu({
   variant,
@@ -214,6 +218,13 @@ export default function AppShell({
       window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true"
     );
   });
+  const [miniCalendarCollapsed, setMiniCalendarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+
+    return (
+      window.localStorage.getItem(MINI_CALENDAR_COLLAPSED_STORAGE_KEY) === "true"
+    );
+  });
 
   const displayName = meQuery.data?.name ?? cachedUser?.name ?? "사용자";
   const displayEmail = meQuery.data?.email ?? cachedUser?.email ?? "";
@@ -254,6 +265,13 @@ export default function AppShell({
     );
     onSidebarCollapsedChange?.(sidebarCollapsed);
   }, [onSidebarCollapsedChange, sidebarCollapsed]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      MINI_CALENDAR_COLLAPSED_STORAGE_KEY,
+      String(miniCalendarCollapsed),
+    );
+  }, [miniCalendarCollapsed]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(min-width: 600px)");
@@ -304,34 +322,19 @@ export default function AppShell({
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-slate-200/80 bg-white/95 shadow-xl backdrop-blur transition-[transform,width,border-color] duration-200 ease-out ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-slate-200/80 bg-white shadow-sm backdrop-blur transition-[transform,width,border-color] duration-200 ease-out ${
           sidebarCollapsed
             ? "min-[600px]:w-16 min-[600px]:translate-x-0 min-[600px]:shadow-none"
             : "min-[600px]:w-64 min-[600px]:translate-x-0 min-[600px]:shadow-none"
         } ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
       >
-        <div
-          className={`flex h-14 shrink-0 items-center border-b border-slate-200 transition-all min-[600px]:h-16 ${
-            showSidebarIconRail
-              ? "justify-center px-0"
-              : "justify-start gap-3 px-5"
-          }`}
-        >
+        <div className="flex h-14 shrink-0 items-center gap-2 border-b border-slate-200 px-4 min-[600px]:h-16 min-[600px]:px-3">
           <button
             type="button"
             aria-label={headerSidebarLabel}
             title={headerSidebarLabel}
-            className={`${sidebarToggleButtonClass} ${
-              showSidebarIconRail ? "min-[600px]:h-10 min-[600px]:w-10" : ""
-            }`}
-            onClick={() => {
-              if (isDesktop) {
-                setSidebarCollapsed((collapsed) => !collapsed);
-                return;
-              }
-
-              setSidebarOpen(false);
-            }}
+            className={`${sidebarToggleButtonClass} min-[600px]:h-10 min-[600px]:w-10`}
+            onClick={handleHeaderSidebarToggle}
           >
             <PanelLeft className="h-4 w-4" />
           </button>
@@ -353,42 +356,80 @@ export default function AppShell({
           }`}
         >
           {!showSidebarIconRail && (
-            <div className="mb-4 border-b border-slate-100 pb-4">
-              {sidebarExtra ?? <SidebarMiniCalendar />}
+            <div className="relative mb-6 border-b border-slate-100">
+              <div
+                id="sidebar-mini-calendar"
+                aria-hidden={miniCalendarCollapsed}
+                inert={miniCalendarCollapsed}
+                className={`grid transition-[grid-template-rows] duration-200 motion-reduce:transition-none ${
+                  miniCalendarCollapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
+                }`}
+              >
+                <div className="min-h-0 overflow-hidden">
+                  <div className="pb-4">
+                    {sidebarExtra ?? <SidebarMiniCalendar />}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMiniCalendarCollapsed((collapsed) => !collapsed)}
+                aria-label={miniCalendarCollapsed ? "미니 캘린더 열기" : "미니 캘린더 접기"}
+                title={miniCalendarCollapsed ? "미니 캘린더 열기" : "미니 캘린더 접기"}
+                aria-expanded={!miniCalendarCollapsed}
+                aria-controls="sidebar-mini-calendar"
+                className={`absolute left-1/2 z-30 flex -translate-x-1/2 items-center justify-center transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 ${
+                  miniCalendarCollapsed
+                    ? "top-0 h-5 w-11 rounded-b-lg bg-violet-600 text-white hover:bg-violet-700"
+                    : "-bottom-1.5 h-3 w-6 rounded-full bg-slate-200 text-slate-400 hover:bg-slate-300 hover:text-slate-600"
+                }`}
+              >
+                {miniCalendarCollapsed ? (
+                  <ChevronDown className="h-4 w-4" />
+                ) : (
+                  <ChevronUp className="h-3 w-3" />
+                )}
+              </button>
             </div>
           )}
 
           {navigation.map((item) => {
             const Icon = item.icon;
             return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === "/"}
-                onClick={closeSidebarOnMobile}
-                aria-label={item.label}
-                title={item.label}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
-                    showSidebarIconRail
-                      ? "min-[600px]:h-10 min-[600px]:justify-center min-[600px]:gap-0 min-[600px]:px-0"
-                      : ""
-                  } ${
-                    isActive
-                      ? "bg-violet-50 text-violet-700"
-                      : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
-                  }`
-                }
-              >
-                <Icon className="h-4 w-4" />
-                <span
-                  className={
-                    showSidebarIconRail ? "min-[600px]:hidden" : undefined
+              <Fragment key={item.to}>
+                {item.to === "/notices" && (
+                  <div aria-hidden="true" className="py-2">
+                    <div className="border-t border-slate-100" />
+                  </div>
+                )}
+                <NavLink
+                  to={item.to}
+                  end={item.to === "/"}
+                  onClick={closeSidebarOnMobile}
+                  aria-label={item.label}
+                  title={item.label}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                      showSidebarIconRail
+                        ? "min-[600px]:h-10 min-[600px]:justify-center min-[600px]:gap-0 min-[600px]:px-0"
+                        : ""
+                    } ${
+                      isActive
+                        ? "bg-violet-50 text-violet-700"
+                        : "text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+                    }`
                   }
                 >
-                  {item.label}
-                </span>
-              </NavLink>
+                  <Icon className="h-4 w-4" />
+                  <span
+                    className={
+                      showSidebarIconRail ? "min-[600px]:hidden" : undefined
+                    }
+                  >
+                    {item.label}
+                  </span>
+                </NavLink>
+              </Fragment>
             );
           })}
         </nav>
@@ -425,7 +466,7 @@ export default function AppShell({
         }
       >
         <header
-          className={`sticky top-0 z-30 border-b border-slate-200/80 bg-slate-50/90 backdrop-blur ${
+          className={`sticky top-0 z-30 border-b border-slate-200/80 bg-white backdrop-blur ${
             fullBleed ? "h-12 min-[600px]:h-16" : "h-14 min-[600px]:h-16"
           }`}
         >
@@ -437,20 +478,23 @@ export default function AppShell({
             }`}
           >
             <div className="relative z-10 flex min-w-0 flex-1 items-center gap-3 overflow-hidden">
-              {(!splitSummaryHeader || !isDesktop || sidebarCollapsed) &&
-                !(isDesktop && sidebarCollapsed) && (
-                  <button
-                    type="button"
-                    aria-label={headerSidebarLabel}
-                    title={headerSidebarLabel}
-                    className={`${sidebarToggleButtonClass} ${
-                      sidebarCollapsed ? "" : "min-[600px]:hidden"
-                    }`}
-                    onClick={handleHeaderSidebarToggle}
-                  >
-                    <PanelLeft className="h-4 w-4" />
-                  </button>
-                )}
+              <div className="flex shrink-0 items-center gap-2 min-[600px]:hidden">
+                <button
+                  type="button"
+                  aria-label={headerSidebarLabel}
+                  title={headerSidebarLabel}
+                  className={sidebarToggleButtonClass}
+                  onClick={handleHeaderSidebarToggle}
+                >
+                  <PanelLeft className="h-4 w-4" />
+                </button>
+                <Link to="/" className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 text-xs font-bold text-white">
+                    F
+                  </span>
+                  <span className="text-sm font-bold text-slate-700">Flowra</span>
+                </Link>
+              </div>
               {splitSummaryHeader ? (
                 <div className="min-w-0 max-w-full overflow-hidden">
                   {summaryParts ? (

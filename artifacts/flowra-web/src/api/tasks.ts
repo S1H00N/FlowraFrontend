@@ -31,6 +31,8 @@ function normalizeTaskPayload<T extends CreateTaskRequest | UpdateTaskRequest>(
 
 function normalizeTaskQuery(query: TaskListQuery) {
   return compactParams({
+    page: query.page,
+    size: query.size,
     status: toCommaParam(query.status),
     priority: toCommaParam(query.priority),
     category_id: toCommaParam(query.category_id),

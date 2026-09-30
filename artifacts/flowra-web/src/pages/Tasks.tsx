@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -9,13 +10,11 @@ import {
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { FloatingPanelPortalProvider } from "@/components/ui/FloatingPanelPortal";
 import {
-  ArrowDownWideNarrow,
-  CheckSquare2,
   ChevronDown,
   Clock3,
+  PanelRight,
   Plus,
   Search,
-  Trash2,
   X,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
@@ -29,6 +28,12 @@ import {
   IndependentTasksSection,
 } from "@/components/tasks/TaskBoardCards";
 import "./Tasks.css";
+import SelectionActionBar from "@/components/tasks/SelectionActionBar";
+import { useListSelection } from "@/hooks/useListSelection";
+import {
+  TaskComposerContext,
+  type TaskComposer,
+} from "@/components/tasks/TaskComposerContext";
 import { useCategories } from "@/hooks/useCategories";
 import {
   useCompanySchedules,
@@ -42,8 +47,13 @@ import {
   useDeleteSchedule,
   useDeleteSchedules,
   useSchedules,
+  useSetScheduleCompletion,
 } from "@/hooks/useSchedules";
-import { useDeleteTasks, useTasks } from "@/hooks/useTasks";
+import {
+  useDeleteTasks,
+  useTasks,
+  useSetTaskCompletion,
+} from "@/hooks/useTasks";
 import {
   useCompanyAdminMe,
   useCreateCompanyAdminSchedule,
@@ -76,7 +86,6 @@ import { useUserSettings, type WeekStartDay } from "@/lib/userSettings";
 import { toOffsetISOString } from "@/utils/dateUtils";
 
 type BoardFilter = "all" | "today" | "active" | "completed";
-type BoardSort = "time" | "title";
 
 interface ScheduleGroup {
   key: string;
@@ -225,19 +234,21 @@ function sortIndependentTasks(a: Task, b: Task) {
   return aDue - bDue;
 }
 
-function groupSchedules(
-  schedules: Schedule[],
-  selectedDate: Date,
-  exact: boolean,
-) {
-  if (exact) {
-    return [
-      {
-        key: toDateKey(selectedDate),
-        title: formatFullDate(selectedDate),
-        schedules,
-      },
-    ];
+function groupSchedules(schedules: Schedule[], selectedDates: Date[]) {
+  if (selectedDates.length > 0) {
+    const remaining = new Set(schedules);
+    return selectedDates
+      .map((date) => ({
+        key: toDateKey(date),
+        title: formatFullDate(date),
+        schedules: schedules.filter((schedule) => {
+          if (!remaining.has(schedule) || !scheduleOverlapsDate(schedule, date))
+            return false;
+          remaining.delete(schedule);
+          return true;
+        }),
+      }))
+      .filter((group) => group.schedules.length > 0);
   }
 
   const today = startOfDay(new Date());
@@ -344,12 +355,14 @@ function TaskBoardPanel({
   title,
   children,
   docked,
+  alignWithSchedulePanel = false,
   style,
   onClose,
 }: {
   title: string;
   children: ReactNode;
   docked: boolean;
+  alignWithSchedulePanel?: boolean;
   style: CSSProperties;
   onClose: () => void;
 }) {
@@ -391,6 +404,7 @@ function TaskBoardPanel({
           ref={setPortalContainer}
           className="tasks-add-panel"
           data-docked={docked}
+          data-align-with-schedule-panel={alignWithSchedulePanel}
           style={style}
           aria-describedby={undefined}
           aria-modal={!docked || undefined}
@@ -467,10 +481,12 @@ function TaskBoardPanel({
 function FilterButton({
   active,
   onClick,
+  count,
   children,
 }: {
   active: boolean;
   onClick: () => void;
+  count: number;
   children: ReactNode;
 }) {
   return (
@@ -478,13 +494,14 @@ function FilterButton({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`tasks-filter inline-flex h-8 items-center justify-center rounded-lg px-3 text-xs font-bold transition ${
+      className={`tasks-filter inline-flex items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-semibold transition ${
         active
           ? "flowra-filter-active"
           : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
       }`}
     >
-      {children}
+      <span>{children}</span>
+      <span className="tasks-filter-count">{count}</span>
     </button>
   );
 }
@@ -494,15 +511,30 @@ export default function Tasks() {
   const [selectedDateKey, setSelectedDateKey] = useState(() =>
     toDateKey(new Date()),
   );
-  const [dateMode, setDateMode] = useState(false);
+  const [selectedDateKeys, setSelectedDateKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const dateMode = selectedDateKeys.size > 0;
   const [visibleMonth, setVisibleMonth] = useState(() =>
     startOfMonth(new Date()),
   );
   const [filter, setFilter] = useState<BoardFilter>("all");
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<BoardSort>("time");
-  const [selectionMode, setSelectionMode] = useState(false);
   const workspaceRef = useRef<HTMLDivElement>(null);
+  const {
+    selectedTaskIds,
+    setSelectedTaskIds,
+    selectedScheduleIds,
+    setSelectedScheduleIds,
+    selectionMode,
+    count: selectedCount,
+    clearSelection,
+    selectAllVisible,
+    toggleTaskSelection,
+    onSelectionClickCapture,
+  } = useListSelection(workspaceRef);
+  const [bulkPending, setBulkPending] = useState(false);
+  const bulkLock = useRef(false);
   const boardSearchRef = useRef<HTMLInputElement>(null);
   const headerSearchRef = useRef<HTMLInputElement>(null);
   const [panelGeometry, setPanelGeometry] = useState({
@@ -534,19 +566,21 @@ export default function Tasks() {
     };
   }, []);
 
-  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<number>>(
+  const [scheduleExpansion, setScheduleExpansion] = useState<
+    Map<number, boolean>
+  >(() => new Map());
+  const scheduleGroupListId = useId();
+  const [collapsedScheduleGroups, setCollapsedScheduleGroups] = useState<Set<string>>(
     () => new Set(),
   );
-  const [selectedScheduleIds, setSelectedScheduleIds] = useState<Set<number>>(
-    () => new Set(),
+  const [activeComposer, setActiveComposer] = useState<TaskComposer>(null);
+  const composerContext = useMemo(
+    () => ({ active: activeComposer, setActive: setActiveComposer }),
+    [activeComposer],
   );
-  const [expandedScheduleIds, setExpandedScheduleIds] = useState<Set<number>>(
-    () => new Set(),
-  );
-  const [scheduleAddPanelOpen, setScheduleAddPanelOpen] = useState(false);
-  const [taskPanelScheduleId, setTaskPanelScheduleId] = useState<number | null>(
-    null,
-  );
+  const scheduleAddPanelOpen = activeComposer?.kind === "schedule-add";
+  const taskPanelScheduleId =
+    activeComposer?.kind === "task-panel" ? activeComposer.scheduleId : null;
   useEffect(() => {
     const focusSearch = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "k")
@@ -566,14 +600,35 @@ export default function Tasks() {
     () => fromDateKey(selectedDateKey),
     [selectedDateKey],
   );
+  const filterDates = useMemo(
+    () =>
+      filter === "today"
+        ? [startOfDay(new Date())]
+        : [...selectedDateKeys].sort().map(fromDateKey),
+    [filter, selectedDateKeys],
+  );
+  const calendarSelectedDateKeys = useMemo(
+    () => new Set(filterDates.map(toDateKey)),
+    [filterDates],
+  );
   const queryRange = useMemo(() => {
-    const start = startOfMonth(visibleMonth);
-    const end = endOfMonth(addMonths(visibleMonth, 1));
+    const start = new Date(
+      Math.min(
+        startOfMonth(visibleMonth).getTime(),
+        ...filterDates.map((date) => startOfMonth(date).getTime()),
+      ),
+    );
+    const end = new Date(
+      Math.max(
+        endOfMonth(addMonths(visibleMonth, 1)).getTime(),
+        ...filterDates.map((date) => endOfMonth(date).getTime()),
+      ),
+    );
     return {
       start_from: toOffsetISOString(start),
       start_to: toOffsetISOString(end),
     };
-  }, [visibleMonth]);
+  }, [visibleMonth, filterDates]);
   const schedulesQuery = useSchedules(queryRange);
   const createSchedulesMutation = useCreateSchedules();
   const createShareLinkMutation = useCreateScheduleShareLink();
@@ -589,6 +644,8 @@ export default function Tasks() {
   const deleteCompanyScheduleMutation = useDeleteCompanySchedule();
   const tasksQuery = useTasks();
   const deleteTasksMutation = useDeleteTasks();
+  const taskCompletionMutation = useSetTaskCompletion();
+  const scheduleCompletionMutation = useSetScheduleCompletion();
   const categoriesQuery = useCategories("schedule");
   const classificationSettings = useClassificationSettings();
   const companySchedules = useMemo(
@@ -623,6 +680,15 @@ export default function Tasks() {
     });
     return map;
   }, [tasks]);
+  const expandedScheduleIds = useMemo(
+    () =>
+      new Set(
+        schedules
+          .filter((schedule) => scheduleExpansion.get(schedule.schedule_id) === true)
+          .map((schedule) => schedule.schedule_id),
+      ),
+    [schedules, scheduleExpansion],
+  );
   const taskPanelSchedule = useMemo(
     () =>
       taskPanelScheduleId === null
@@ -683,10 +749,12 @@ export default function Tasks() {
       .filter((schedule) => {
         const linkedTasks = tasksByScheduleId.get(schedule.schedule_id) ?? [];
         const scheduleCompleted = !!schedule.is_completed;
-        const useExactDate = dateMode || filter === "today";
-        const targetDate = filter === "today" ? today : selectedDate;
+        const useExactDate = filterDates.length > 0;
 
-        if (useExactDate && !scheduleOverlapsDate(schedule, targetDate)) {
+        if (
+          useExactDate &&
+          !filterDates.some((date) => scheduleOverlapsDate(schedule, date))
+        ) {
           return false;
         }
         if (
@@ -721,33 +789,29 @@ export default function Tasks() {
         }
         return true;
       })
-      .sort(
-        sort === "title"
-          ? (a, b) =>
-              a.title.localeCompare(b.title, "ko") || sortSchedules(a, b)
-          : sortSchedules,
-      );
+      .sort(sortSchedules);
   }, [
     categoryById,
     classificationSettings,
-    dateMode,
+    filterDates,
     filter,
     schedules,
     search,
-    selectedDate,
     tasksByScheduleId,
-    sort,
   ]);
   const filteredIndependentTasks = useMemo(() => {
     const today = new Date();
     const keyword = search.trim().toLowerCase();
-    const useExactDate = dateMode || filter === "today";
-    const targetDate = filter === "today" ? today : selectedDate;
+    const useExactDate = filterDates.length > 0;
 
     return tasks
       .filter((task) => task.schedule_id == null)
       .filter((task) => {
-        if (useExactDate && !taskDueOnDate(task, targetDate)) return false;
+        if (
+          useExactDate &&
+          !filterDates.some((date) => taskDueOnDate(task, date))
+        )
+          return false;
         if (!useExactDate && taskDueBeforeDate(task, today)) return false;
         if (filter === "active" && task.status === "done") return false;
         if (filter === "completed" && task.status !== "done") return false;
@@ -762,31 +826,20 @@ export default function Tasks() {
 
         return true;
       })
-      .sort(
-        sort === "title"
-          ? (a, b) =>
-              a.title.localeCompare(b.title, "ko") || sortIndependentTasks(a, b)
-          : sortIndependentTasks,
-      );
-  }, [dateMode, filter, search, selectedDate, tasks, sort]);
+      .sort(sortIndependentTasks);
+  }, [filterDates, filter, search, tasks]);
   const groups = useMemo(
-    () =>
-      groupSchedules(
-        filteredSchedules,
-        selectedDate,
-        dateMode || filter === "today",
-      ),
-    [dateMode, filter, filteredSchedules, selectedDate],
+    () => groupSchedules(filteredSchedules, filterDates),
+    [filterDates, filteredSchedules],
   );
-  const visibleTasks = useMemo(
-    () => [
-      ...filteredIndependentTasks,
-      ...filteredSchedules.flatMap(
-        (schedule) => tasksByScheduleId.get(schedule.schedule_id) ?? [],
-      ),
-    ],
-    [filteredIndependentTasks, filteredSchedules, tasksByScheduleId],
-  );
+  const groupHasSelection = (group: ScheduleGroup) =>
+    group.schedules.some(
+      (schedule) =>
+        selectedScheduleIds.has(schedule.schedule_id) ||
+        (tasksByScheduleId.get(schedule.schedule_id) ?? []).some((task) =>
+          selectedTaskIds.has(task.task_id),
+        ),
+    );
   const selectableTaskIds = useMemo(
     () => [
       ...filteredIndependentTasks.map((task) => task.task_id),
@@ -809,10 +862,9 @@ export default function Tasks() {
     () => filteredSchedules.map((schedule) => schedule.schedule_id),
     [filteredSchedules],
   );
-  const selectedTaskCount = selectedTaskIds.size;
-  const selectedScheduleCount = selectedScheduleIds.size;
 
   useEffect(() => {
+    if (bulkPending) return;
     const selectableIds = new Set(selectableTaskIds);
     setSelectedTaskIds((current) => {
       const next = new Set(
@@ -820,9 +872,10 @@ export default function Tasks() {
       );
       return next.size === current.size ? current : next;
     });
-  }, [selectableTaskIds]);
+  }, [selectableTaskIds, bulkPending, setSelectedTaskIds]);
 
   useEffect(() => {
+    if (bulkPending) return;
     const selectableIds = new Set(selectableScheduleIds);
     setSelectedScheduleIds((current) => {
       const next = new Set(
@@ -830,16 +883,83 @@ export default function Tasks() {
       );
       return next.size === current.size ? current : next;
     });
-  }, [selectableScheduleIds]);
+  }, [selectableScheduleIds, bulkPending, setSelectedScheduleIds]);
 
-  const visibleDoneCount = visibleTasks.filter(
-    (task) => task.status === "done",
-  ).length;
-  const visibleTaskCount = visibleTasks.length;
-  const progressPercent =
-    visibleTaskCount > 0
-      ? Math.round((visibleDoneCount / visibleTaskCount) * 100)
-      : 0;
+  const filterCounts = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+    const selectedDates = [...selectedDateKeys].map(fromDateKey);
+    const today = startOfDay(new Date());
+    const countableTasks = (dates: Date[]) => {
+      const visibleScheduleIds = new Set(
+        schedules
+          .filter((schedule) => {
+            if (dates.length > 0) {
+              if (!dates.some((date) => scheduleOverlapsDate(schedule, date)))
+                return false;
+            } else if (new Date(schedule.start_datetime) < today) {
+              return false;
+            }
+            if (!keyword) return true;
+            const category = schedule.category_id
+              ? categoryById.get(schedule.category_id)
+              : null;
+            return [
+              schedule.title,
+              schedule.location,
+              schedule.description,
+              category?.name,
+              getClassificationLabel(
+                classificationSettings,
+                "scheduleTypes",
+                schedule.schedule_type,
+              ),
+              ...(tasksByScheduleId.get(schedule.schedule_id) ?? []).map(
+                (task) => task.title,
+              ),
+            ]
+              .filter(Boolean)
+              .join(" ")
+              .toLowerCase()
+              .includes(keyword);
+          })
+          .map((schedule) => schedule.schedule_id),
+      );
+
+      return tasks.filter((task) => {
+        if (task.schedule_id != null)
+          return visibleScheduleIds.has(task.schedule_id);
+        if (dates.length > 0) {
+          if (!dates.some((date) => taskDueOnDate(task, date))) return false;
+        } else if (taskDueBeforeDate(task, today)) {
+          return false;
+        }
+        return (
+          !keyword ||
+          [task.title, task.description, task.location]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(keyword)
+        );
+      });
+    };
+
+    const scopedTasks = countableTasks(selectedDates);
+    return {
+      all: scopedTasks.length,
+      today: countableTasks([today]).length,
+      active: scopedTasks.filter((task) => task.status !== "done").length,
+      completed: scopedTasks.filter((task) => task.status === "done").length,
+    } satisfies Record<BoardFilter, number>;
+  }, [
+    categoryById,
+    classificationSettings,
+    schedules,
+    search,
+    selectedDateKeys,
+    tasks,
+    tasksByScheduleId,
+  ]);
   const isLoading =
     schedulesQuery.isLoading ||
     tasksQuery.isLoading ||
@@ -867,26 +987,8 @@ export default function Tasks() {
     deleteSchedulesMutation.isPending ||
     deleteCompanyScheduleMutation.isPending;
 
-  const toggleTaskSelection = (taskId: number) => {
-    setSelectedTaskIds((current) => {
-      const next = new Set(current);
-      if (next.has(taskId)) next.delete(taskId);
-      else next.add(taskId);
-      return next;
-    });
-  };
-
   const clearTaskSelection = () => {
     setSelectedTaskIds(new Set());
-  };
-
-  const toggleScheduleSelection = (scheduleId: number) => {
-    setSelectedScheduleIds((current) => {
-      const next = new Set(current);
-      if (next.has(scheduleId)) next.delete(scheduleId);
-      else next.add(scheduleId);
-      return next;
-    });
   };
 
   const clearScheduleSelection = () => {
@@ -895,9 +997,6 @@ export default function Tasks() {
 
   const deleteSelectedTasks = async () => {
     if (selectedTaskIds.size === 0) return;
-    if (!confirm(`선택한 할 일 ${selectedTaskIds.size}개를 삭제할까요?`)) {
-      return;
-    }
 
     try {
       const result = await deleteTasksMutation.mutateAsync([
@@ -921,9 +1020,6 @@ export default function Tasks() {
 
   const deleteSelectedSchedules = async () => {
     if (selectedScheduleIds.size === 0) return;
-    if (!confirm(`선택한 일정 ${selectedScheduleIds.size}개를 삭제할까요?`)) {
-      return;
-    }
 
     try {
       const selectedSchedules = filteredSchedules.filter((schedule) =>
@@ -975,42 +1071,152 @@ export default function Tasks() {
     }
   };
 
+  useEffect(() => {
+    if (!selectionMode) return;
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || bulkLock.current)
+        return;
+      if (
+        document.querySelector(
+          '[role="dialog"], [role="menu"], [role="listbox"], [data-task-editor]',
+        )
+      )
+        return;
+      event.preventDefault();
+      clearSelection();
+    };
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, [selectionMode, clearSelection]);
+
+  const canCompleteSelection = !schedules.some(
+    (schedule) =>
+      selectedScheduleIds.has(schedule.schedule_id) &&
+      schedule.is_company_schedule,
+  );
+  const completeSelection = async (completed: boolean) => {
+    if (bulkLock.current || !canCompleteSelection) return;
+    bulkLock.current = true;
+    setBulkPending(true);
+    const failedTasks = new Set<number>();
+    const failedSchedules = new Set<number>();
+    const items = [
+      ...Array.from(selectedTaskIds, (taskId) => ({ kind: "task" as const, id: taskId })),
+      ...Array.from(selectedScheduleIds, (scheduleId) => ({ kind: "schedule" as const, id: scheduleId })),
+    ];
+    let nextIndex = 0;
+    try {
+      const worker = async () => {
+        while (nextIndex < items.length) {
+          const item = items[nextIndex++];
+          try {
+            if (item.kind === "task") {
+              await taskCompletionMutation.mutateAsync({ taskId: item.id, completed });
+            } else {
+              await scheduleCompletionMutation.mutateAsync({
+                scheduleId: item.id,
+                completed,
+              });
+            }
+          } catch {
+            if (item.kind === "task") failedTasks.add(item.id);
+            else failedSchedules.add(item.id);
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(4, items.length) }, worker));
+      setSelectedTaskIds(failedTasks);
+      setSelectedScheduleIds(failedSchedules);
+      const failed = failedTasks.size + failedSchedules.size;
+      if (failed)
+        toast.error(
+          `${failed}개 항목의 상태 변경에 실패했습니다. 다시 시도해 주세요.`,
+        );
+      else {
+        toast.success(
+          completed
+            ? "선택한 항목을 완료했습니다."
+            : "선택한 항목의 완료를 해제했습니다.",
+        );
+        clearSelection();
+      }
+    } finally {
+      bulkLock.current = false;
+      setBulkPending(false);
+    }
+  };
+
+  const deleteSelection = async () => {
+    if (
+      bulkLock.current ||
+      !confirm(
+        `선택한 ${selectedCount}개 항목을 삭제할까요? 회사 일정은 삭제 요청으로 처리됩니다.`,
+      )
+    )
+      return;
+    bulkLock.current = true;
+    setBulkPending(true);
+    try {
+      // Explicitly selected children are deleted before their parents.
+      await deleteSelectedTasks();
+      await deleteSelectedSchedules();
+    } finally {
+      bulkLock.current = false;
+      setBulkPending(false);
+      boardSearchRef.current?.getClientRects().length
+        ? boardSearchRef.current.focus()
+        : headerSearchRef.current?.focus();
+    }
+  };
+
   const selectDate = (date: Date) => {
     const key = toDateKey(date);
     setSelectedDateKey(key);
     setVisibleMonth(startOfMonth(date));
-    setDateMode(true);
+    setSelectedDateKeys((current) => {
+      const next = new Set(
+        filter === "today" ? [toDateKey(new Date())] : current,
+      );
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
     if (filter === "today") setFilter("all");
   };
 
   const showAll = () => {
-    setDateMode(false);
+    setSelectedDateKeys(new Set());
     setFilter("all");
   };
 
   const toggleSchedule = (scheduleId: number) => {
-    setExpandedScheduleIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(scheduleId)) next.delete(scheduleId);
-      else next.add(scheduleId);
+    setScheduleExpansion((prev) => {
+      const next = new Map(prev);
+      next.set(scheduleId, !prev.get(scheduleId));
       return next;
     });
   };
 
   const openTaskPanel = (scheduleId: number) => {
-    setExpandedScheduleIds((prev) => {
-      const next = new Set(prev);
-      next.add(scheduleId);
+    setScheduleExpansion((prev) => {
+      const next = new Map(prev);
+      next.set(scheduleId, true);
       return next;
     });
-    setScheduleAddPanelOpen(false);
-    setTaskPanelScheduleId(scheduleId);
+    setActiveComposer({ kind: "task-panel", scheduleId });
   };
 
   const openScheduleAddPanel = () => {
-    setTaskPanelScheduleId(null);
-    setScheduleAddPanelOpen(true);
+    setActiveComposer({ kind: "schedule-add" });
   };
+  const closeScheduleAddPanel = () =>
+    setActiveComposer((current) =>
+      current?.kind === "schedule-add" ? null : current,
+    );
+  const closeTaskPanel = () =>
+    setActiveComposer((current) =>
+      current?.kind === "task-panel" ? null : current,
+    );
 
   const deleteScheduleFromBoard = async (schedule: Schedule) => {
     if (schedule.is_company_schedule) {
@@ -1024,8 +1230,8 @@ export default function Tasks() {
       await deleteScheduleMutation.mutateAsync(schedule.schedule_id);
     }
 
-    setExpandedScheduleIds((current) => {
-      const next = new Set(current);
+    setScheduleExpansion((current) => {
+      const next = new Map(current);
       next.delete(schedule.schedule_id);
       return next;
     });
@@ -1035,16 +1241,20 @@ export default function Tasks() {
       next.delete(schedule.schedule_id);
       return next;
     });
-    setTaskPanelScheduleId((current) =>
-      current === schedule.schedule_id ? null : current,
+    setActiveComposer((current) =>
+      current?.kind === "task-panel" &&
+      current.scheduleId === schedule.schedule_id
+        ? null
+        : current,
     );
   };
 
   return (
+    <TaskComposerContext.Provider value={composerContext}>
     <AppShell
       fullBleed
       aiChatButtonOffset={dockedPanelOpen ? "340px" : "0px"}
-      titleMeta={`완료 ${visibleDoneCount} / 전체 ${visibleTaskCount}`}
+      headerRightOffset={taskPanelSchedule && dockedPanelOpen ? "340px" : "0px"}
       headerActions={
         <div className="flex min-w-0 items-center gap-2">
           <label className="relative hidden min-[760px]:block">
@@ -1059,14 +1269,27 @@ export default function Tasks() {
               className="flowra-input h-9 w-64 pl-9 pr-3 text-sm"
             />
           </label>
-          {!sidePanelOpen && (
+          {(!sidePanelOpen || (scheduleAddPanelOpen && dockedPanelOpen)) && (
             <button
               type="button"
-              onClick={openScheduleAddPanel}
+              onClick={
+                scheduleAddPanelOpen
+                  ? closeScheduleAddPanel
+                  : openScheduleAddPanel
+              }
               data-tasks-create
-              className="flowra-primary-button inline-flex h-9 items-center justify-center gap-2 rounded-lg px-4 text-sm font-bold transition disabled:opacity-60"
+              aria-label={
+                scheduleAddPanelOpen ? "새 일정 패널 닫기" : "새 일정"
+              }
+              aria-expanded={scheduleAddPanelOpen}
+              className="flowra-primary-button inline-flex h-9 w-28 items-center justify-center gap-2 rounded-lg px-4 text-sm font-bold transition disabled:opacity-60"
             >
-              <Plus className="h-4 w-4" />새 일정
+              {scheduleAddPanelOpen ? (
+                <PanelRight className="h-4 w-4" />
+              ) : (
+                <Plus className="h-4 w-4" />
+              )}
+              {scheduleAddPanelOpen ? "닫기" : "새 일정"}
             </button>
           )}
         </div>
@@ -1076,6 +1299,7 @@ export default function Tasks() {
           <MiniCalendar
             visibleMonth={visibleMonth}
             selectedDateKey={selectedDateKey}
+            selectedDateKeys={calendarSelectedDateKeys}
             dateMode={dateMode || filter === "today"}
             dateMeta={dateMeta}
             holidaysByDate={holidaysByDate}
@@ -1093,32 +1317,12 @@ export default function Tasks() {
         ref={workspaceRef}
         className="flowra-workspace tasks-workspace"
         data-flowra-task-board
+        data-selection-mode={selectionMode}
+        onClickCapture={onSelectionClickCapture}
         style={panelStyle}
       >
         <div className="tasks-main-region">
           <div className="tasks-management-header">
-            <div className="tasks-management-title">
-              <h1 className="text-base font-black text-slate-950">할 일</h1>
-              <div className="tasks-overall-progress">
-                <div className="tasks-overall-track" aria-hidden="true">
-                  <span style={{ width: progressPercent + "%" }} />
-                </div>
-                <span>
-                  완료 {visibleDoneCount} / 전체 {visibleTaskCount}
-                </span>
-              </div>
-              {!sidePanelOpen && (
-                <button
-                  type="button"
-                  onClick={openScheduleAddPanel}
-                  data-tasks-create
-                  className="flowra-primary-button tasks-mobile-create"
-                >
-                  <Plus aria-hidden="true" className="h-4 w-4" />새 일정
-                </button>
-              )}
-            </div>
-
             <div className="tasks-toolbar">
               <div
                 className="tasks-filters"
@@ -1128,14 +1332,16 @@ export default function Tasks() {
                 <FilterButton
                   active={filter === "all" && !dateMode}
                   onClick={showAll}
+                  count={filterCounts.all}
                 >
                   전체
                 </FilterButton>
                 <FilterButton
                   active={filter === "today"}
+                  count={filterCounts.today}
                   onClick={() => {
                     setFilter("today");
-                    setDateMode(false);
+                    setSelectedDateKeys(new Set());
                     setSelectedDateKey(toDateKey(new Date()));
                     setVisibleMonth(startOfMonth(new Date()));
                   }}
@@ -1145,47 +1351,74 @@ export default function Tasks() {
                 <FilterButton
                   active={filter === "active"}
                   onClick={() => setFilter("active")}
+                  count={filterCounts.active}
                 >
                   미완료
                 </FilterButton>
                 <FilterButton
                   active={filter === "completed"}
                   onClick={() => setFilter("completed")}
+                  count={filterCounts.completed}
                 >
-                  완료됨
+                  완료
                 </FilterButton>
               </div>
-              <div className="tasks-toolbar-actions">
-                <label className="tasks-sort">
-                  <ArrowDownWideNarrow aria-hidden="true" className="h-4 w-4" />
-                  <span className="sr-only">정렬 방식</span>
-                  <select
-                    value={sort}
-                    onChange={(event) =>
-                      setSort(event.target.value as BoardSort)
-                    }
-                  >
-                    <option value="time">시간순</option>
-                    <option value="title">이름순</option>
-                  </select>
-                </label>
+            </div>
+
+            {dateMode && filter !== "today" && (
+              <div className="tasks-date-filters">
+                {filterDates.map((date) => (
+                  <div className="tasks-date-filter" key={toDateKey(date)}>
+                    <span>{formatFullDate(date)}</span>
+                    <button
+                      type="button"
+                      aria-label={`${formatFullDate(date)} 선택 해제`}
+                      onClick={() =>
+                        setSelectedDateKeys((current) => {
+                          const next = new Set(current);
+                          next.delete(toDateKey(date));
+                          return next;
+                        })
+                      }
+                    >
+                      <X aria-hidden="true" className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
                 <button
                   type="button"
-                  className="tasks-select-mode"
-                  aria-pressed={selectionMode}
-                  disabled={
-                    deleteTasksMutation.isPending || deleteSchedulesPending
-                  }
-                  onClick={() => {
-                    setSelectionMode((current) => !current);
-                    clearTaskSelection();
-                    clearScheduleSelection();
-                  }}
+                  className="tasks-date-clear"
+                  onClick={showAll}
+                  aria-label="날짜 선택 해제"
                 >
-                  <CheckSquare2 aria-hidden="true" className="h-4 w-4" />
-                  {selectionMode ? "선택 종료" : "선택"}
+                  전체 해제
                 </button>
               </div>
+            )}
+
+            {selectionMode && (
+              <SelectionActionBar
+                count={selectedCount}
+                busy={
+                  bulkPending ||
+                  deleteTasksMutation.isPending ||
+                  deleteSchedulesPending
+                }
+                canComplete={canCompleteSelection}
+                onSelectAll={selectAllVisible}
+                onComplete={(completed) => void completeSelection(completed)}
+                onDelete={() => void deleteSelection()}
+                onClose={clearSelection}
+              />
+            )}
+          </div>
+
+          <div
+            className="tasks-board-content"
+            inert={bulkPending}
+            aria-busy={bulkPending}
+          >
+            <div className="tasks-mobile-tools">
               <label className="tasks-board-search">
                 <Search aria-hidden="true" className="h-4 w-4" />
                 <span className="sr-only">일정 또는 할 일 검색</span>
@@ -1197,75 +1430,17 @@ export default function Tasks() {
                   placeholder="일정 또는 할 일 검색..."
                 />
               </label>
-            </div>
-
-            {dateMode && filter !== "today" && (
-              <div className="tasks-date-filter">
-                <span>{formatFullDate(selectedDate)}</span>
+              {!sidePanelOpen && (
                 <button
                   type="button"
-                  onClick={showAll}
-                  aria-label="날짜 선택 해제"
+                  onClick={openScheduleAddPanel}
+                  data-tasks-create
+                  className="flowra-primary-button tasks-mobile-create"
                 >
-                  <X aria-hidden="true" className="h-3.5 w-3.5" />
+                  <Plus aria-hidden="true" className="h-4 w-4" />새 일정
                 </button>
-              </div>
-            )}
-
-            {selectionMode && (
-              <div className="tasks-selection-actions" aria-live="polite">
-                {selectedTaskCount === 0 && selectedScheduleCount === 0 && (
-                  <span>삭제할 일정이나 할 일을 선택해 주세요.</span>
-                )}
-                {selectedTaskCount > 0 && (
-                  <div>
-                    <span>할 일 {selectedTaskCount}개 선택</span>
-                    <button
-                      type="button"
-                      onClick={clearTaskSelection}
-                      disabled={deleteTasksMutation.isPending}
-                    >
-                      선택 해제
-                    </button>
-                    <button
-                      type="button"
-                      className="tasks-delete-selection"
-                      onClick={() => void deleteSelectedTasks()}
-                      disabled={deleteTasksMutation.isPending}
-                    >
-                      <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
-                      {deleteTasksMutation.isPending
-                        ? "삭제 중..."
-                        : "할 일 삭제"}
-                    </button>
-                  </div>
-                )}
-                {selectedScheduleCount > 0 && (
-                  <div>
-                    <span>일정 {selectedScheduleCount}개 선택</span>
-                    <button
-                      type="button"
-                      onClick={clearScheduleSelection}
-                      disabled={deleteSchedulesPending}
-                    >
-                      선택 해제
-                    </button>
-                    <button
-                      type="button"
-                      className="tasks-delete-selection"
-                      onClick={() => void deleteSelectedSchedules()}
-                      disabled={deleteSchedulesPending}
-                    >
-                      <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
-                      {deleteSchedulesPending ? "삭제 중..." : "일정 삭제"}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="tasks-board-content">
+              )}
+            </div>
             <div className="tasks-list-container">
               {isLoading ? (
                 <FullSpinner message="일정과 할 일을 불러오는 중..." />
@@ -1280,101 +1455,132 @@ export default function Tasks() {
                   }}
                   retrying={isFetching}
                 />
-              ) : filteredSchedules.length === 0 &&
-                filteredIndependentTasks.length === 0 ? (
-                <div className="tasks-empty">
-                  <EmptyState
-                    title="표시할 일정이나 할 일이 없습니다"
-                    description="필터나 날짜를 바꾸거나 새 일정을 추가해 보세요."
-                  />
-                  {(search || filter !== "all" || dateMode) && (
-                    <button
-                      type="button"
-                      className="tasks-reset"
-                      onClick={() => {
-                        setSearch("");
-                        showAll();
-                      }}
-                    >
-                      전체 보기
-                    </button>
-                  )}
-                </div>
               ) : (
                 <>
-                  <p className="tasks-result-summary" role="status">
-                    {search ? "검색 결과 · " : ""}일정{" "}
-                    {filteredSchedules.length}개 · 독립 할 일{" "}
-                    {filteredIndependentTasks.length}개
-                  </p>
-                  {groups.map((group) => (
-                    <section
-                      key={group.key}
-                      className="tasks-section"
-                      aria-label={group.title}
-                    >
-                      <h2 className="tasks-section-heading">
-                        {group.title}
-                        <span
-                          className="tasks-section-count"
-                          aria-label={group.schedules.length + "개 일정"}
+                  <IndependentTasksSection
+                    tasks={filteredIndependentTasks}
+                    selectionMode={selectionMode}
+                    selectedTaskIds={selectedTaskIds}
+                    onToggleTaskSelection={toggleTaskSelection}
+                    emptyMessage={
+                      tasks.some((task) => task.schedule_id == null)
+                        ? "현재 조건에 맞는 독립 할 일이 없습니다."
+                        : "아직 독립 할 일이 없습니다."
+                    }
+                    onCreated={(task) => {
+                      if (filterDates.length > 0 || filter === "completed")
+                        showAll();
+                      const keyword = search.trim().toLowerCase();
+                      if (
+                        keyword &&
+                        !task.title.toLowerCase().includes(keyword)
+                      )
+                        setSearch("");
+                    }}
+                  />
+                  {filteredSchedules.length === 0 &&
+                  filteredIndependentTasks.length === 0 ? (
+                    <div className="tasks-empty">
+                      <EmptyState
+                        title="표시할 일정이나 할 일이 없습니다"
+                        description="필터나 날짜를 바꾸거나 새 일정을 추가해 보세요."
+                      />
+                      {(search || filter !== "all" || dateMode) && (
+                        <button
+                          type="button"
+                          className="tasks-reset"
+                          onClick={() => {
+                            setSearch("");
+                            showAll();
+                          }}
                         >
-                          {group.schedules.length}
-                        </span>
-                      </h2>
-                      <ul className="tasks-timeline">
-                        {group.schedules.map((schedule) => (
-                          <ScheduleCard
-                            key={schedule.schedule_id}
-                            schedule={schedule}
-                            category={
-                              schedule.category_id
-                                ? categoryById.get(schedule.category_id)
-                                : null
-                            }
-                            tasks={
-                              tasksByScheduleId.get(schedule.schedule_id) ?? []
-                            }
-                            expanded={expandedScheduleIds.has(
-                              schedule.schedule_id,
-                            )}
-                            deleting={
-                              schedule.is_company_schedule
-                                ? deleteCompanyScheduleMutation.isPending &&
-                                  deleteCompanyScheduleMutation.variables ===
-                                    schedule.company_schedule_id
-                                : deleteScheduleMutation.isPending &&
-                                  deleteScheduleMutation.variables ===
-                                    schedule.schedule_id
-                            }
-                            selectionMode={selectionMode}
-                            selectedSchedule={selectedScheduleIds.has(
-                              schedule.schedule_id,
-                            )}
-                            selectedTaskIds={selectedTaskIds}
-                            onToggle={() =>
-                              toggleSchedule(schedule.schedule_id)
-                            }
-                            onDelete={() => deleteScheduleFromBoard(schedule)}
-                            onToggleScheduleSelection={() =>
-                              toggleScheduleSelection(schedule.schedule_id)
-                            }
-                            onToggleTaskSelection={toggleTaskSelection}
-                            onOpenAddTaskPanel={() =>
-                              openTaskPanel(schedule.schedule_id)
-                            }
-                          />
-                        ))}
-                      </ul>
-                    </section>
-                  ))}
-                  {filteredIndependentTasks.length > 0 && (
-                    <IndependentTasksSection
-                      tasks={filteredIndependentTasks}
-                      selectionMode={selectionMode}
-                      selectedTaskIds={selectedTaskIds}
-                      onToggleTaskSelection={toggleTaskSelection}
-                    />
+                          전체 보기
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    groups.map((group) => {
+                      const expanded = !collapsedScheduleGroups.has(group.key);
+                      return (
+                        <section
+                          key={group.key}
+                          className="tasks-section"
+                          aria-label={group.title}
+                        >
+                          <h2 className="tasks-section-heading">
+                            <button
+                              type="button"
+                              className="tasks-section-toggle"
+                              onClick={() =>
+                                setCollapsedScheduleGroups((current) => {
+                                  const next = new Set(current);
+                                  if (next.has(group.key)) next.delete(group.key);
+                                  else next.add(group.key);
+                                  return next;
+                                })
+                              }
+                              aria-expanded={expanded}
+                              aria-controls={`${scheduleGroupListId}-${group.key}`}
+                              disabled={expanded && groupHasSelection(group)}
+                            >
+                              <span>{group.title}</span>
+                              <span className="tasks-section-count">
+                                {group.schedules.length}
+                              </span>
+                              <ChevronDown
+                                className={`tasks-chevron${expanded ? " tasks-chevron-open" : ""}`}
+                                aria-hidden="true"
+                              />
+                            </button>
+                          </h2>
+                          <ul
+                            id={`${scheduleGroupListId}-${group.key}`}
+                            className="tasks-timeline tasks-section-body"
+                            hidden={!expanded}
+                          >
+                            {expanded && group.schedules.map((schedule) => (
+                              <ScheduleCard
+                                key={schedule.schedule_id}
+                                schedule={schedule}
+                                category={
+                                  schedule.category_id
+                                    ? categoryById.get(schedule.category_id)
+                                    : null
+                                }
+                                tasks={
+                                  tasksByScheduleId.get(schedule.schedule_id) ?? []
+                                }
+                                expanded={expandedScheduleIds.has(
+                                  schedule.schedule_id,
+                                )}
+                                deleting={
+                                  schedule.is_company_schedule
+                                    ? deleteCompanyScheduleMutation.isPending &&
+                                      deleteCompanyScheduleMutation.variables ===
+                                        schedule.company_schedule_id
+                                    : deleteScheduleMutation.isPending &&
+                                      deleteScheduleMutation.variables ===
+                                        schedule.schedule_id
+                                }
+                                selectionMode={selectionMode}
+                                selectedSchedule={selectedScheduleIds.has(
+                                  schedule.schedule_id,
+                                )}
+                                selectedTaskIds={selectedTaskIds}
+                                onToggle={() =>
+                                  toggleSchedule(schedule.schedule_id)
+                                }
+                                onDelete={() => deleteScheduleFromBoard(schedule)}
+                                onToggleTaskSelection={toggleTaskSelection}
+                                onOpenAddTaskPanel={() =>
+                                  openTaskPanel(schedule.schedule_id)
+                                }
+                              />
+                            ))}
+                          </ul>
+                        </section>
+                      );
+                    })
                   )}
                 </>
               )}
@@ -1389,14 +1595,15 @@ export default function Tasks() {
           <TaskBoardPanel
             title="할 일 추가"
             docked={dockedPanelOpen}
+            alignWithSchedulePanel
             style={panelStyle}
-            onClose={() => setTaskPanelScheduleId(null)}
+            onClose={closeTaskPanel}
           >
             <TaskAddPanelContent
               schedule={taskPanelSchedule}
               category={taskPanelCategory}
               tasks={taskPanelTasks}
-              onClose={() => setTaskPanelScheduleId(null)}
+              onClose={closeTaskPanel}
             />
           </TaskBoardPanel>
         )}
@@ -1405,10 +1612,11 @@ export default function Tasks() {
             title="새 일정"
             docked={dockedPanelOpen}
             style={panelStyle}
-            onClose={() => setScheduleAddPanelOpen(false)}
+            onClose={closeScheduleAddPanel}
           >
             <ScheduleFormPanel
               mode="create"
+              hideCloseButton={dockedPanelOpen}
               initial={emptyFormForDate(selectedDate)}
               isPending={
                 createSchedulesMutation.isPending ||
@@ -1416,11 +1624,11 @@ export default function Tasks() {
                 createShareLinkMutation.isPending ||
                 createFriendShareMutation.isPending
               }
-              onClose={() => setScheduleAddPanelOpen(false)}
+              onClose={closeScheduleAddPanel}
               companyName={companyAdminMeQuery.data?.company?.name}
               onCompanySubmit={async (payload) => {
                 await createCompanyScheduleMutation.mutateAsync(payload);
-                setScheduleAddPanelOpen(false);
+                closeScheduleAddPanel();
               }}
               onSubmit={async (forms, options) => {
                 const createdSchedules =
@@ -1442,7 +1650,7 @@ export default function Tasks() {
                     ),
                   );
                 }
-                setScheduleAddPanelOpen(false);
+                closeScheduleAddPanel();
               }}
               floatingStyle={defaultSchedulePanelFloatingStyle}
               panelLayout="docked"
@@ -1451,5 +1659,6 @@ export default function Tasks() {
         )}
       </div>
     </AppShell>
+    </TaskComposerContext.Provider>
   );
 }

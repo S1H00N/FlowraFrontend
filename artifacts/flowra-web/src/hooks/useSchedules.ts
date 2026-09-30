@@ -26,6 +26,9 @@ import {
   updateSchedule,
 } from "@/api/schedules";
 import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
+import { TASKS_QUERY_KEY } from "@/hooks/useTasks";
+import { syncLinkedTaskDates } from "@/lib/syncLinkedTaskDates";
+import { toast } from "@/lib/toast";
 import { toOffsetISOString } from "@/utils/dateUtils";
 import type {
   CreateRecurringScheduleRequest,
@@ -215,6 +218,19 @@ function removeScheduleFromListCaches(
         current?.filter((schedule) => schedule.schedule_id !== scheduleId),
       );
     });
+}
+
+function findCachedSchedule(queryClient: QueryClient, scheduleId: number) {
+  const detail = queryClient.getQueryData<Schedule>(scheduleDetailKey(scheduleId));
+  if (detail) return detail;
+
+  for (const query of queryClient.getQueryCache().findAll({ queryKey: SCHEDULES_QUERY_KEY })) {
+    if (!scheduleListQueryFromKey(query.queryKey)) continue;
+    const schedule = queryClient.getQueryData<Schedule[]>(query.queryKey)
+      ?.find((item) => item.schedule_id === scheduleId);
+    if (schedule) return schedule;
+  }
+  return undefined;
 }
 
 function syncUpdatedScheduleToListCaches(
@@ -477,9 +493,18 @@ export function useUpdateSchedule() {
       if (!res.success) throw new Error(res.message || "수정에 실패했습니다.");
       return res.data.schedule;
     },
-    onSuccess: (schedule) => {
+    onSuccess: async (schedule, { payload }) => {
       syncUpdatedScheduleToListCaches(queryClient, schedule);
       invalidate();
+      if (payload.start_datetime !== undefined || payload.end_datetime !== undefined) {
+        try {
+          await syncLinkedTaskDates(schedule);
+        } catch {
+          toast.error("일정 날짜는 변경됐지만 연결된 할 일 날짜를 모두 갱신하지 못했습니다.");
+        } finally {
+          void queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
+        }
+      }
     },
     meta: {
       successMessage: "일정이 수정되었습니다.",
@@ -489,7 +514,6 @@ export function useUpdateSchedule() {
 }
 
 export function useSetScheduleCompletion() {
-  const invalidate = useInvalidateSchedules();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
@@ -503,14 +527,23 @@ export function useSetScheduleCompletion() {
       if (!res.success) throw new Error(res.message || "수정에 실패했습니다.");
       return res.data.schedule;
     },
-    onMutate: ({ scheduleId, completed }) => {
+    onMutate: async ({ scheduleId, completed }) => {
+      await queryClient.cancelQueries({ queryKey: SCHEDULES_QUERY_KEY });
+      const previousSchedule = findCachedSchedule(queryClient, scheduleId);
       updateScheduleCompletionInCaches(queryClient, scheduleId, completed);
+      return { previousSchedule };
     },
     onSuccess: (schedule) => {
       syncUpdatedScheduleToListCaches(queryClient, schedule);
-      invalidate();
+      void queryClient.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
     },
-    onError: () => invalidate(),
+    onError: (_error, _variables, context) => {
+      if (context?.previousSchedule) {
+        syncUpdatedScheduleToListCaches(queryClient, context.previousSchedule);
+      }
+      void queryClient.invalidateQueries({ queryKey: SCHEDULES_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
+    },
     meta: {
       successMessage: "일정 상태를 변경했습니다.",
       errorMessage: "일정 상태 변경에 실패했습니다.",

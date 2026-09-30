@@ -1,5 +1,5 @@
-import { useCallback } from "react";
-import { useForm, Controller } from "react-hook-form";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useCreateTask } from "@/hooks/useTasks";
 import {
@@ -7,23 +7,43 @@ import {
   useClassificationSettings,
 } from "@/lib/classificationSettings";
 import { taskSchema, type TaskFormValues } from "@/lib/schemas";
-import CategorySelect from "@/components/CategorySelect";
-import { Plus } from "lucide-react";
+import { Plus, X } from "lucide-react";
+import { getErrorMessage } from "@/lib/error";
 import { localInputToOffsetISOString } from "@/utils/dateUtils";
+import { useTaskComposer } from "@/components/tasks/TaskComposerContext";
+import type { Task } from "@/types";
 
 const defaults: TaskFormValues = {
   title: "",
   priority: "medium",
   status: "todo",
-  category_id: "",
   due_datetime: "",
 };
 
 export default function TaskForm({
   defaultScheduleId,
+  compact = false,
+  onOpenDetails,
+  onOpen,
+  onCreated,
 }: {
   defaultScheduleId?: number;
+  compact?: boolean;
+  onOpenDetails?: () => void;
+  onOpen?: () => void;
+  onCreated?: (task: Task) => void;
 }) {
+  const [localAdding, setLocalAdding] = useState(false);
+  const composer = useTaskComposer();
+  const quickAddScheduleId = defaultScheduleId ?? null;
+  const adding = composer
+    ? composer.active?.kind === "task-quick-add" &&
+      composer.active.scheduleId === quickAddScheduleId
+    : localAdding;
+  const [error, setError] = useState<string | null>(null);
+  const addButton = useRef<HTMLButtonElement>(null);
+  const quickAddForm = useRef<HTMLFormElement>(null);
+  const submitting = useRef(false);
   const createMutation = useCreateTask();
   const classificationSettings = useClassificationSettings();
   const priorityOptions = getClassificationOptions(
@@ -34,8 +54,8 @@ export default function TaskForm({
   const {
     register,
     handleSubmit,
-    control,
     reset,
+    setFocus,
     formState: { errors },
   } = useForm<TaskFormValues>({
     resolver: zodResolver(taskSchema),
@@ -44,47 +64,170 @@ export default function TaskForm({
 
   const onSubmit = useCallback(
     async (values: TaskFormValues) => {
+      if (submitting.current) return;
+      submitting.current = true;
+      setError(null);
       try {
-        await createMutation.mutateAsync({
+        const createdTask = await createMutation.mutateAsync({
           title: values.title,
           priority: values.priority,
           status: values.status,
-          category_id:
-            typeof values.category_id === "number"
-              ? String(values.category_id)
-              : undefined,
-          schedule_id: defaultScheduleId
+          schedule_id: defaultScheduleId != null
             ? String(defaultScheduleId)
             : undefined,
           due_datetime: values.due_datetime
             ? localInputToOffsetISOString(values.due_datetime)
             : undefined,
         });
+        onCreated?.(createdTask);
         reset(defaults);
-      } catch {
-        /* global toast */
+        if (compact) setFocus("title");
+      } catch (err) {
+        setError(getErrorMessage(err, "할 일 추가에 실패했습니다."));
+      } finally {
+        submitting.current = false;
       }
     },
-    [createMutation, reset],
+    [createMutation, reset, defaultScheduleId, compact, setFocus, onCreated],
   );
+
+  const closeQuickAdd = useCallback(
+    (restoreFocus: boolean) => {
+      if (submitting.current) return;
+      reset(defaults);
+      setError(null);
+      if (composer) {
+        composer.setActive((current) =>
+          current?.kind === "task-quick-add" &&
+          current.scheduleId === quickAddScheduleId
+            ? null
+            : current,
+        );
+      } else {
+        setLocalAdding(false);
+      }
+      if (restoreFocus) requestAnimationFrame(() => addButton.current?.focus());
+    },
+    [composer, quickAddScheduleId, reset],
+  );
+
+  useEffect(() => {
+    if (!compact || !adding) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!quickAddForm.current?.contains(event.target as Node)) {
+        closeQuickAdd(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [compact, adding, closeQuickAdd]);
+
+  if (compact) {
+    return adding ? (
+      <form
+        ref={quickAddForm}
+        className="tasks-quick-add"
+        aria-label="빠른 할 일 추가"
+        onSubmit={handleSubmit(onSubmit)}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) {
+            if (event.key === "Enter") event.preventDefault();
+            return;
+          }
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            closeQuickAdd(true);
+          }
+        }}
+      >
+        <div className="tasks-quick-add-controls">
+          <input
+            autoFocus
+            aria-label="새 할 일"
+            placeholder="할 일을 입력하세요..."
+            maxLength={100}
+            readOnly={createMutation.isPending}
+            aria-invalid={!!errors.title}
+            {...register("title")}
+          />
+          <button
+            type="submit"
+            className="tasks-add-subtask"
+            disabled={createMutation.isPending}
+          >
+            {createMutation.isPending ? "저장 중…" : "추가"}
+          </button>
+          <button
+            type="button"
+            className="tasks-more"
+            aria-label="빠른 추가 취소"
+            onClick={() => closeQuickAdd(true)}
+            disabled={createMutation.isPending}
+          >
+            <X />
+          </button>
+        </div>
+        <p className="tasks-quick-add-hint">
+          Enter로 추가 · Esc로 닫기
+        </p>
+        {(errors.title || error) && (
+          <p role="alert" className="tasks-inline-error">
+            {errors.title?.message || error}
+          </p>
+        )}
+      </form>
+    ) : (
+      <div className="tasks-add-options">
+        <button
+          ref={addButton}
+          type="button"
+          className="tasks-add-subtask"
+          onClick={() => {
+            reset(defaults);
+            setError(null);
+            onOpen?.();
+            if (composer) {
+              composer.setActive({
+                kind: "task-quick-add",
+                scheduleId: quickAddScheduleId,
+              });
+            } else {
+              setLocalAdding(true);
+            }
+          }}
+        >
+          <Plus aria-hidden="true" />할 일 추가
+        </button>
+        {onOpenDetails && (
+          <button
+            type="button"
+            className="tasks-add-subtask tasks-add-details"
+            onClick={onOpenDetails}
+          >
+            상세 설정으로 추가
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <form
       onSubmit={handleSubmit(onSubmit)}
       noValidate
-      className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
+      className="p-3"
     >
-      <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_150px_180px_180px_auto]">
+      <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_150px_180px_auto]">
         <div className="flex-1">
           <input
             type="text"
             placeholder="해야 할 일을 빠르게 입력하세요"
             {...register("title")}
             aria-invalid={!!errors.title}
-            className={`h-11 w-full rounded-lg border px-3 text-sm shadow-sm outline-none transition focus:ring-2 ${
+            className={`h-11 w-full rounded-lg border bg-transparent px-3 text-sm outline-none transition hover:bg-white/60 focus:bg-white focus:ring-2 ${
               errors.title
                 ? "border-red-400 focus:border-red-500 focus:ring-red-200"
-                : "border-slate-200 bg-white focus:border-violet-500 focus:ring-violet-100"
+                : "border-transparent hover:border-slate-200 focus:border-violet-500 focus:ring-violet-100"
             }`}
           />
           {errors.title && (
@@ -94,7 +237,7 @@ export default function TaskForm({
         <select
           {...register("priority")}
           aria-label="우선순위"
-          className="h-11 rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
+          className="h-11 rounded-lg border border-transparent bg-transparent px-3 text-sm outline-none hover:border-slate-200 hover:bg-white/60 focus:border-violet-500 focus:bg-white focus:ring-2 focus:ring-violet-100"
         >
           {priorityOptions.map((option) => (
             <option key={option.key} value={option.key}>
@@ -102,24 +245,12 @@ export default function TaskForm({
             </option>
           ))}
         </select>
-        <Controller
-          control={control}
-          name="category_id"
-          render={({ field }) => (
-            <CategorySelect
-              type="task"
-              value={field.value as number | "" | undefined}
-              onChange={field.onChange}
-              className="h-11 min-w-0"
-            />
-          )}
-        />
         <label className="min-w-0">
           <span className="sr-only">마감</span>
           <input
             type="datetime-local"
             {...register("due_datetime")}
-            className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm shadow-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
+            className="h-11 w-full rounded-lg border border-transparent bg-transparent px-3 text-sm outline-none hover:border-slate-200 hover:bg-white/60 focus:border-violet-500 focus:bg-white focus:ring-2 focus:ring-violet-100"
           />
         </label>
         <button

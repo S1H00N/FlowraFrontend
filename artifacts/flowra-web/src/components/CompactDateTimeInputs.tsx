@@ -202,6 +202,7 @@ function renderFloatingPortal(content: ReactNode) {
 export function CompactDateInput({
   value,
   onChange,
+  emptyPlaceholder,
   required = false,
   ariaLabel,
   inputRef,
@@ -213,6 +214,7 @@ export function CompactDateInput({
 }: {
   value: string;
   onChange: (value: string) => void;
+  emptyPlaceholder?: string;
   required?: boolean;
   ariaLabel: string;
   inputRef?: Ref<HTMLInputElement>;
@@ -230,8 +232,12 @@ export function CompactDateInput({
       ? normalizedMinDate
       : dateKey;
   const effectiveValue = clampDateKey(fallbackDateKey);
+  const displayValue =
+    !value && emptyPlaceholder
+      ? emptyPlaceholder
+      : formatDateInputDisplay(effectiveValue);
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(formatDateInputDisplay(effectiveValue));
+  const [draft, setDraft] = useState(displayValue);
   const [previewDateKey, setPreviewDateKey] = useState(effectiveValue);
   const [visibleMonth, setVisibleMonth] = useState(() =>
     getCalendarViewMonth(effectiveValue),
@@ -254,10 +260,10 @@ export function CompactDateInput({
   );
 
   useEffect(() => {
-    setDraft(formatDateInputDisplay(effectiveValue));
+    setDraft(displayValue);
     setPreviewDateKey(effectiveValue);
     setVisibleMonth(getCalendarViewMonth(effectiveValue));
-  }, [effectiveValue]);
+  }, [displayValue, effectiveValue]);
 
   const updateCalendarPosition = useCallback(() => {
     const container = containerRef.current;
@@ -365,10 +371,10 @@ export function CompactDateInput({
         return;
       }
 
-      setDraft(formatDateInputDisplay(effectiveValue));
+      setDraft(displayValue);
       setPreviewDateKey(effectiveValue);
     },
-    [effectiveValue, onChange, onCommit],
+    [displayValue, effectiveValue, onChange, onCommit],
   );
 
   useEffect(() => {
@@ -478,7 +484,7 @@ export function CompactDateInput({
             openCalendar();
           }
           if (event.key === "Escape") {
-            setDraft(formatDateInputDisplay(effectiveValue));
+            setDraft(displayValue);
             setPreviewDateKey(effectiveValue);
             setVisibleMonth(getCalendarViewMonth(effectiveValue));
             closeCalendar();
@@ -787,8 +793,8 @@ function generateTimeInputCandidates(draft: string) {
   return Array.from(new Set(merged)).slice(0, 7);
 }
 
-function formatTimeInputDisplay(value: string) {
-  if (!value) return "--:--";
+function formatTimeInputDisplay(value: string, emptyPlaceholder = "--:--") {
+  if (!value) return emptyPlaceholder;
   const [hourText, minuteText = "00"] = value.split(":");
   const hour = Number(hourText);
   const minute = Number(minuteText);
@@ -808,6 +814,7 @@ export function CompactTimeInput({
   inputRef,
   onValidDraftChange,
   className,
+  emptyPlaceholder = "--:--",
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -819,10 +826,11 @@ export function CompactTimeInput({
   inputRef?: Ref<HTMLInputElement>;
   onValidDraftChange?: (value: string) => void;
   className?: string;
+  emptyPlaceholder?: string;
 }) {
   const boxed = variant === "boxed";
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(formatTimeInputDisplay(value));
+  const [draft, setDraft] = useState(formatTimeInputDisplay(value, emptyPlaceholder));
   const [userTyping, setUserTyping] = useState(false);
   const [activeOptionIndex, setActiveOptionIndex] = useState(0);
   const [lockedTimeOptions, setLockedTimeOptions] = useState<string[] | null>(
@@ -838,8 +846,8 @@ export function CompactTimeInput({
 
   useEffect(() => {
     if (userTyping) return;
-    setDraft(formatTimeInputDisplay(value));
-  }, [userTyping, value]);
+    setDraft(formatTimeInputDisplay(value, emptyPlaceholder));
+  }, [emptyPlaceholder, userTyping, value]);
 
   const commitTime = useCallback(
     (nextValue: string, options: { advance?: boolean } = {}) => {
@@ -856,11 +864,11 @@ export function CompactTimeInput({
         return;
       }
 
-      setDraft(formatTimeInputDisplay(value));
+      setDraft(formatTimeInputDisplay(value, emptyPlaceholder));
       setUserTyping(false);
       setLockedTimeOptions(null);
     },
-    [onChange, onCommit, value],
+    [emptyPlaceholder, onChange, onCommit, value],
   );
   const selectTimeOption = (option: string) => {
     selectingOptionRef.current = true;
@@ -885,8 +893,7 @@ export function CompactTimeInput({
     [draft, isBlankDraft, selectionTimeOptions, userTyping],
   );
   const visibleTimeOptions = lockedTimeOptions ?? suggestedTimeOptions;
-  const timeDropdownMaxHeight =
-    userTyping && !isBlankDraft ? 224 : visibleTimeOptionCount * 32 + 8;
+  const timeDropdownHeight = visibleTimeOptionCount * 32 + 8;
   const previewTimeOption = (option: string, index: number) => {
     activeOptionSourceRef.current = "pointer";
     setLockedTimeOptions((current) => current ?? visibleTimeOptions);
@@ -905,15 +912,6 @@ export function CompactTimeInput({
     setActiveOptionIndex(currentOptionIndex >= 0 ? currentOptionIndex : 0);
   }, [draftTimeOption, lockedTimeOptions, open, value, visibleTimeOptions]);
 
-  useEffect(() => {
-    if (!open) return;
-    if (activeOptionSourceRef.current === "pointer") return;
-    const activeOption = optionRefs.current[activeOptionIndex];
-    activeOption?.scrollIntoView({
-      block: userTyping && !isBlankDraft ? "nearest" : "center",
-    });
-  }, [activeOptionIndex, isBlankDraft, open, userTyping, visibleTimeOptions]);
-
   const updateDropdownPosition = useCallback(() => {
     const container = containerRef.current;
     if (!container || typeof window === "undefined") return;
@@ -925,18 +923,31 @@ export function CompactTimeInput({
     const availableLeft = panelRect
       ? panelRect.left - dropdownWidth - margin
       : inputRect.left;
-    const left = Math.max(margin, availableLeft);
-    const maxTop = window.innerHeight - timeDropdownMaxHeight - margin;
-    const top = Math.max(margin, Math.min(inputRect.top, maxTop));
+    const left = Math.max(
+      margin,
+      Math.min(availableLeft, window.innerWidth - dropdownWidth - margin),
+    );
+    const spaceBelow = window.innerHeight - inputRect.bottom - margin * 2;
+    const spaceAbove = inputRect.top - margin * 2;
+    const showAbove =
+      spaceBelow < timeDropdownHeight && spaceAbove > spaceBelow;
+    const height = Math.min(
+      timeDropdownHeight,
+      Math.max(0, showAbove ? spaceAbove : spaceBelow),
+    );
+    const top = showAbove
+      ? Math.max(margin, inputRect.top - height - margin)
+      : inputRect.bottom + margin;
 
     setDropdownStyle({
       left,
       top,
       width: dropdownWidth,
+      height,
     });
-  }, [timeDropdownMaxHeight]);
+  }, [timeDropdownHeight]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return;
 
     updateDropdownPosition();
@@ -948,6 +959,15 @@ export function CompactTimeInput({
       window.removeEventListener("scroll", updateDropdownPosition, true);
     };
   }, [open, updateDropdownPosition]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    if (activeOptionSourceRef.current === "pointer") return;
+    const activeOption = optionRefs.current[activeOptionIndex];
+    activeOption?.scrollIntoView({
+      block: userTyping && !isBlankDraft ? "nearest" : "center",
+    });
+  }, [activeOptionIndex, isBlankDraft, open, userTyping, visibleTimeOptions]);
 
   useEffect(() => {
     if (!open) return;
@@ -1071,7 +1091,7 @@ export function CompactTimeInput({
             commitTime(draft, { advance: true });
           }
           if (event.key === "Escape") {
-            setDraft(formatTimeInputDisplay(value));
+            setDraft(formatTimeInputDisplay(value, emptyPlaceholder));
             setOpen(false);
             setUserTyping(false);
             setLockedTimeOptions(null);
@@ -1084,7 +1104,7 @@ export function CompactTimeInput({
       {open && !disabled && (
         <div
           ref={dropdownRef}
-          style={{ ...dropdownStyle, maxHeight: timeDropdownMaxHeight }}
+          style={dropdownStyle}
           className="fixed z-[70] overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-900 p-1 shadow-xl"
           role="listbox"
           onWheel={(event) => event.stopPropagation()}

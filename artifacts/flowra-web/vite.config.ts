@@ -1,4 +1,4 @@
-import { defineConfig, loadEnv, type PluginOption } from "vite";
+import { defineConfig, loadEnv, type PluginOption, type UserConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
@@ -51,7 +51,7 @@ function firebaseConfigPlugin(env: Record<string, string>): PluginOption {
   };
 }
 
-export default defineConfig(async ({ mode }) => {
+export default defineConfig(async ({ mode }): Promise<UserConfig> => {
   const root = path.resolve(import.meta.dirname);
   const env = loadEnv(mode, root, "");
   const rawPort = process.env.PORT;

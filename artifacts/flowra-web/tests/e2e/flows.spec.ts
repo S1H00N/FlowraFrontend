@@ -51,7 +51,7 @@ async function openTaskCreate(page: Page) {
   await expect(schedule).toBeVisible();
   if ((await schedule.getAttribute("aria-expanded")) !== "true") await schedule.click();
   const card = schedule.locator("xpath=ancestor::li[1]");
-  await card.getByRole("button", { name: "할 일 추가", exact: true }).click();
+  await card.getByRole("button", { name: "상세 설정으로 추가", exact: true }).click();
   await expect(page.getByPlaceholder("새 할 일 입력")).toBeVisible();
 }
 
@@ -78,7 +78,7 @@ test.describe("사용자 기능 · 가상 API", () => {
   test("주요 메뉴를 클릭해 이동하고 브라우저 뒤로 가기가 동작한다", async ({ page }) => {
     await page.goto("/");
     const destinations = [
-      ["할일", "/tasks"], ["캘린더", "/schedules"], ["메모", "/memos"], ["공지사항", "/notices"],
+      ["할 일", "/tasks"], ["캘린더", "/schedules"], ["메모", "/memos"], ["공지사항", "/notices"],
     ] as const;
     for (const [label, path] of destinations) {
       // Open the visible header control on narrow screens; use the same sidebar links.
@@ -102,7 +102,7 @@ test.describe("사용자 기능 · 가상 API", () => {
     await openTaskCreate(page);
     const form = page.locator("form").filter({ has: page.getByPlaceholder("새 할 일 입력") });
     await form.getByRole("button", { name: "할 일 추가", exact: true }).click();
-    await expect(page.getByText("할 일 제목을 입력해 주세요.", { exact: true })).toBeVisible();
+    await expect(page.getByText("할 일을 입력해 주세요.", { exact: true })).toBeVisible();
     expect(api.requests.filter((request) => request.method === "POST" && request.path === "/tasks")).toHaveLength(0);
     await page.getByPlaceholder("새 할 일 입력").fill(title);
     await form.getByRole("button", { name: "할 일 추가", exact: true }).click();
@@ -111,26 +111,29 @@ test.describe("사용자 기능 · 가상 API", () => {
     await page.getByRole("button", { name: "할 일 추가 패널 닫기", exact: true }).click();
     const row = page.locator("li").filter({ has: page.getByText(title, { exact: true }) }).last();
     await expect(row.getByText(title, { exact: true })).toBeVisible();
-    await row.getByRole("button", { name: "미완료, 완료로 변경", exact: true }).click();
+    await row.getByRole("checkbox", { name: `${title} 완료`, exact: true }).check();
     await expect.poll(() => api.state.tasks.find((task) => task.title === title)?.status).toBe("done");
     await page.reload();
     const schedule = page.getByRole("button", { name: /QA 디자인 검토 회의/ }).first();
     if ((await schedule.getAttribute("aria-expanded")) !== "true") await schedule.click();
+    await expect(schedule.locator("xpath=ancestor::li[1]").getByRole("button", { name: /^완료된 할 일/ })).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByText(title, { exact: true })).toBeVisible();
     const completedRow = page.locator("li").filter({ has: page.getByText(title, { exact: true }) }).last();
-    await expect(completedRow.getByRole("button", { name: "완료됨, 미완료로 변경", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(completedRow.getByRole("checkbox", { name: `${title} 완료`, exact: true })).toBeChecked();
   });
 
   test("할 일 검색과 완료 필터가 목록에 적용된다", async ({ page }) => {
     await page.goto("/tasks");
     const search = page.getByPlaceholder("일정 또는 할 일 검색...").locator("visible=true");
     await search.fill("QA 오늘 할 일");
+    await page.locator(".tasks-independent-section").getByRole("button", { name: /독립 할 일/ }).click();
     await expect(page.getByText("QA 오늘 할 일", { exact: true })).toBeVisible();
     await expect(page.getByText("QA 진행 중인 할 일", { exact: true })).toHaveCount(0);
     await search.fill("존재하지 않는 QA 검색 결과");
     await expect(page.getByText("QA 오늘 할 일", { exact: true })).toHaveCount(0);
     await search.clear();
-    await page.getByRole("button", { name: "완료됨", exact: true }).click();
+    await page.getByRole("button", { name: /^완료 \d+$/ }).click();
+    await expect(page.locator(".tasks-independent-section").getByRole("button", { name: /^완료된 할 일/ })).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByText("QA 완료한 할 일", { exact: true })).toBeVisible();
     await expect(page.getByText("QA 오늘 할 일", { exact: true })).toHaveCount(0);
   });
@@ -256,9 +259,11 @@ test.describe("인증 화면 · 가상 API", () => {
     await page.getByLabel("비밀번호", { exact: true }).fill("Qa-test-1234!");
     await page.getByRole("button", { name: "로그인", exact: true }).click();
     await expect(page).toHaveURL(/\/tasks$/);
+    await page.locator(".tasks-independent-section").getByRole("button", { name: /독립 할 일/ }).click();
     await expect(page.getByText("QA 오늘 할 일", { exact: true })).toBeVisible();
     await page.reload();
     await expect(page).toHaveURL(/\/tasks$/);
+    await page.locator(".tasks-independent-section").getByRole("button", { name: /독립 할 일/ }).click();
     await expect(page.getByText("QA 오늘 할 일", { exact: true })).toBeVisible();
     expect(api.requests.filter((request) => request.path === "/auth/login")).toHaveLength(1);
     expect(api.unhandled).toEqual([]);

@@ -16,6 +16,7 @@ import {
 import { createPortal } from "react-dom";
 import { FloatingPanelPortal } from "@/components/ui/FloatingPanelPortal";
 import { useSearchParams } from "react-router-dom";
+import "./Schedules.css";
 import {
   Building2,
   CalendarDays,
@@ -107,6 +108,7 @@ import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import AppShell from "@/components/AppShell";
+import { groupSchedulesByDate } from "@/lib/scheduleDateMeta";
 import ScheduleLinkedTasks from "@/components/ScheduleLinkedTasks";
 import ScheduleSeriesControl from "@/components/ScheduleSeriesControl";
 import TaskCompletionToggleButton from "@/components/TaskCompletionToggleButton";
@@ -1093,8 +1095,7 @@ function CompactTimeInput({
     [draft, isBlankDraft, selectionTimeOptions, userTyping],
   );
   const visibleTimeOptions = lockedTimeOptions ?? suggestedTimeOptions;
-  const timeDropdownMaxHeight =
-    userTyping && !isBlankDraft ? 224 : visibleTimeOptionCount * 32 + 8;
+  const timeDropdownHeight = visibleTimeOptionCount * 32 + 8;
   const previewTimeOption = (option: string, index: number) => {
     activeOptionSourceRef.current = "pointer";
     setLockedTimeOptions((current) => current ?? visibleTimeOptions);
@@ -1113,15 +1114,6 @@ function CompactTimeInput({
     setActiveOptionIndex(currentOptionIndex >= 0 ? currentOptionIndex : 0);
   }, [draftTimeOption, lockedTimeOptions, open, value, visibleTimeOptions]);
 
-  useEffect(() => {
-    if (!open) return;
-    if (activeOptionSourceRef.current === "pointer") return;
-    const activeOption = optionRefs.current[activeOptionIndex];
-    activeOption?.scrollIntoView({
-      block: userTyping && !isBlankDraft ? "nearest" : "center",
-    });
-  }, [activeOptionIndex, isBlankDraft, open, userTyping, visibleTimeOptions]);
-
   const updateDropdownPosition = useCallback(() => {
     const container = containerRef.current;
     if (!container || typeof window === "undefined") return;
@@ -1133,18 +1125,31 @@ function CompactTimeInput({
     const availableLeft = panelRect
       ? panelRect.left - dropdownWidth - margin
       : inputRect.left;
-    const left = Math.max(margin, availableLeft);
-    const maxTop = window.innerHeight - timeDropdownMaxHeight - margin;
-    const top = Math.max(margin, Math.min(inputRect.top, maxTop));
+    const left = Math.max(
+      margin,
+      Math.min(availableLeft, window.innerWidth - dropdownWidth - margin),
+    );
+    const spaceBelow = window.innerHeight - inputRect.bottom - margin * 2;
+    const spaceAbove = inputRect.top - margin * 2;
+    const showAbove =
+      spaceBelow < timeDropdownHeight && spaceAbove > spaceBelow;
+    const height = Math.min(
+      timeDropdownHeight,
+      Math.max(0, showAbove ? spaceAbove : spaceBelow),
+    );
+    const top = showAbove
+      ? Math.max(margin, inputRect.top - height - margin)
+      : inputRect.bottom + margin;
 
     setDropdownStyle({
       left,
       top,
       width: dropdownWidth,
+      height,
     });
-  }, [timeDropdownMaxHeight]);
+  }, [timeDropdownHeight]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return;
 
     updateDropdownPosition();
@@ -1156,6 +1161,15 @@ function CompactTimeInput({
       window.removeEventListener("scroll", updateDropdownPosition, true);
     };
   }, [open, updateDropdownPosition]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    if (activeOptionSourceRef.current === "pointer") return;
+    const activeOption = optionRefs.current[activeOptionIndex];
+    activeOption?.scrollIntoView({
+      block: userTyping && !isBlankDraft ? "nearest" : "center",
+    });
+  }, [activeOptionIndex, isBlankDraft, open, userTyping, visibleTimeOptions]);
 
   useEffect(() => {
     if (!open) return;
@@ -1289,7 +1303,7 @@ function CompactTimeInput({
       {open && !disabled && (
         <div
           ref={dropdownRef}
-          style={{ ...dropdownStyle, maxHeight: timeDropdownMaxHeight }}
+          style={dropdownStyle}
           className="fixed z-[70] overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-xl"
           role="listbox"
           onWheel={(event) => event.stopPropagation()}
@@ -3479,6 +3493,7 @@ export function ScheduleFormPanel({
   schedule,
   isPending: requestPending,
   onClose,
+  hideCloseButton = false,
   onDelete,
   deletePending,
   onCompletionChange,
@@ -3498,6 +3513,7 @@ export function ScheduleFormPanel({
   schedule?: Schedule | null;
   isPending?: boolean;
   onClose: () => void;
+  hideCloseButton?: boolean;
   onDelete?: () => Promise<void> | void;
   deletePending?: boolean;
   onCompletionChange?: (completed: boolean) => Promise<void> | void;
@@ -6808,14 +6824,16 @@ export function ScheduleFormPanel({
                 )}
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="일정 추가 패널 닫기"
-              className={`order-2 ${scheduleSidebarToggleButtonClass}`}
-            >
-              <PanelRight className="h-4 w-4" />
-            </button>
+            {!hideCloseButton && (
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="일정 추가 패널 닫기"
+                className={`order-2 ${scheduleSidebarToggleButtonClass}`}
+              >
+                <PanelRight className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -6847,11 +6865,7 @@ export function ScheduleFormPanel({
                   ) : (
                     <Check className="h-3.5 w-3.5" />
                   )}
-                  {completionPending
-                    ? "상태 변경 중..."
-                    : schedule.is_completed
-                      ? "완료 해제"
-                      : "완료 표시"}
+                  {schedule.is_completed ? "완료 해제" : "완료 표시"}
                 </button>
               </div>
             ) : null}
@@ -7502,6 +7516,7 @@ function MiniCalendar({
             const meta = dateMeta.get(key);
             const today = isToday(day);
             const isHoliday = (holidaysByDate.get(key)?.length ?? 0) > 0;
+            const highlight = selected || today;
             const selectedWeek = selectedWeekSet.has(key);
             const column = index % 7;
 
@@ -7511,28 +7526,31 @@ function MiniCalendar({
                 type="button"
                 onClick={() => onSelectDate(day)}
                 className={`relative flex h-8 items-center justify-center text-xs font-semibold leading-none transition ${
-                  selectedWeek && !selected && column === 0
+                  selectedWeek && !highlight && column === 0
                     ? "rounded-l-xl"
                     : ""
                 } ${
-                  selectedWeek && !selected && column === 6
+                  selectedWeek && !highlight && column === 6
                     ? "rounded-r-xl"
                     : ""
-                } ${selectedWeek && !selected ? "bg-slate-100" : ""} ${
-                  selected
-                    ? "z-10 rounded-lg !bg-red-500 !text-white shadow-sm"
-                    : currentMonth
-                      ? today
-                        ? "rounded-lg !bg-red-500 !text-white shadow-sm"
-                        : isHoliday
+                } ${selectedWeek && !highlight ? "bg-slate-100" : ""} ${
+                  today
+                    ? "z-10 rounded-lg !bg-primary !text-primary-foreground shadow-sm"
+                    : selected
+                      ? "z-10 rounded-lg !bg-transparent !text-accent-foreground"
+                      : currentMonth
+                        ? isHoliday
                           ? "rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700"
-                          : "text-slate-700 hover:bg-slate-100 hover:text-slate-950"
-                      : "text-slate-300 hover:bg-slate-100 hover:text-slate-500"
-                }`}
+                          : "text-slate-700 hover:rounded-lg hover:!bg-[var(--flowra-border)] hover:text-slate-950"
+                        : "text-slate-300 hover:rounded-lg hover:!bg-[var(--flowra-border)] hover:text-slate-500"
+                } ${selected ? "ring-2 ring-inset ring-primary" : ""}`}
                 aria-label={`${formatCompactDate(day)} schedule count ${meta?.count ?? 0}`}
+                aria-current={today ? "date" : undefined}
+                aria-pressed={selected}
+                title={today ? "오늘" : undefined}
               >
                 {day.getDate()}
-                {currentMonth ? renderMarker(meta, selected || today) : null}
+                {renderMarker(meta, highlight)}
               </button>
             );
           })}
@@ -7613,6 +7631,7 @@ function ExpandableScheduleDescription({ text }: { text: string }) {
 function TimelineItem({
   schedule,
   highlighted,
+  dateFocused,
   selectable,
   selected,
   onToggleSelect,
@@ -7622,6 +7641,7 @@ function TimelineItem({
 }: {
   schedule: Schedule;
   highlighted?: boolean;
+  dateFocused?: boolean;
   selectable?: boolean;
   selected?: boolean;
   onToggleSelect?: () => void;
@@ -7672,7 +7692,7 @@ function TimelineItem({
           : preview
             ? "border-dashed border-violet-300"
             : "border-slate-200"
-      }`}
+      } ${dateFocused ? "flowra-calendar-date-focus" : ""}`}
       style={{ backgroundColor: colorWithAlpha(cardColor, "10") }}
     >
       <span
@@ -8719,6 +8739,7 @@ function MonthScheduleGrid({
   schedulesByDate,
   holidaysByDate,
   selectedKey,
+  focusedDateKey,
   categoryColors,
   activeScheduleId,
   weekStart,
@@ -8732,6 +8753,7 @@ function MonthScheduleGrid({
   schedulesByDate: Map<string, Schedule[]>;
   holidaysByDate: Map<string, Holiday[]>;
   selectedKey: string;
+  focusedDateKey?: string | null;
   categoryColors: Map<number, string>;
   activeScheduleId?: number | null;
   weekStart: WeekStartDay;
@@ -9249,7 +9271,11 @@ function MonthScheduleGrid({
                 continuesAfter={segment.continuesAfter}
                 canResizeStart={!segment.continuesBefore}
                 canResizeEnd={!segment.continuesAfter}
-                className={`pointer-events-auto ${selected ? "z-30" : "z-20"}`}
+                className={`pointer-events-auto ${selected ? "z-30" : "z-20"} ${
+                  focusedDateKey && cells.slice(segment.startIndex, segment.endIndex + 1).some((cell) => toDateKey(cell.date) === focusedDateKey)
+                    ? "flowra-calendar-date-focus"
+                    : ""
+                }`}
                 style={{
                   alignSelf: "start",
                   gridColumn: `${startColumn + 1} / span ${span}`,
@@ -9963,6 +9989,7 @@ function WeekScheduleGrid({
   schedulesByDate,
   holidaysByDate,
   selectedKey,
+  focusedDateKey,
   categoryColors,
   activeScheduleId,
   onOpenDay,
@@ -9974,6 +10001,7 @@ function WeekScheduleGrid({
   schedulesByDate: Map<string, Schedule[]>;
   holidaysByDate: Map<string, Holiday[]>;
   selectedKey: string;
+  focusedDateKey?: string | null;
   categoryColors: Map<number, string>;
   activeScheduleId?: number | null;
   onOpenDay: (date: Date) => void;
@@ -10772,21 +10800,34 @@ function WeekScheduleGrid({
 
   useEffect(() => {
     const container = scrollContainerRef.current;
-    if (!container || todayIndex < 0) return;
+    const focusIndex = focusedDateKey
+      ? weekDates.findIndex((day) => toDateKey(day) === focusedDateKey)
+      : -1;
+    const targetIndex = focusIndex >= 0 ? focusIndex : todayIndex;
+    if (!container || targetIndex < 0) return;
     if (lastAutoScrolledRangeKeyRef.current === visibleRangeKey) return;
 
+    const firstTimedSchedule = focusedDateKey
+      ? (schedulesByDate.get(focusedDateKey) ?? [])
+          .filter((schedule) => !schedule.all_day)
+          .sort((a, b) => new Date(a.start_datetime).getTime() - new Date(b.start_datetime).getTime())[0]
+      : undefined;
+    const firstStart = firstTimedSchedule ? new Date(firstTimedSchedule.start_datetime) : null;
+    const targetTop = firstStart
+      ? ((toDateKey(firstStart) === focusedDateKey ? minuteOfDay(firstStart) : 0) / 60) * weekHourHeight
+      : nowTop;
     lastAutoScrolledRangeKeyRef.current = visibleRangeKey;
     const frame = requestAnimationFrame(() => {
-      container.scrollTop = Math.max(0, nowTop - container.clientHeight / 2);
+      container.scrollTop = Math.max(0, targetTop - container.clientHeight / 2);
       const dayWidth = (container.scrollWidth - weekTimeColumnWidth) / dayCount;
       container.scrollLeft = Math.max(
         0,
-        weekTimeColumnWidth + (todayIndex + 0.5) * dayWidth - container.clientWidth / 2,
+        weekTimeColumnWidth + (targetIndex + 0.5) * dayWidth - container.clientWidth / 2,
       );
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [todayIndex, visibleRangeKey]);
+  }, [todayIndex, visibleRangeKey, focusedDateKey, schedulesByDate]);
 
   useEffect(
     () => () => {
@@ -10860,7 +10901,7 @@ function WeekScheduleGrid({
                 key={key}
                 type="button"
                 onClick={() => onOpenDay(day)}
-                className={`flex h-11 items-center justify-center gap-1 border-r border-slate-100 text-xs font-medium transition last:border-r-0 hover:bg-white ${weekdayToneClass(day, selected, isHoliday)}`}
+                className={`flex h-11 items-center justify-center gap-1 border-r border-slate-100 text-xs font-medium transition last:border-r-0 hover:bg-white ${weekdayToneClass(day, selected, isHoliday)} ${key === focusedDateKey ? "flowra-calendar-date-heading" : ""}`}
               >
                 <span>{weekdayLabels[day.getDay()]}</span>
                 <span
@@ -11049,7 +11090,11 @@ function WeekScheduleGrid({
                     selected
                       ? "ring-2 ring-violet-400 ring-offset-1"
                       : "hover:ring-1 hover:ring-violet-200"
-                  } ${preview ? "border border-dashed" : ""}`}
+                  } ${preview ? "border border-dashed" : ""} ${
+                    focusedDateKey && weekDates.slice(displayStartIndex, displayEndIndex + 1).some((day) => toDateKey(day) === focusedDateKey)
+                      ? "flowra-calendar-date-focus"
+                      : ""
+                  }`}
                   style={{
                     top: 26 + holidayLaneCount * 24 + lane * 24,
                     left: `calc(${(displayStartIndex / dayCount) * 100}% + 4px)`,
@@ -11287,6 +11332,10 @@ function WeekScheduleGrid({
                       : "hover:ring-1 hover:ring-violet-200"
                   } ${activeDraft ? "opacity-45 saturate-75" : ""} ${
                     preview ? "border border-dashed" : ""
+                  } ${
+                    focusedDateKey && scheduleOverlapsDay(schedule, new Date(`${focusedDateKey}T00:00:00`))
+                      ? "flowra-calendar-date-focus"
+                      : ""
                   }`}
                   style={{
                     ...blockStyle,
@@ -11475,7 +11524,7 @@ export default function Schedules() {
     : null;
   const deepLinkedDate = searchParams.get("date");
   const createPanelRequested = searchParams.get("create") === "1";
-  const initialDate = deepLinkedDate ? new Date(deepLinkedDate) : new Date();
+  const initialDate = deepLinkedDate ? new Date(`${deepLinkedDate}T00:00:00`) : new Date();
   const safeInitialDate = Number.isNaN(initialDate.getTime())
     ? new Date()
     : initialDate;
@@ -11492,10 +11541,9 @@ export default function Schedules() {
   const [visibleWindowStart, setVisibleWindowStart] = useState(() =>
     monthCalendarWindowStart(safeInitialDate, weekStart),
   );
-  const [miniCalendarMonth, setMiniCalendarMonth] = useState(() => {
-    const today = new Date();
-    return new Date(today.getFullYear(), today.getMonth(), 1);
-  });
+  const [miniCalendarMonth, setMiniCalendarMonth] = useState(() =>
+    new Date(safeInitialDate.getFullYear(), safeInitialDate.getMonth(), 1),
+  );
   const [selectedDate, setSelectedDate] = useState<Date>(safeInitialDate);
   const [selectedScheduleIds, setSelectedScheduleIds] = useState<Set<number>>(
     () => new Set(),
@@ -11711,11 +11759,29 @@ export default function Schedules() {
       public_only: true,
     };
   }, [miniCalendarMonth, weekStart]);
+  const miniCalendarScheduleRange = useMemo(() => {
+    const cells = buildFullMonthCells(miniCalendarMonth, {
+      weekStart,
+      fixedWeeks: 6,
+    });
+    const first = cells[0]?.date ?? miniCalendarMonth;
+    const last = cells[cells.length - 1]?.date ?? miniCalendarMonth;
+    const start = new Date(first);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(last);
+    end.setHours(23, 59, 59, 999);
+
+    return {
+      start_from: toOffsetISOString(start),
+      start_to: toOffsetISOString(end),
+    };
+  }, [miniCalendarMonth, weekStart]);
 
   const schedulesQuery = useSchedules({
     start_from: monthRange.startFrom,
     start_to: monthRange.startTo,
   });
+  const miniCalendarSchedulesQuery = useSchedules(miniCalendarScheduleRange);
   const companySchedulesQuery = useCompanyScheduleFeed(
     {
       start_from: monthRange.startFrom,
@@ -11984,17 +12050,8 @@ export default function Schedules() {
   );
 
   const dateMeta = useMemo(() => {
-    const meta = new Map<string, DayMeta>();
-    for (const [key, schedules] of schedulesByDate.entries()) {
-      meta.set(key, {
-        count: schedules.length,
-        hasDeadline: schedules.some(
-          (schedule) => schedule.schedule_type === "deadline",
-        ),
-      });
-    }
-    return meta;
-  }, [schedulesByDate]);
+    return groupSchedulesByDate(miniCalendarSchedulesQuery.data ?? []);
+  }, [miniCalendarSchedulesQuery.data]);
 
   const mainMonthCells = useMemo(
     () =>
@@ -12007,7 +12064,13 @@ export default function Schedules() {
   );
 
   const selectedKey = toDateKey(selectedDate);
-  const todayKey = toDateKey(new Date());
+  const focusedDateKey = !isLoading && !error ? selectedKey : null;
+
+  useEffect(() => {
+    setMiniCalendarMonth(
+      new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1),
+    );
+  }, [selectedDate]);
   const todayWeekDates = useMemo(
     () => buildWeekDates(new Date(), weekStart),
     [weekStart],
@@ -12274,6 +12337,7 @@ export default function Schedules() {
     } else {
       clearDeepLinkParams();
       setSelectedScheduleIds(new Set());
+      setSelectedDate(date);
     }
     setPanelAnchorElement(anchorElement);
     setViewingSchedule(null);
@@ -12710,7 +12774,7 @@ export default function Schedules() {
         <div data-flowra-schedule-sidebar>
           <MiniCalendar
             visibleMonth={miniCalendarMonth}
-            selectedKey={todayKey}
+            selectedKey={selectedKey}
             dateMeta={dateMeta}
             holidaysByDate={miniCalendarHolidaysByDate}
             weekDates={todayWeekDates}
@@ -13049,6 +13113,7 @@ export default function Schedules() {
                   schedulesByDate={schedulesByDate}
                   holidaysByDate={holidaysByDate}
                   selectedKey={selectedKey}
+                  focusedDateKey={focusedDateKey}
                   categoryColors={categoryColors}
                   activeScheduleId={
                     editingSchedule?.schedule_id ??
@@ -13079,6 +13144,7 @@ export default function Schedules() {
                   schedulesByDate={schedulesByDate}
                   holidaysByDate={holidaysByDate}
                   selectedKey={selectedKey}
+                  focusedDateKey={focusedDateKey}
                   categoryColors={categoryColors}
                   activeScheduleId={
                     editingSchedule?.schedule_id ??
@@ -13105,6 +13171,7 @@ export default function Schedules() {
                   schedulesByDate={schedulesByDate}
                   holidaysByDate={holidaysByDate}
                   selectedKey={selectedKey}
+                  focusedDateKey={focusedDateKey}
                   categoryColors={categoryColors}
                   activeScheduleId={
                     editingSchedule?.schedule_id ??
@@ -13140,6 +13207,7 @@ export default function Schedules() {
                           <TimelineItem
                             key={schedule.schedule_id}
                             schedule={schedule}
+                            dateFocused={!!focusedDateKey}
                             highlighted={
                               schedule.schedule_id === deepLinkedScheduleId
                             }
@@ -13177,6 +13245,7 @@ export default function Schedules() {
                           <TimelineItem
                             key={schedule.schedule_id}
                             schedule={schedule}
+                            dateFocused={!!focusedDateKey}
                             highlighted={
                               schedule.schedule_id === deepLinkedScheduleId
                             }
@@ -13285,12 +13354,25 @@ export default function Schedules() {
               onCompletionChange={
                 panelMode === "edit" && editingSchedule
                   ? async (completed) => {
-                      const updatedSchedule =
-                        await scheduleCompletionMutation.mutateAsync({
-                          scheduleId: editingSchedule.schedule_id,
-                          completed,
-                        });
-                      setEditingSchedule(updatedSchedule);
+                      const previousSchedule = editingSchedule;
+                      setEditingSchedule({
+                        ...previousSchedule,
+                        is_completed: completed,
+                        completed_at: completed
+                          ? toOffsetISOString(new Date())
+                          : null,
+                      });
+                      try {
+                        const updatedSchedule =
+                          await scheduleCompletionMutation.mutateAsync({
+                            scheduleId: previousSchedule.schedule_id,
+                            completed,
+                          });
+                        setEditingSchedule(updatedSchedule);
+                      } catch (error) {
+                        setEditingSchedule(previousSchedule);
+                        throw error;
+                      }
                     }
                   : undefined
               }
