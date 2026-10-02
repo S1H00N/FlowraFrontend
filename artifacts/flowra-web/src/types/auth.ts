@@ -88,3 +88,58 @@ export interface UpdateUserRequest {
   profile_image_url?: string | null;
   timezone?: string;
 }
+
+export interface GoogleProfile {
+  email: string;
+  name?: string;
+  picture?: string | null;
+}
+
+export interface GoogleLinkTicketData {
+  link_ticket: string;
+  expires_at: string;
+  google_profile?: GoogleProfile;
+}
+
+export interface GoogleExistingAccount {
+  name: string;
+  masked_email?: string;
+  email_masked?: string;
+}
+
+export type GooglePrepareResponseData =
+  | (LoginResponseData & { next_action: "signed_in" })
+  | (GoogleLinkTicketData & {
+      next_action: "existing_account" | "signup";
+      google_profile: GoogleProfile;
+      existing_account: GoogleExistingAccount | null;
+    });
+
+export interface GoogleLinkWithPasswordRequest {
+  link_ticket: string;
+  email: string;
+  password: string;
+}
+
+export interface GoogleSignupRequest {
+  link_ticket: string;
+  name: string;
+  password: string;
+  timezone?: string;
+}
+
+export interface GoogleEmailVerificationData {
+  requires_email_verification: true;
+  email_sent?: boolean;
+  verification_expires_at?: string;
+}
+
+export type GoogleSignupResponseData =
+  | (LoginResponseData & { requires_email_verification?: false })
+  | GoogleEmailVerificationData;
+
+export interface LinkedAuthAccount {
+  provider: string;
+  linked_at?: string;
+  created_at?: string;
+}

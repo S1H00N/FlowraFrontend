@@ -1,6 +1,6 @@
 # Flowra AI API
 
-> 개발·장애 조사: [AI 개발자 디버깅 계약](#ai-개발자-디버깅-계약) · [공통 디버깅](../devdocs/debugging-guide.md) · [전체 라우트/DTO](../devdocs/routes-general.md) · [오류 코드 추적](../devdocs/error-index.md)
+> 개발·장애 조사: [AI 개발자 디버깅 계약](#ai-개발자-디버깅-계약) · [공통 디버깅](../../devdocs/api-reference/debugging-guide.md) · [전체 라우트/DTO](../../devdocs/api-reference/routes-general.md) · [오류 코드 추적](../../devdocs/api-reference/error-index.md)
 
 AI 관련 기능만 따로 모은 참고 문서입니다.
 
@@ -1021,7 +1021,7 @@ Response 예시:
 
 ## AI 개발자 디버깅 계약
 
-기준: 2026-09-16. [공통 디버깅 가이드](../devdocs/debugging-guide.md), [라우트·DTO 색인](../devdocs/routes-general.md), [오류 발생 코드](../devdocs/error-index.md)를 함께 사용합니다. 아래는 현재 코드의 동작입니다. 새 AI 응답은 저장 전에 반복 조건을 실제 계산해 검증하며, 기존에 저장된 제안은 자동 수정하지 않습니다.
+기준: 2026-09-16. [공통 디버깅 가이드](../../devdocs/api-reference/debugging-guide.md), [라우트·DTO 색인](../../devdocs/api-reference/routes-general.md), [오류 발생 코드](../../devdocs/api-reference/error-index.md)를 함께 사용합니다. 아래는 현재 코드의 동작입니다. 새 AI 응답은 저장 전에 반복 조건을 실제 계산해 검증하며, 기존에 저장된 제안은 자동 수정하지 않습니다.
 
 ### A. 호출 주체와 데이터 책임
 
@@ -1184,7 +1184,7 @@ GET에 401이 왔다면 인증이 먼저 거절된 것입니다. 401 자체는 �
 | `failed` | parse_error_message와 관련 로그 확인. 입력/외부 AI 오류를 구분한 뒤 재요청. |
 
 - `POST /api/v1/memos/:memo_id/parse`의 `force` 기본값은 false입니다. processing이면 `MEMO_PARSE_IN_PROGRESS` 409가 될 수 있습니다.
-- 요청 상태는 DB에 영속 저장합니다. 15초 주기로 요청된 작업만 처리하고 10분 lease가 만료되면 복구합니다. 최대3회 시도하며 미요청 pending은 처리하지 않습니다. [F11 상세](../devdocs/feature-lifecycle.md#f11-메모-파싱-복구).
+- 요청 상태는 DB에 영속 저장합니다. 15초 주기로 요청된 작업만 처리하고 10분 lease가 만료되면 복구합니다. 최대3회 시도하며 미요청 pending은 처리하지 않습니다. [F11 상세](../../devdocs/api-reference/feature-lifecycle.md#f11-메모-파싱-복구).
 - `force: true`는 새 generation으로 재요청합니다. 이전 외부 호출 자체는 계속될 수 있지만 오래된 결과 저장은 차단됩니다. polling마다 force를 호출하지 않습니다.
 - 메모 적용 시 특정 `ai_result_id`를 사용하면 사용자가 확인한 분석 버전을 명확히 지정할 수 있습니다. 재파싱된 새 결과와 과거 적용 이력을 혼동하지 않습니다.
 - 메모의 `pending_item`은 직접 적용할 수 없습니다. `AI_ACTION_NOT_APPLICABLE`이면 확정된 정보로 일반 생성 경로를 사용합니다.
@@ -1229,4 +1229,4 @@ GET에 401이 왔다면 인증이 먼저 거절된 것입니다. 401 자체는 �
 - `GET /ai-chat/sessions`는 cursor와 pagination을 지원합니다.
 - `GET /ai-chat/sessions/:session_id/messages?limit=50`는 최신 페이지를 시간 오름차순으로 반환합니다. next_cursor는 더 과거 내역을 가리킵니다. limit/cursor 없는 요청은 기존 전체 조회입니다.
 - `PATCH /ai-chat/sessions/:session_id` body `{title?,status?:"active|archived"}`는 최소1필드이며 data.session을 반환합니다. title은 trim 후1~100자입니다. 보관 중에는 전송/적용을 차단하고 복원 시 기존 메시지를 유지합니다.
-- [F05/F09/F11 디버깅 계약](../devdocs/feature-lifecycle.md): cursor 오류 복구, 보관과 AI 응답 경합, 영속 요청/lease/generation/재시도.
+- [F05/F09/F11 디버깅 계약](../../devdocs/api-reference/feature-lifecycle.md): cursor 오류 복구, 보관과 AI 응답 경합, 영속 요청/lease/generation/재시도.

@@ -46,6 +46,7 @@ export default defineConfig({
     timeout: 120_000,
     env: {
       VITE_API_BASE_URL: 'http://qa-api.invalid/api/v1',
+      VITE_GOOGLE_OAUTH_CLIENT_ID: process.env.QA_GOOGLE_OAUTH_CLIENT_ID || '',
       VITE_FIREBASE_API_KEY: '',
       VITE_FIREBASE_APP_ID: '',
       VITE_FIREBASE_PROJECT_ID: '',

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useCreateTask } from "@/hooks/useTasks";
 import {
@@ -53,6 +53,7 @@ export default function TaskForm({
   );
   const {
     register,
+    control,
     handleSubmit,
     reset,
     setFocus,
@@ -170,6 +171,16 @@ export default function TaskForm({
         <p className="tasks-quick-add-hint">
           Enter로 추가 · Esc로 닫기
         </p>
+        {defaultScheduleId == null && <Controller control={control} name="due_datetime" render={({ field }) => {
+          const [date = "", time = ""] = (field.value || "").split("T");
+          return <div className="tasks-quick-add-date">
+            <label>마감일 (선택)<input type="date" aria-label="새 할 일 마감일" value={date} disabled={createMutation.isPending}
+              onChange={(event) => field.onChange(event.target.value ? `${event.target.value}T${time || "09:00"}` : "")} /></label>
+            <label>시간<input type="time" aria-label="새 할 일 마감 시간" value={time} disabled={!date || createMutation.isPending}
+              onChange={(event) => field.onChange(`${date}T${event.target.value || "09:00"}`)} /></label>
+            {date && <button type="button" className="tasks-more" aria-label="새 할 일 마감일 제거" onClick={() => field.onChange("")}><X /></button>}
+          </div>;
+        }} />}
         {(errors.title || error) && (
           <p role="alert" className="tasks-inline-error">
             {errors.title?.message || error}

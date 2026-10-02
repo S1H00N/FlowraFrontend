@@ -20,7 +20,14 @@ import {
   priorityMetaClass,
   TypeMetaChip,
 } from "@/components/ListCardMeta";
-import { CalendarClock, Clock3, Plus, Trash2, X } from "lucide-react";
+import { CalendarClock, Clock3, MoreHorizontal, Plus, Trash2, X } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useTaskMoveContext } from "@/components/tasks/TaskMoveContext";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { getErrorMessage } from "@/lib/error";
@@ -89,6 +96,7 @@ function TaskItemBase({
   reorder?: TaskReorderProps;
 }) {
   const [localIsEditing, setLocalIsEditing] = useState(false);
+  const moves = useTaskMoveContext();
   const composer = useTaskComposer();
   const isEditing = composer
     ? composer.active?.kind === "task-edit" &&
@@ -122,13 +130,12 @@ function TaskItemBase({
   const linkedSingleDay =
     task.schedule_id != null &&
     !!scheduleDateKey &&
-    scheduleDateKey === scheduleEndDateKey;
+    scheduleDateKey === scheduleEndDateKey &&
+    (!task.due_datetime || toDateKey(task.due_datetime) === scheduleDateKey);
   const linkedTask = task.schedule_id != null;
+  const timeOnly = linkedTask && (!task.due_datetime || (!!scheduleDateKey && toDateKey(task.due_datetime) >= scheduleDateKey && toDateKey(task.due_datetime) <= scheduleEndDateKey));
   const initialDueValue = toLocalDateTimeInput(task.due_datetime);
-  const editorDueValue =
-    linkedSingleDay && initialDueValue
-      ? localInputWithTime("", timeFromLocalInput(initialDueValue), scheduleDateKey)
-      : initialDueValue;
+  const editorDueValue = initialDueValue;
 
   const {
     register,
@@ -223,15 +230,7 @@ function TaskItemBase({
             title: values.title,
             priority: values.priority,
             due_datetime: values.due_datetime
-              ? localInputToOffsetISOString(
-                  linkedSingleDay
-                    ? localInputWithTime(
-                        "",
-                        timeFromLocalInput(values.due_datetime),
-                        scheduleDateKey,
-                      )
-                    : values.due_datetime,
-                )
+              ? localInputToOffsetISOString(values.due_datetime)
               : null,
           },
         });
@@ -381,7 +380,7 @@ function TaskItemBase({
               </div>
               <div className="min-w-0">
                 <span className="mb-1 block text-xs font-semibold text-slate-600">
-                  {linkedTask ? "마감 시간" : "마감일"}
+                  {timeOnly ? "마감 시간" : "마감일"}
                 </span>
                 <Controller
                   control={control}
@@ -401,7 +400,7 @@ function TaskItemBase({
                         ),
                       );
 
-                    if (linkedTask) {
+                    if (timeOnly) {
                       return (
                         <div ref={timePickerContainer} className="min-w-0">
                           {showTimePicker ? (
@@ -455,7 +454,7 @@ function TaskItemBase({
                     }
 
                     return (
-                      <div className="grid grid-cols-[minmax(0,1fr)_5.5rem] gap-2">
+                      <div className="grid grid-cols-[minmax(0,1fr)_5.5rem_auto] gap-2">
                         <CompactDateInput
                           value={dateKey}
                           onChange={(nextDateKey) =>
@@ -473,6 +472,7 @@ function TaskItemBase({
                           inputRef={dueTimeInput}
                           className="h-9 w-full border-transparent bg-transparent px-2 hover:border-slate-200 hover:bg-white/60 focus-within:border-violet-300 focus-within:bg-white"
                         />
+                        {dueValue && <button type="button" aria-label="마감일 제거" onClick={() => field.onChange("")} className="tasks-more"><X /></button>}
                       </div>
                     );
                   }}
@@ -541,7 +541,7 @@ function TaskItemBase({
         onDragOver={reorder?.onDragOver}
         onDrop={reorder?.onDrop}
         onKeyDown={reorder?.onKeyDown}
-        className={`tasks-subtask${isDone ? " tasks-subtask-completed" : ""}${selected ? " tasks-subtask-selected" : ""}${reorder ? " task-reorderable" : ""}${reorder?.dragging ? " task-reorder-dragging" : ""}`}
+        className={`tasks-subtask${highlighted ? " task-moved-highlight" : ""}${isDone ? " tasks-subtask-completed" : ""}${selected ? " tasks-subtask-selected" : ""}${reorder ? " task-reorderable" : ""}${reorder?.dragging ? " task-reorder-dragging" : ""}`}
       >
         <label
           className="tasks-row-check"
@@ -587,6 +587,31 @@ function TaskItemBase({
           </span>
         </div>
         <div className="tasks-row-actions">
+          {moves && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  data-task-drag-exclude
+                  className="tasks-more"
+                  aria-label={`${task.title} 이동 메뉴`}
+                  disabled={moves.disabled || busy}
+                >
+                  <MoreHorizontal />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="task-move-menu">
+                <DropdownMenuItem onSelect={() => moves.openPicker(task)}>
+                  다른 일정으로 이동…
+                </DropdownMenuItem>
+                {task.schedule_id != null && (
+                  <DropdownMenuItem onSelect={() => moves.move({ task, scheduleId: null })}>
+                    독립 할 일로 이동
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <button
             type="button"
             data-task-drag-exclude

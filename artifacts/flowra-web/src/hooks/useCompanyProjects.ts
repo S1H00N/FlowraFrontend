@@ -23,7 +23,6 @@ import type {
   CompanyProjectDetailData,
   CompanyProjectGanttData,
   CompanyProjectGanttQuery,
-  CompanyProjectWorkItem,
   CompanyProjectWorkItemChildrenData,
   CompanyProjectWorkItemChildrenQuery,
   CompanyProjectWorkReminder,

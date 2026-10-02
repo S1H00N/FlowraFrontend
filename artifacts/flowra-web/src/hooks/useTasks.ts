@@ -135,7 +135,7 @@ function syncCreatedTaskToListCaches(queryClient: QueryClient, task: Task) {
     });
 }
 
-function syncUpdatedTaskToListCaches(queryClient: QueryClient, task: Task) {
+export function syncUpdatedTaskToListCaches(queryClient: QueryClient, task: Task) {
   queryClient
     .getQueryCache()
     .findAll({ queryKey: TASKS_QUERY_KEY })
@@ -175,7 +175,7 @@ function removeTaskFromListCaches(queryClient: QueryClient, taskId: number) {
     });
 }
 
-function findCachedTask(queryClient: QueryClient, taskId: number) {
+export function findCachedTask(queryClient: QueryClient, taskId: number) {
   const detail = queryClient.getQueryData<Task>(taskDetailKey(taskId));
   if (detail) return detail;
 
@@ -229,7 +229,8 @@ export function useTasks(query: TaskListQuery = {}) {
       if (!res.success) {
         throw new Error(res.message || "할 일을 불러오지 못했습니다.");
       }
-      return res.data.tasks ?? [];
+      const tasks = [...(res.data.tasks ?? [])];
+      return [...new Map(tasks.map((task) => [task.task_id, task])).values()];
     },
   });
 }
@@ -306,6 +307,8 @@ export function useUpdateTask() {
           ...(payload.title !== undefined && { title: payload.title }),
           ...(payload.priority !== undefined && { priority: payload.priority }),
           ...(payload.status !== undefined && { status: payload.status }),
+          ...(payload.schedule_id !== undefined && { schedule_id: payload.schedule_id === null ? null : Number(payload.schedule_id) }),
+          ...(payload.sort_order !== undefined && { sort_order: payload.sort_order }),
           ...(payload.due_datetime !== undefined && {
             due_datetime: payload.due_datetime,
           }),

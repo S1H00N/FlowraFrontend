@@ -107,7 +107,7 @@ test('mini calendar keeps all five navigation links stationary', async ({ page }
 
   const calendar = sidebar(page).locator('[data-flowra-schedule-sidebar]');
   await calendar.getByRole('button', { name: '이번 달로 이동', exact: true }).click();
-  await calendar.getByRole('button', { name: '9월 9일 (수)', exact: true }).click();
+  await calendar.getByRole('button', { name: /^9월 9일 \(수\)(?: 일정 \d+개)?$/ }).click();
   await expect(page).toHaveURL((url) =>
     url.pathname === '/schedules' && url.searchParams.get('date') === '2026-09-09');
 });

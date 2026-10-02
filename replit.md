@@ -13,8 +13,7 @@ The product frontend is `artifacts/flowra-web`, which calls the external Flowra 
 - **Package manager**: pnpm
 - **TypeScript version**: 5.9
 - **API framework**: Express 5
-- **Database**: PostgreSQL + Drizzle ORM
-- **Validation**: Zod (`zod/v4`), `drizzle-zod`
+- **Validation**: Zod
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
 
@@ -23,7 +22,6 @@ The product frontend is `artifacts/flowra-web`, which calls the external Flowra 
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - `pnpm --filter @workspace/api-server run dev` — run API server locally
 
 Use `pnpm.cmd` in Windows PowerShell if execution policy blocks the PowerShell shim. Run `pnpm.cmd --filter @workspace/flowra-web run test:api` for frontend contract regression tests and consult [browser QA](docs/qa/README.md) for UI verification.

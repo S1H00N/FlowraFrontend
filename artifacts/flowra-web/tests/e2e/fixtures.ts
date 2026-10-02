@@ -142,6 +142,32 @@ export async function installMockApi(page: Page, options: MockOptions = {}) {
   const unhandled: MockRequest[] = [];
   const blockedExternal: string[] = [];
   let nextId = 1001;
+  const scheduleTasks = (scheduleId: number) => state.tasks
+    .filter((task) => task.schedule_id === scheduleId)
+    .sort((a, b) => (a.sort_order ?? Infinity) - (b.sort_order ?? Infinity) || a.task_id - b.task_id);
+  const ownsSchedule = (scheduleId: number) => state.schedules.some((schedule) =>
+    schedule.schedule_id === scheduleId && !schedule.is_company_schedule && !schedule.is_shared,
+  );
+  const compactSchedule = (scheduleId: number | null | undefined) => {
+    if (scheduleId != null) scheduleTasks(scheduleId).forEach((task, index) => { task.sort_order = index; });
+  };
+  const placeTask = (task: Task, scheduleId: number | null, sortOrder?: number) => {
+    const previousScheduleId = task.schedule_id ?? null;
+    if (scheduleId === previousScheduleId && sortOrder === undefined) {
+      if (scheduleId === null) task.sort_order = null;
+      else compactSchedule(scheduleId);
+      return;
+    }
+    const destination = scheduleId === null ? [] : scheduleTasks(scheduleId).filter((item) => item.task_id !== task.task_id);
+    task.schedule_id = scheduleId;
+    task.sort_order = null;
+    if (previousScheduleId !== scheduleId) compactSchedule(previousScheduleId);
+    if (scheduleId !== null) {
+      const position = sortOrder !== undefined && sortOrder >= 0 && sortOrder <= destination.length ? sortOrder : destination.length;
+      destination.splice(position, 0, task);
+      destination.forEach((item, index) => { item.sort_order = index; });
+    }
+  };
 
   await page.route("**/*", async (route: Route) => {
     const request = route.request();
@@ -182,6 +208,7 @@ export async function installMockApi(page: Page, options: MockOptions = {}) {
     const input = normalizeIds(body);
 
     if (path === "/users/me" && method === "GET") return reply({ user: state.user });
+    if (path === "/auth/google/accounts" && method === "GET") return reply({ accounts: [] });
     if (path === "/users/me" && method === "PATCH") {
       Object.assign(state.user, body, { updated_at: QA_NOW });
       return reply({ user: state.user });
@@ -201,9 +228,35 @@ export async function installMockApi(page: Page, options: MockOptions = {}) {
     }
     if (path === "/briefings/today" && method === "GET") return reply({ date: params.get("date") || QA_DATE, summary: { schedule_count: state.schedules.length, task_count: state.tasks.length, overdue_task_count: 0, reminder_count: 0 }, schedules: state.schedules, tasks: state.tasks, company_schedules: [], overdue_tasks: [], project_work_items: [], overdue_project_work_items: [], reminders: [] });
 
+    const reorderMatch = path.match(/^\/schedules\/(\d+)\/tasks\/reorder$/);
+    if (reorderMatch && method === "PATCH") {
+      const scheduleId = Number(reorderMatch[1]);
+      if (!ownsSchedule(scheduleId)) return fail(404, "SCHEDULE_NOT_FOUND", "일정을 찾을 수 없습니다.");
+      const ids = body.task_ids;
+      if (Object.keys(body).length !== 1 || !Array.isArray(ids) || ids.some((id) => typeof id !== "string" || !/^\d+$/.test(id)) || new Set(ids.map(Number)).size !== ids.length) {
+        return fail(400, "VALIDATION_ERROR", "할 일 ID 목록을 확인해 주세요.");
+      }
+      const fullList = scheduleTasks(scheduleId);
+      if (ids.length !== fullList.length || ids.some((id) => !fullList.some((task) => task.task_id === Number(id)))) {
+        return fail(409, "TASK_ORDER_MISMATCH", "할 일 목록이 변경되었습니다.");
+      }
+      const ordered = ids.map((id) => fullList.find((task) => task.task_id === Number(id))!);
+      ordered.forEach((task, index) => { task.sort_order = index; });
+      return reply({ tasks: ordered });
+    }
+    const orderMatch = path.match(/^\/tasks\/(\d+)\/order$/);
+    if (orderMatch && method === "PATCH") {
+      const task = state.tasks.find((item) => item.task_id === Number(orderMatch[1]));
+      if (!task) return fail(404, "TASK_NOT_FOUND", "할 일을 찾을 수 없습니다.");
+      if (Object.keys(body).length !== 1 || !Number.isSafeInteger(body.sort_order)) return fail(400, "VALIDATION_ERROR", "순번을 확인해 주세요.");
+      if (task.schedule_id == null) return fail(400, "TASK_SCHEDULE_REQUIRED", "일정에 연결된 할 일만 순서를 변경할 수 있습니다.");
+      placeTask(task, task.schedule_id, body.sort_order as number);
+      return reply({ task });
+    }
     if (path === "/tasks" && method === "GET") {
       const items = state.tasks.filter((item) => matches(item.status, params.get("status")) && matches(item.priority, params.get("priority")) && matches(item.category_id, params.get("category_id")) && matches(item.schedule_id, params.get("schedule_id")) && (!params.get("q") || `${item.title} ${item.description || ""}`.toLowerCase().includes(params.get("q")!.toLowerCase())) && (params.get("schedule_filter") !== "linked" || !!item.schedule_id) && (params.get("schedule_filter") !== "unlinked" || !item.schedule_id) && ((!item.due_datetime && params.get("include_no_due") === "true") || inRange(item.due_datetime, params.get("due_from"), params.get("due_to"))));
-      return reply(listData(items, "tasks"));
+      if (params.has("schedule_id")) items.sort((a, b) => (a.sort_order ?? Infinity) - (b.sort_order ?? Infinity) || a.task_id - b.task_id);
+      return reply({ tasks: items });
     }
     if (path === "/schedules" && method === "GET") {
       const items = state.schedules.filter((item) => matches(item.category_id, params.get("category_id")) && matches(item.schedule_type, params.get("schedule_type")) && matches(item.priority, params.get("priority")) && matches(item.is_completed ?? false, params.get("is_completed")) && inRange(item.start_datetime, params.get("start_from"), params.get("start_to")) && (!params.get("q") || item.title.toLowerCase().includes(params.get("q")!.toLowerCase())) && (!params.get("location") || (item.location || "").includes(params.get("location")!)));
@@ -228,6 +281,14 @@ export async function installMockApi(page: Page, options: MockOptions = {}) {
       if (!resource[2] && method === "POST") {
         const defaults: Record<string, Record<string, unknown>> = { tasks: { title: "", status: "todo", priority: "medium", due_datetime: null, schedule_id: null, category_id: null }, schedules: { title: "", schedule_type: "personal", priority: "medium", start_datetime: QA_NOW, all_day: false, is_completed: false, visibility: "private", category_id: null }, memos: { raw_text: "", memo_type: "quick", source_type: "manual", parse_status: "pending", category_id: null }, categories: { name: "", color: "#3B82F6", type: "task" }, reminders: { reminder_type: "in_app", is_sent: false } };
         const item = { ...defaults[kind], ...input, [idKey]: nextId++, user_id: 9001, created_at: QA_NOW, updated_at: QA_NOW };
+        if (kind === "tasks") {
+          const scheduleId = input.schedule_id == null ? null : Number(input.schedule_id);
+          if ("sort_order" in body && !Number.isSafeInteger(body.sort_order)) return fail(400, "VALIDATION_ERROR", "순번을 확인해 주세요.");
+          if (scheduleId === null && "sort_order" in body) return fail(400, "TASK_SCHEDULE_REQUIRED", "일정에 연결된 할 일만 순서를 변경할 수 있습니다.");
+          if (scheduleId !== null && !ownsSchedule(scheduleId)) return fail(404, "SCHEDULE_NOT_FOUND", "일정을 찾을 수 없습니다.");
+          item.schedule_id = null;
+          placeTask(item as unknown as Task, scheduleId, body.sort_order as number | undefined);
+        }
         if (kind === "memos" && input.auto_parse) {
           item.parse_status = "completed";
           item.last_ai_result = mockParseResult(item as unknown as Memo);
@@ -237,11 +298,26 @@ export async function installMockApi(page: Page, options: MockOptions = {}) {
         return reply({ [singular]: item }, 201);
       }
       if (resource[2] && method === "PATCH") {
+        if (kind === "tasks") {
+          const task = collection[index] as unknown as Task;
+          const scheduleId = "schedule_id" in input ? input.schedule_id == null ? null : Number(input.schedule_id) : task.schedule_id ?? null;
+          if ("sort_order" in body && !Number.isSafeInteger(body.sort_order)) return fail(400, "VALIDATION_ERROR", "순번을 확인해 주세요.");
+          if (scheduleId === null && "sort_order" in body) return fail(400, "TASK_SCHEDULE_REQUIRED", "일정에 연결된 할 일만 순서를 변경할 수 있습니다.");
+          if (scheduleId !== null && !ownsSchedule(scheduleId)) return fail(404, "SCHEDULE_NOT_FOUND", "일정을 찾을 수 없습니다.");
+          const { schedule_id: _scheduleId, sort_order: _sortOrder, ...fields } = input;
+          Object.assign(task, fields, { updated_at: QA_NOW });
+          placeTask(task, scheduleId, body.sort_order as number | undefined);
+          return reply({ task });
+        }
         Object.assign(collection[index], input, { updated_at: QA_NOW });
         if (kind === "memos" && input.auto_parse) Object.assign(collection[index], { parse_status: "completed", last_ai_result: mockParseResult(collection[index] as unknown as Memo) });
         return reply({ [singular]: collection[index] });
       }
-      if (resource[2] && method === "DELETE") { collection.splice(index, 1); return reply({}); }
+      if (resource[2] && method === "DELETE") {
+        const deleted = collection.splice(index, 1)[0];
+        if (kind === "tasks") compactSchedule(deleted.schedule_id as number | null | undefined);
+        return reply({});
+      }
     }
     if (path === "/schedules/bulk" && method === "DELETE") {
       const ids = new Set((body.schedule_ids as unknown[] || []).map(Number));

@@ -7,12 +7,6 @@ export type MemoSourceType = "manual" | "voice" | "imported";
 export type ParseStatus = "pending" | "processing" | "completed" | "failed";
 
 export const MEMO_TYPES: MemoType[] = ["quick", "meeting", "general"];
-export const PARSE_STATUSES: ParseStatus[] = [
-  "pending",
-  "processing",
-  "completed",
-  "failed",
-];
 
 export const MEMO_TYPE_LABELS: Record<MemoType, string> = {
   quick: "퀵 메모",

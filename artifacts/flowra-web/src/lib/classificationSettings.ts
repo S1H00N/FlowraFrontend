@@ -38,20 +38,8 @@ export type ClassificationSettings = {
   taskStatuses: Record<string, ClassificationOption<TaskStatus>>;
 };
 
-export const CLASSIFICATION_GROUP_LABELS: Record<ClassificationGroup, string> = {
-  scheduleTypes: "일정 유형",
-  taskPriorities: "우선순위",
-  taskStatuses: "할 일 상태",
-};
-
 const storageKey = "flowra:classification-settings";
 const changeEvent = "flowra:classification-settings-changed";
-
-const groupValues = {
-  scheduleTypes: SCHEDULE_TYPES,
-  taskPriorities: TASK_PRIORITIES,
-  taskStatuses: TASK_STATUSES,
-} satisfies Record<ClassificationGroup, readonly string[]>;
 
 function makeOptions<T extends string>(
   keys: readonly T[],
@@ -203,28 +191,6 @@ export function readClassificationSettings(): ClassificationSettings {
   }
 }
 
-export function saveClassificationSettings(settings: ClassificationSettings) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(
-    storageKey,
-    JSON.stringify(normalizeClassificationSettings(settings)),
-  );
-  window.dispatchEvent(new Event(changeEvent));
-}
-
-export function resetClassificationSettings(group?: ClassificationGroup) {
-  const defaults = getDefaultClassificationSettings();
-  if (!group) {
-    saveClassificationSettings(defaults);
-    return defaults;
-  }
-
-  const next = readClassificationSettings();
-  next[group] = defaults[group] as never;
-  saveClassificationSettings(next);
-  return next;
-}
-
 export function useClassificationSettings() {
   const [settings, setSettings] = useState(readClassificationSettings);
 
@@ -239,123 +205,6 @@ export function useClassificationSettings() {
   }, []);
 
   return settings;
-}
-
-export function createClassificationOption<G extends ClassificationGroup>(
-  settings: ClassificationSettings,
-  group: G,
-  label: string,
-): ClassificationSettings {
-  const trimmedLabel = label.trim();
-  if (!trimmedLabel) return settings;
-
-  const groupSettings = settings[group] as Record<
-    string,
-    ClassificationOption<ClassificationValue<G>>
-  >;
-  const nextKey = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const value = groupValues[group][0] as ClassificationValue<G>;
-  const maxOrder = Math.max(
-    0,
-    ...Object.values(groupSettings).map((option) => option.order),
-  );
-
-  return {
-    ...settings,
-    [group]: normalizeOrder({
-      ...groupSettings,
-      [nextKey]: {
-        key: nextKey,
-        value,
-        label: trimmedLabel,
-        enabled: true,
-        order: maxOrder + 1,
-        isDefault: false,
-      },
-    }),
-  };
-}
-
-export function removeClassificationOption<G extends ClassificationGroup>(
-  settings: ClassificationSettings,
-  group: G,
-  key: string,
-): ClassificationSettings {
-  const groupSettings = settings[group] as Record<
-    string,
-    ClassificationOption<ClassificationValue<G>>
-  >;
-  const option = groupSettings[key];
-  if (!option || option.isDefault) return settings;
-
-  const nextGroup = { ...groupSettings };
-  delete nextGroup[key];
-  return {
-    ...settings,
-    [group]: normalizeOrder(nextGroup),
-  };
-}
-
-export function moveClassificationOption<G extends ClassificationGroup>(
-  settings: ClassificationSettings,
-  group: G,
-  key: string,
-  direction: -1 | 1,
-): ClassificationSettings {
-  const options = getClassificationOptions(settings, group);
-  const index = options.findIndex((option) => option.key === key);
-  const targetIndex = index + direction;
-  if (index < 0 || targetIndex < 0 || targetIndex >= options.length) {
-    return settings;
-  }
-
-  const reordered = [...options];
-  const [moved] = reordered.splice(index, 1);
-  reordered.splice(targetIndex, 0, moved);
-
-  return {
-    ...settings,
-    [group]: reordered.reduce(
-      (acc, option, optionIndex) => {
-        acc[option.key] = { ...option, order: optionIndex + 1 };
-        return acc;
-      },
-      {} as Record<string, ClassificationOption<ClassificationValue<G>>>,
-    ),
-  };
-}
-
-export function reorderClassificationOption<G extends ClassificationGroup>(
-  settings: ClassificationSettings,
-  group: G,
-  key: string,
-  targetIndex: number,
-): ClassificationSettings {
-  const options = getClassificationOptions(settings, group);
-  const currentIndex = options.findIndex((option) => option.key === key);
-  if (
-    currentIndex < 0 ||
-    targetIndex < 0 ||
-    targetIndex >= options.length ||
-    currentIndex === targetIndex
-  ) {
-    return settings;
-  }
-
-  const reordered = [...options];
-  const [moved] = reordered.splice(currentIndex, 1);
-  reordered.splice(targetIndex, 0, moved);
-
-  return {
-    ...settings,
-    [group]: reordered.reduce(
-      (acc, option, optionIndex) => {
-        acc[option.key] = { ...option, order: optionIndex + 1 };
-        return acc;
-      },
-      {} as Record<string, ClassificationOption<ClassificationValue<G>>>,
-    ),
-  };
 }
 
 export function getClassificationOptions<G extends ClassificationGroup>(

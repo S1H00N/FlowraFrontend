@@ -10,6 +10,7 @@ out-tsc
 
 # dependencies
 node_modules
+.pnpm-store/
 
 # IDEs and editors
 /.idea
@@ -33,6 +34,7 @@ node_modules
 /coverage
 /libpeerconnection.log
 *.log
+.codex-logs/
 npm-debug.log
 yarn-error.log
 testem.log

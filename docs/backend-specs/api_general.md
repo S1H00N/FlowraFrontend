@@ -1,10 +1,8 @@
 # Flowra General API
 
-> 개발·장애 조사: [일반 앱 개발자 디버깅 계약](#일반-앱-개발자-디버깅-계약) · [공통 디버깅](../devdocs/debugging-guide.md) · [전체 라우트/DTO](../devdocs/routes-general.md) · [오류 코드 추적](../devdocs/error-index.md)
+> 개발·장애 조사: [일반 앱 개발자 디버깅 계약](#일반-앱-개발자-디버깅-계약) · [공통 디버깅](../../devdocs/api-reference/debugging-guide.md) · [전체 라우트/DTO](../../devdocs/api-reference/routes-general.md) · [오류 코드 추적](../../devdocs/api-reference/error-index.md)
 
 일반 사용자 앱이 사용하는 백엔드 API 명세입니다.
-
-이 문서의 계약은 백엔드 제공 기능을 설명합니다. 이 저장소에서 연결한 화면·API와 검증 결과는 [웹 반영 기록](../qa/spec-alignment.md)에 구분해 기록합니다. 아래 `src/...` 참조는 별도 백엔드 저장소의 원본 경로입니다.
 
 ## 기본 정보
 
@@ -197,7 +195,6 @@
 | `recurrence_group_id` | string \| null | 반복 일정 그룹 ID |
 | `recurrence_sequence` | number \| null | 반복 일정 내 순번 |
 | `recurrence_rule` | object \| null | 반복 일정 생성 규칙 |
-| `recurrence_exception` | boolean | 개별 수정으로 생긴 반복 예외. 전체/이후 수정 시 기본 보존 |
 | `source_memo_id` | number \| null | 원본 메모 ID |
 | `source_ai_result_id` | number \| null | 원본 AI 결과 ID |
 | `created_at` | string | 생성 시각 |
@@ -249,6 +246,7 @@
 | `user_id` | number | 소유 사용자 ID |
 | `category_id` | number \| null | 카테고리 ID |
 | `schedule_id` | number \| null | 연결 일정 ID |
+| `sort_order` | number \| null | 일정 내 0부터 시작하는 순번. 일정 미연결 시 `null` |
 | `title` | string | 제목 |
 | `description` | string \| null | 설명 |
 | `priority` | `low` \| `medium` \| `high` \| `urgent` | 우선순위 |
@@ -272,11 +270,6 @@
 | `memo_type` | `quick` \| `meeting` \| `general` | 메모 유형 |
 | `source_type` | `manual` \| `voice` \| `imported` | 입력 출처 |
 | `parse_status` | `pending` \| `processing` \| `completed` \| `failed` | AI 파싱 상태 |
-| `parse_requested` | boolean | 분석을 요청한 메모인지 여부. `pending`만으로 자동 분석 중이라고 판단하지 않음 |
-| `parse_generation` | number | 현재 분석 세대. 수정·강제 재분석 이전 결과와 구분 |
-| `parse_attempts` | number | 현재 분석 시도 횟수 |
-| `parse_lease_until` | string \| null | 처리 임대 만료 시각. 클라이언트 제어값이 아님 |
-| `parse_next_attempt_at` | string \| null | 서버 재시도 예정 시각 |
 | `parsed_at` | string \| null | 파싱 완료 시각 |
 | `parse_error_message` | string \| null | 파싱 실패 메시지 |
 | `last_ai_result_id` | number \| null | 최신 AI 결과 ID |
@@ -1927,7 +1920,7 @@ Query params:
 
 | 이름 | 타입 | 필수 | 설명 |
 | --- | --- | --- | --- |
-| `status` | `pending` \| `approved` \| `rejected` \| `withdrawn` | X | 승인 상태 |
+| `status` | `pending` \| `approved` \| `rejected` | X | 승인 상태 |
 | `role` | `approver` \| `requested` | X | 승인자/요청자 관점 필터 |
 
 승인 유형:
@@ -1966,16 +1959,6 @@ Query params:
 비고:
 
 - 협업 일정 생성 승인이 반려되면 일정은 `cancelled`, `approval_status = rejected`가 됩니다.
-
-### `POST /company-schedule-approvals/:approval_id/withdraw`
-
-작성자 본인이 아직 결정되지 않은 생성/변경 요청을 철회합니다. Body는 없으며 일정 ID가 아닌 해당 요청의 approval ID를 사용합니다.
-
-Response data: `{company_schedule_id, change_request_id, status:"withdrawn"}`.
-
-- 연결 승인 중 하나라도 이미 결정됐거나 철회됐으면 `409 COMPANY_SCHEDULE_REQUEST_ALREADY_DECIDED`. 승인 현황을 다시 조회합니다.
-- 생성 요청 철회는 일정을 `cancelled`, 승인 상태를 `withdrawn`으로 변경하고 pending target을 제거합니다.
-- 변경 요청 철회는 기존 일정과 대상을 유지합니다. 자세한 경합·권한 계약은 [F02](../devdocs/feature-lifecycle.md#f02-승인-요청-철회)를 따릅니다.
 
 ## Companies
 
@@ -2134,15 +2117,9 @@ Response data:
 상태 코드:
 
 - `404 COMPANY_INVITE_NOT_FOUND`
-- `409 COMPANY_INVITE_NOT_PENDING`: 만료되거나 이미 수락·거절·철회된 초대
-- `403 EMAIL_VERIFICATION_REQUIRED`: 이메일 인증 필요
+- `400 COMPANY_INVITE_NOT_PENDING`
+- `400 COMPANY_INVITE_EXPIRED`
 - `403 COMPANY_INACTIVE`
-
-초대 조회 단계의 `400 COMPANY_INVITE_NOT_PENDING`/`COMPANY_INVITE_EXPIRED`와 수락의 최종 상태 검사에서 발생하는 409는 구분합니다. 응답의 code를 함께 확인하고 초대 목록을 다시 조회합니다.
-
-### `POST /company-memberships/invites/by-id/:company_invite_id/reject`
-
-인증된 사용자가 본인 이메일로 온 유효한 pending 초대를 거절합니다. Body 없음, 성공 data는 빈 객체입니다. `409 COMPANY_INVITE_NOT_PENDING`이면 목록을 다시 조회합니다. 수락·거절·철회가 경합하면 하나만 성공합니다.
 
 ### `GET /company-memberships/invites/:token`
 
@@ -2242,7 +2219,18 @@ Response data:
 
 ## Tasks
 
-모든 Tasks API는 인증 필요.
+모든 Tasks API는 인증 필요. 순서 변경은 본인 소유 일정과 할 일에만 가능합니다.
+
+순번 규칙:
+
+- `sort_order`는 **0부터 시작**하며 완료 상태와 관계없이 같은 일정의 모든 할 일을 대상으로 합니다.
+- 새 할 일 생성/다른 일정 연결 시 대상 일정에 N개가 있으면 `0..N`에 삽입합니다. 생략하거나 범위 밖 정수(음수 포함)를 보내면 맨 뒤에 추가합니다.
+- 기존 일정 내 이동은 `0..N-1`의 최종 위치를 지정합니다. 범위 밖 정수는 맨 뒤로 이동합니다. 끼어 있는 할 일들은 자동으로 밀거나 당깁니다.
+- 일반 수정에서 순번을 생략하면 현재 순서를 유지합니다. 다른 일정으로 이동할 때 생략하면 대상 일정의 맨 뒤로 이동합니다.
+- 삭제/일정 이동/연결 해제 시 원래 일정의 빈 순번을 정리합니다. 미연결 할 일은 `sort_order: null`입니다.
+- 일정에 연결하지 않고 순번을 지정하면 `400 TASK_SCHEDULE_REQUIRED`입니다. `null`, 문자열, 소수, JavaScript 안전 정수 범위 밖 입력은 검증 오류입니다.
+- AI 메모/채팅으로 생성된 할 일도 연결 일정의 맨 뒤에 추가됩니다.
+- 기존 데이터는 마이그레이션에서 기존 마감일/생성일 정렬 순서를 보존하여 순번을 부여합니다.
 
 ### `GET /tasks`
 
@@ -2264,8 +2252,9 @@ Query params:
 
 정렬:
 
-1. `due_datetime asc`
-2. `created_at desc`
+- `schedule_id` 지정 시 `sort_order asc`, `task_id asc`.
+- 그 외에는 기존 `due_datetime asc`, `created_at desc` 유지.
+- 상태/검색 필터를 함께 사용해도 `sort_order`는 일정 전체 기준의 순번입니다. 필터 결과만 벌크 순서 변경에 보내면 안 됩니다.
 
 Response data:
 
@@ -2306,6 +2295,7 @@ Request body:
 | --- | --- | --- | --- | --- |
 | `category_id` | numeric string | X | - | `task` 타입 카테고리여야 함 |
 | `schedule_id` | numeric string | X | - | 본인 소유 일정이어야 함 |
+| `sort_order` | integer | X | 맨 뒤 | 일정 내 삽입 위치. 범위 밖 정수도 맨 뒤 |
 | `title` | string | O | - | trim 후 1-100자 |
 | `description` | string \| null | X | `null` | 최대 5000자 |
 | `priority` | `low` \| `medium` \| `high` \| `urgent` | X | `medium` | - |
@@ -2359,6 +2349,7 @@ Request body:
 | --- | --- | --- | --- |
 | `category_id` | numeric string \| null | X | `null`로 카테고리 연결 해제 |
 | `schedule_id` | numeric string \| null | X | `null`로 일정 연결 해제 |
+| `sort_order` | integer | X | 일정 내 최종 위치. 생략 시 순번 규칙 참고 |
 | `title` | string | X | trim 후 1-100자 |
 | `description` | string \| null | X | 최대 5000자 |
 | `priority` | `low` \| `medium` \| `high` \| `urgent` | X | - |
@@ -2376,6 +2367,37 @@ Response data:
 - `400 INVALID_CATEGORY_TYPE`
 - `400 INVALID_TASK_STATE`
 - `404 TASK_NOT_FOUND`
+
+### `PATCH /tasks/:task_id/order`
+
+다른 필드를 수정하지 않고 할 일 하나의 순번만 변경합니다. 미연결 할 일에는 사용할 수 없습니다.
+
+```json
+{ "sort_order": 1 }
+```
+
+- `task_id`: 경로의 numeric string.
+- `sort_order`: 필수 integer. 다른 body 필드는 허용하지 않습니다.
+- Response data: `task: Task` (실제로 적용된 `sort_order` 포함).
+- 성공: `200`. 오류: `400 TASK_SCHEDULE_REQUIRED`, `404 TASK_NOT_FOUND`, `404 SCHEDULE_NOT_FOUND`, 요청 검증 오류.
+- 주변 할 일의 변경된 순번은 `GET /tasks?schedule_id=...`로 다시 조회합니다.
+
+### `PATCH /schedules/:schedule_id/tasks/reorder`
+
+같은 일정 내 여러 할 일의 순서를 하나의 요청으로 변경합니다. 원하는 최종 순서대로 **전체 할 일 ID**를 보냅니다. 완료된 할 일도 포함해야 합니다.
+
+```json
+{ "task_ids": ["31", "12", "25"] }
+```
+
+- `schedule_id`: 경로의 numeric string. 본인 소유 일정이어야 합니다.
+- `task_ids`: 필수 numeric string 배열. 배열 순서대로 `0, 1, 2, ...`를 부여합니다.
+- ID 중복(예: `"01"`, `"1"`)은 검증 오류입니다. 다른 body 필드는 허용하지 않습니다.
+- 빈 배열은 할 일이 없는 일정에서만 성공합니다.
+- Response data: `tasks: Task[]` (변경된 순서대로 일정의 전체 할 일).
+- 성공: `200`. 일정 접근 불가: `404 SCHEDULE_NOT_FOUND`.
+- ID 누락/다른 일정 또는 사용자 ID/없는 ID/동시 생성·삭제·이동으로 목록이 달라진 경우: `409 TASK_ORDER_MISMATCH`. 최신 전체 목록을 다시 조회한 뒤 재시도합니다.
+- 검증과 변경은 하나의 트랜잭션으로 처리합니다. 실패 시 일부 할 일만 변경되지 않습니다. 동일한 목록의 동시 순서 변경은 나중에 처리된 순서가 적용됩니다.
 
 ### `DELETE /tasks/:task_id`
 
@@ -3190,7 +3212,7 @@ Response data:
 
 ## 일반 앱 개발자 디버깅 계약
 
-기준: 2026-09-16. [공통 가이드](../devdocs/debugging-guide.md), [전체 일반 라우트와 DTO](../devdocs/routes-general.md), [오류 코드 발생 지점](../devdocs/error-index.md).
+기준: 2026-09-16. [공통 가이드](../../devdocs/api-reference/debugging-guide.md), [전체 일반 라우트와 DTO](../../devdocs/api-reference/routes-general.md), [오류 코드 발생 지점](../../devdocs/api-reference/error-index.md).
 
 ### 1. 기능별 추적 지도
 
@@ -3224,9 +3246,9 @@ Response data:
 
 반복 생성은 개별 일정 여러 건을 만들고 recurrence_group_id/sequence/rule을 저장합니다. 반복 규칙은 포함 요일 목록이 아니라 시작일 + N일 간격 + 제외/이동 규칙입니다. 최종 0건이면 `RECURRENCE_OCCURRENCE_REQUIRED`, 한도 초과면 `RECURRENCE_LIMIT_EXCEEDED`입니다. 구체적인 예제는 AI 문서의 반복 계산 설명을 참조합니다.
 
-개인 반복 일정은 `GET/PATCH/DELETE /schedules/:schedule_id/series`로 그룹 조회와 single/following/all 범위 관리를 제공합니다. 연결 데이터 확인·예외 보존·규칙 교체 계약은 [수명주기 명세 F06](../devdocs/feature-lifecycle.md#f06-개인-반복-일정-관리)을 따릅니다. 기존 개별 PATCH는 한 일정만 바꾸고 예외로 표시합니다.
+개인 반복 일정은 `GET/PATCH/DELETE /schedules/:schedule_id/series`로 그룹 조회와 single/following/all 범위 관리를 제공합니다. 연결 데이터 확인·예외 보존·규칙 교체 계약은 [수명주기 명세 F06](../../devdocs/api-reference/feature-lifecycle.md#f06-개인-반복-일정-관리)을 따릅니다. 기존 개별 PATCH는 한 일정만 바꾸고 예외로 표시합니다.
 
-회사 일정의 사용자 create/update body는 현재 `.datetime()` 검증이므로 Z 시각을 사용합니다. 개인 일정의 `+09:00` 예제를 모든 회사 API에 그대로 복사하면 안 됩니다. 날짜 제약은 company-schedules DTO: `src/modules/company-schedules/company-schedules.dto.ts`를 확인합니다.
+회사 일정의 사용자 create/update body는 현재 `.datetime()` 검증이므로 Z 시각을 사용합니다. 개인 일정의 `+09:00` 예제를 모든 회사 API에 그대로 복사하면 안 됩니다. 날짜 제약은 [company-schedules DTO](../src/modules/company-schedules/company-schedules.dto.ts)를 확인합니다.
 
 ### 4. 협업 일정·승인 상태
 
@@ -3239,9 +3261,9 @@ Response data:
 | 협업 수정/삭제 요청 | change request와 승인 흐름을 거칠 수 있음 | HTTP 성공만으로 원본이 즉시 수정/삭제됐다고 가정하지 않음 |
 | 중복 승인/거절 | pending이 아니면 `COMPANY_SCHEDULE_APPROVAL_NOT_PENDING` 400 | 현재 approval 및 일정 재조회 |
 
-작성자는 `POST /company-schedule-approvals/:approval_id/withdraw`로 아직 결정되지 않은 생성/변경 요청을 철회할 수 있습니다. [철회 조건](../devdocs/feature-lifecycle.md#f02-승인-요청-철회)을 확인합니다. 생성·변경 요청·승인·대상 부서는 각각 다른 레코드/상태입니다.
+작성자는 `POST /company-schedule-approvals/:approval_id/withdraw`로 아직 결정되지 않은 생성/변경 요청을 철회할 수 있습니다. [철회 조건](../../devdocs/api-reference/feature-lifecycle.md#f02-승인-요청-철회)을 확인합니다. 생성·변경 요청·승인·대상 부서는 각각 다른 레코드/상태입니다.
 
-근거: 회사 일정 service: `src/modules/company-schedules/company-schedules.service.ts`, 승인 controller: `src/modules/company-schedule-approvals/company-schedule-approvals.controller.ts`.
+근거: [회사 일정 service](../src/modules/company-schedules/company-schedules.service.ts), [승인 controller](../src/modules/company-schedule-approvals/company-schedule-approvals.controller.ts).
 
 ### 5. 공유·친구·초대
 
@@ -3254,16 +3276,15 @@ Response data:
 | 멤버 초대 | 토큰 조회·인증된 수락 | 계정 이메일/기존 membership identity/만료/상태 검사 |
 | 초대 거절 | POST /company-memberships/invites/by-id/:company_invite_id/reject | 본인 이메일의 유효한 pending 초대만 가능 |
 
-조직 API로 등록된 미연결 멤버는 기존 부서를 지정해 초대할 수 있습니다. 수락 시 이메일 인증·기존 identity·초대 대상 ID를 검증하고 원래 구성원 ID와 이력을 보존합니다. [F03 상세](../devdocs/feature-lifecycle.md#f03-기존-미연결-멤버-가입).
+조직 API로 등록된 미연결 멤버는 기존 부서를 지정해 초대할 수 있습니다. 수락 시 이메일 인증·기존 identity·초대 대상 ID를 검증하고 원래 구성원 ID와 이력을 보존합니다. [F03 상세](../../devdocs/api-reference/feature-lifecycle.md#f03-기존-미연결-멤버-가입).
 
 ### 6. 프로젝트·리마인더·알림
 
-- 프로젝트 owner/manager는 사용자 API로 해당 프로젝트·phase·업무·배정 등을 관리할 수 있습니다. 멤버 권한 위임은 owner만 가능하며 마지막 owner 제거는 차단합니다. 기업 전체 관리자 권한은 부여하지 않습니다. [F01 경로/권한](../devdocs/feature-lifecycle.md#f01-프로젝트-관리).
+- 프로젝트 owner/manager는 사용자 API로 해당 프로젝트·phase·업무·배정 등을 관리할 수 있습니다. 멤버 권한 위임은 owner만 가능하며 마지막 owner 제거는 차단합니다. 기업 전체 관리자 권한은 부여하지 않습니다. [F01 경로/권한](../../devdocs/api-reference/feature-lifecycle.md#f01-프로젝트-관리).
 - 리마인더의 `target_type`과 `target_id`는 함께 해석합니다. schedule/task/project_work_item/project_work_assignment의 숫자 ID는 서로 대체할 수 없습니다.
 - 프로젝트 리마인더는 등록 시뿐 아니라 실제 발송 시에도 현재 권한과 배정 상태를 확인합니다. 퇴사/부서 이동/배정 해제 후 발송되지 않는 것이 의도된 결과일 수 있습니다.
 - 앱 장치 push 등록, 알림 목록 저장, 실제 push 전달은 다른 단계입니다. 리마인더 행 생성 성공만으로 단말 수신을 보장하지 않습니다.
 - 알림 read/read-all은 읽음 처리이며 목록 영구 삭제가 아닙니다. 알림 삭제 API가 있다고 가정하지 않습니다.
-- 현재 웹 알림함의 삭제는 이 브라우저에서 해당 알림을 숨기는 로컬 처리입니다. 서버 알림이나 다른 기기의 목록을 삭제하지 않으며, 서버 읽음 변경은 위 read/read-all API만 사용합니다.
 
 ### 7. 목록·삭제·PATCH 공통 실수
 
@@ -3279,4 +3300,4 @@ Response data:
 
 ## 생성 이후 관리 API 추가
 
-[12개 기능의 요청·응답·권한·오류·경합·부수 효과](../devdocs/feature-lifecycle.md)를 참고합니다. 기존 사용자 앱은 새 API와 응답의 pagination을 연결해야 합니다.
+[12개 기능의 요청·응답·권한·오류·경합·부수 효과](../../devdocs/api-reference/feature-lifecycle.md)를 참고합니다. 기존 사용자 앱은 새 API와 응답의 pagination을 연결해야 합니다.

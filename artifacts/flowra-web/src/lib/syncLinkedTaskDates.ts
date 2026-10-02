@@ -1,6 +1,6 @@
 import { listTasks, updateTask } from "@/api/tasks";
 import { toOffsetISOString } from "@/utils/dateUtils";
-import type { Schedule, Task } from "@/types";
+import type { Schedule } from "@/types";
 
 function localDateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -15,15 +15,9 @@ export async function syncLinkedTaskDates(schedule: Schedule) {
     localDateKey(start) !== localDateKey(end)
   ) return;
 
-  const tasks: Task[] = [];
-  let page = 1;
-  while (true) {
-    const response = await listTasks({ schedule_id: schedule.schedule_id, page, size: 100 });
-    if (!response.success) throw new Error(response.message || "연결된 할 일을 불러오지 못했습니다.");
-    tasks.push(...response.data.tasks);
-    if (!response.data.pagination?.has_next) break;
-    page += 1;
-  }
+  const response = await listTasks({ schedule_id: schedule.schedule_id });
+  if (!response.success) throw new Error(response.message || "연결된 할 일을 불러오지 못했습니다.");
+  const tasks = response.data.tasks;
 
   const results = await Promise.allSettled(
     tasks.map(async (task) => {

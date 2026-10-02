@@ -2,15 +2,16 @@ import apiClient from "./client";
 import { toOffsetISOString } from "@/utils/dateUtils";
 import { compactParams, toCommaParam, toNullableString, toOptionalString } from "./normalize";
 import type {
-  ApiListData,
   ApiResponse,
   CreateTaskRequest,
   Task,
   TaskListQuery,
   UpdateTaskRequest,
+  UpdateTaskOrderRequest,
+  ReorderScheduleTasksRequest,
 } from "@/types";
 
-type TaskListData = Partial<ApiListData<Task>> & { tasks?: Task[] };
+type TaskListData = { tasks: Task[] };
 type TaskData = Task | { task: Task };
 
 function unwrapTask(data: TaskData): Task {
@@ -31,8 +32,6 @@ function normalizeTaskPayload<T extends CreateTaskRequest | UpdateTaskRequest>(
 
 function normalizeTaskQuery(query: TaskListQuery) {
   return compactParams({
-    page: query.page,
-    size: query.size,
     status: toCommaParam(query.status),
     priority: toCommaParam(query.priority),
     category_id: toCommaParam(query.category_id),
@@ -55,8 +54,7 @@ export async function listTasks(query: TaskListQuery = {}) {
   return {
     ...res.data,
     data: {
-      tasks: res.data.data.items ?? res.data.data.tasks ?? [],
-      pagination: res.data.data.pagination,
+      tasks: res.data.data.tasks ?? [],
     },
   };
 }
@@ -84,6 +82,20 @@ export async function updateTask(taskId: number, payload: UpdateTaskRequest) {
     normalizeTaskPayload(payload),
   );
   return { ...res.data, data: { task: unwrapTask(res.data.data) } };
+}
+
+export async function updateTaskOrder(taskId: number, payload: UpdateTaskOrderRequest) {
+  const res = await apiClient.patch<ApiResponse<TaskData>>(
+    `/tasks/${taskId}/order`, { sort_order: payload.sort_order },
+  );
+  return { ...res.data, data: { task: unwrapTask(res.data.data) } };
+}
+
+export async function reorderScheduleTasks(scheduleId: number, payload: ReorderScheduleTasksRequest) {
+  const res = await apiClient.patch<ApiResponse<{ tasks: Task[] }>>(
+    `/schedules/${scheduleId}/tasks/reorder`, { task_ids: payload.task_ids },
+  );
+  return res.data;
 }
 
 export async function deleteTask(taskId: number) {

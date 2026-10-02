@@ -4,6 +4,12 @@ import type {
   AuthTokens,
   ForgotPasswordRequest,
   ForgotPasswordResponseData,
+  GoogleLinkTicketData,
+  GoogleLinkWithPasswordRequest,
+  GooglePrepareResponseData,
+  GoogleSignupRequest,
+  GoogleSignupResponseData,
+  LinkedAuthAccount,
   LoginRequest,
   LoginResponseData,
   ResendVerificationEmailRequest,
@@ -120,4 +126,67 @@ export async function logout(refreshToken: string) {
     { refresh_token: refreshToken },
   );
   return res.data;
+}
+
+type RawGooglePrepareData =
+  | Exclude<GooglePrepareResponseData, { next_action: "signed_in" }>
+  | (RawLoginResponseData & { next_action: "signed_in" });
+
+export async function prepareGoogleLogin(idToken: string) {
+  const res = await apiClient.post<ApiResponse<RawGooglePrepareData>>(
+    "/auth/google/prepare",
+    { id_token: idToken },
+  );
+  const data: GooglePrepareResponseData = res.data.data.next_action === "signed_in"
+    ? { ...normalizeLoginData(res.data.data), next_action: "signed_in" }
+    : res.data.data;
+  return { ...res.data, data };
+}
+
+export async function linkGoogleWithPassword(payload: GoogleLinkWithPasswordRequest) {
+  const res = await apiClient.post<ApiResponse<RawLoginResponseData>>(
+    "/auth/google/link-with-password",
+    payload,
+  );
+  return { ...res.data, data: normalizeLoginData(res.data.data) };
+}
+
+export async function signupWithGoogle(payload: GoogleSignupRequest) {
+  // The verified Google email comes from the ticket, never from a form field.
+  const res = await apiClient.post<ApiResponse<
+    RawLoginResponseData | Extract<GoogleSignupResponseData, { requires_email_verification: true }>
+  >>("/auth/google/signup", {
+    link_ticket: payload.link_ticket,
+    name: payload.name,
+    password: payload.password,
+    ...(payload.timezone ? { timezone: payload.timezone } : {}),
+  });
+  const data: GoogleSignupResponseData = "requires_email_verification" in res.data.data &&
+      res.data.data.requires_email_verification
+    ? res.data.data
+    : normalizeLoginData(res.data.data as RawLoginResponseData);
+  return { ...res.data, data };
+}
+
+export async function prepareGoogleLink(idToken: string) {
+  const res = await apiClient.post<ApiResponse<GoogleLinkTicketData>>(
+    "/auth/google/prepare-link",
+    { id_token: idToken },
+  );
+  return res.data;
+}
+
+export async function linkGoogleToSession(payload: { link_ticket: string; password: string }) {
+  const res = await apiClient.post<ApiResponse<unknown>>("/auth/google/link", payload);
+  return res.data;
+}
+
+export async function getLinkedGoogleAccounts() {
+  const res = await apiClient.get<ApiResponse<LinkedAuthAccount[] | { accounts: LinkedAuthAccount[] }>>(
+    "/auth/google/accounts",
+  );
+  return {
+    ...res.data,
+    data: Array.isArray(res.data.data) ? res.data.data : res.data.data.accounts,
+  };
 }

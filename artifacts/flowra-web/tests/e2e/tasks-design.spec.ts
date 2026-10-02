@@ -573,19 +573,12 @@ for (const { width, dark } of [
           ".tasks-linked-list > .tasks-subtask:not([hidden])",
         ),
       ];
-      const missingBullets = linkedTasks
-        .filter((task) => {
-          const bullet = getComputedStyle(task, "::before");
-          return bullet.content === "none" || bullet.borderRadius !== "50%";
-        })
-        .map((task) => task.textContent?.slice(0, 100));
       return {
         documentWidth: document.documentElement.scrollWidth,
         boardWidth: boardRect.width,
         overflow,
         timelineNodes,
         linkedTaskCount: linkedTasks.length,
-        missingBullets,
       };
     });
     const screenshotPath = testInfo.outputPath(
@@ -610,7 +603,6 @@ for (const { width, dark } of [
       "일정 시간 옆 점 표시를 제거",
     ).toBe(0);
     expect(metrics.linkedTaskCount).toBeGreaterThan(0);
-    expect(metrics.missingBullets, "연결된 할 일마다 점 표시").toEqual([]);
     if (width === 768)
       expect(
         metrics.boardWidth,

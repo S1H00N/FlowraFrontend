@@ -59,6 +59,7 @@ export default function ResetPassword() {
           <div className="rounded-lg border border-violet-200 bg-violet-50 p-4 text-sm leading-6 text-violet-800">
             <p className="font-medium">비밀번호가 변경되었습니다.</p>
             <p className="mt-1">새 비밀번호로 다시 로그인해 주세요.</p>
+            <p className="mt-2">Google 계정 연결이 해제됩니다. Google 로그인을 사용하려면 로그인 후 설정에서 다시 연결해 주세요.</p>
           </div>
         ) : (
           <form

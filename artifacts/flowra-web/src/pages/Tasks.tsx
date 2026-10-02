@@ -26,9 +26,12 @@ import { FullSpinner } from "@/components/ui/Spinner";
 import {
   ScheduleCard,
   IndependentTasksSection,
+  formatScheduleTimeLabel,
 } from "@/components/tasks/TaskBoardCards";
 import "./Tasks.css";
 import SelectionActionBar from "@/components/tasks/SelectionActionBar";
+import { TaskMoveProvider } from "@/components/tasks/TaskMoveContext";
+import { useTaskMovePending, type TaskMove } from "@/hooks/useTaskBoard";
 import { useListSelection } from "@/hooks/useListSelection";
 import {
   TaskComposerContext,
@@ -660,6 +663,7 @@ export default function Tasks() {
     [schedulesQuery.data, companySchedules],
   );
   const tasks = tasksQuery.data ?? [];
+  const taskMovePending = useTaskMovePending();
   const categoryById = useMemo(
     () =>
       new Map(
@@ -832,6 +836,22 @@ export default function Tasks() {
     () => groupSchedules(filteredSchedules, filterDates),
     [filterDates, filteredSchedules],
   );
+  const scheduleIdsWithTimeLabels = useMemo(() => {
+    const seenTimes = new Set<string>();
+    const scheduleIds = new Set<number>();
+
+    for (const group of groups) {
+      if (collapsedScheduleGroups.has(group.key)) continue;
+      for (const schedule of group.schedules) {
+        const time = formatScheduleTimeLabel(schedule);
+        if (seenTimes.has(time)) continue;
+        seenTimes.add(time);
+        scheduleIds.add(schedule.schedule_id);
+      }
+    }
+
+    return scheduleIds;
+  }, [groups, collapsedScheduleGroups]);
   const groupHasSelection = (group: ScheduleGroup) =>
     group.schedules.some(
       (schedule) =>
@@ -1249,7 +1269,15 @@ export default function Tasks() {
     );
   };
 
+  const revealMovedTask = (move: TaskMove) => {
+    if (move.scheduleId !== null) {
+      setScheduleExpansion((current) => new Map(current).set(move.scheduleId!, true));
+      setCollapsedScheduleGroups(new Set());
+    }
+  };
+
   return (
+    <TaskMoveProvider schedules={schedules} initialMonth={visibleMonth} disabled={selectionMode || bulkPending || activeComposer?.kind === "task-edit"} onReveal={revealMovedTask}>
     <TaskComposerContext.Provider value={composerContext}>
     <AppShell
       fullBleed
@@ -1415,8 +1443,8 @@ export default function Tasks() {
 
           <div
             className="tasks-board-content"
-            inert={bulkPending}
-            aria-busy={bulkPending}
+            inert={bulkPending || taskMovePending}
+            aria-busy={bulkPending || taskMovePending}
           >
             <div className="tasks-mobile-tools">
               <label className="tasks-board-search">
@@ -1542,6 +1570,7 @@ export default function Tasks() {
                               <ScheduleCard
                                 key={schedule.schedule_id}
                                 schedule={schedule}
+                                showTimeLabel={scheduleIdsWithTimeLabels.has(schedule.schedule_id)}
                                 category={
                                   schedule.category_id
                                     ? categoryById.get(schedule.category_id)
@@ -1660,5 +1689,6 @@ export default function Tasks() {
       </div>
     </AppShell>
     </TaskComposerContext.Provider>
+    </TaskMoveProvider>
   );
 }

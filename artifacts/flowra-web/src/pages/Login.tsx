@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { loginSchema, type LoginFormValues } from "@/lib/schemas";
 import { getErrorCode, getErrorMessage } from "@/lib/error";
 import { toast } from "@/lib/toast";
+import GoogleAuthFlow from "@/components/GoogleAuthFlow";
 
 interface LocationState {
   from?: { pathname: string; search?: string; hash?: string };
@@ -16,6 +17,8 @@ export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const requestLock = useRef(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const fromLocation = (location.state as LocationState | null)?.from;
   const from = fromLocation
     ? `${fromLocation.pathname}${fromLocation.search ?? ""}${fromLocation.hash ?? ""}`
@@ -32,6 +35,8 @@ export default function Login() {
 
   const onSubmit = useCallback(
     async (values: LoginFormValues) => {
+      if (requestLock.current) return;
+      requestLock.current = true;
       try {
         await login(values);
         navigate(from, { replace: true });
@@ -41,6 +46,8 @@ export default function Login() {
           return;
         }
         toast.error(getErrorMessage(err, "로그인에 실패했습니다."));
+      } finally {
+        requestLock.current = false;
       }
     },
     [login, navigate, from],
@@ -75,7 +82,13 @@ export default function Login() {
           </p>
 
           <form
-            onSubmit={handleSubmit(onSubmit)}
+            onSubmit={(event) => {
+              if (requestLock.current) {
+                event.preventDefault();
+                return;
+              }
+              void handleSubmit(onSubmit)(event);
+            }}
             noValidate
             className="mt-6 space-y-4"
           >
@@ -90,6 +103,7 @@ export default function Login() {
                 id="email"
                 type="email"
                 autoComplete="email"
+                disabled={googleBusy || isSubmitting}
                 {...register("email")}
                 aria-invalid={!!errors.email}
                 className={inputClass(!!errors.email)}
@@ -121,6 +135,7 @@ export default function Login() {
                 id="password"
                 type="password"
                 autoComplete="current-password"
+                disabled={googleBusy || isSubmitting}
                 {...register("password")}
                 aria-invalid={!!errors.password}
                 className={inputClass(!!errors.password)}
@@ -135,12 +150,19 @@ export default function Login() {
 
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={googleBusy || isSubmitting}
               className="w-full rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-60"
             >
               {isSubmitting ? "로그인 중..." : "로그인"}
             </button>
           </form>
+
+          <GoogleAuthFlow
+            onSignedIn={() => navigate(from, { replace: true })}
+            disabled={isSubmitting}
+            requestLock={requestLock}
+            onBusyChange={setGoogleBusy}
+          />
 
           <p className="mt-6 text-center text-sm text-slate-500">
             계정이 없으신가요?{" "}

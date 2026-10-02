@@ -37,7 +37,7 @@ test("독립 할 일이 없어도 필터 아래에서 바로 추가할 수 있�
   });
 
   await section.getByRole("button", { name: "할 일 추가", exact: true }).click();
-  const title = section.getByRole("textbox", { name: "새 할 일" });
+  const title = section.getByRole("textbox", { name: "새 할 일", exact: true });
   await expect(title).toBeFocused();
   await title.fill("QA 독립 할 일 추가");
   await title.press("Enter");
@@ -70,7 +70,7 @@ test("오늘 필터에서 기한 없는 독립 할 일을 만들면 전체 목�
 
   const section = board.locator(".tasks-independent-section");
   await section.getByRole("button", { name: "할 일 추가", exact: true }).click();
-  const title = section.getByRole("textbox", { name: "새 할 일" });
+  const title = section.getByRole("textbox", { name: "새 할 일", exact: true });
   await title.fill("QA 오늘 필터에서 만든 독립 할 일");
   await title.press("Enter");
 

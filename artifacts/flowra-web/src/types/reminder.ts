@@ -5,13 +5,6 @@ export type ReminderTargetType =
   | "project_work_assignment";
 export type ReminderType = "push" | "in_app";
 
-export const REMINDER_TYPES: ReminderType[] = ["in_app", "push"];
-
-export const REMINDER_TYPE_LABELS: Record<ReminderType, string> = {
-  in_app: "앱 알림",
-  push: "푸시",
-};
-
 export interface Reminder {
   reminder_id: number;
   target_type: ReminderTargetType;

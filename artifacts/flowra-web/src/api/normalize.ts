@@ -4,11 +4,6 @@ export function toOptionalNumber(value: string | number | null | undefined) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-export function toNullableNumber(value: string | number | null | undefined) {
-  if (value === null || value === "") return null;
-  return toOptionalNumber(value);
-}
-
 export function toOptionalString(value: string | number | null | undefined) {
   if (value === null || value === undefined || value === "") return undefined;
   return String(value);

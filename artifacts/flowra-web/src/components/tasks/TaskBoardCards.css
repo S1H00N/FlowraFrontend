@@ -76,6 +76,10 @@
   padding-top: 32px;
 }
 
+.tasks-schedule-row-no-time {
+  padding-top: 0;
+}
+
 .tasks-schedule-row > .tasks-time {
   position: absolute;
   top: 0;

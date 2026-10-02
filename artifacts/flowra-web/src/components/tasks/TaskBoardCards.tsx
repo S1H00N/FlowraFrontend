@@ -1,4 +1,5 @@
-import { useId, useState, type CSSProperties } from "react";
+import { useEffect, useId, useState, type CSSProperties } from "react";
+import { useTaskMoveContext } from "./TaskMoveContext";
 import {
   Building2,
   CalendarDays,
@@ -68,6 +69,10 @@ function formatTime(value?: string | null) {
   );
 }
 
+export function formatScheduleTimeLabel(schedule: Schedule) {
+  return schedule.all_day ? "종일" : formatTime(schedule.start_datetime);
+}
+
 function formatDuration(schedule: Schedule) {
   if (schedule.all_day) return null;
   const start = validDate(schedule.start_datetime);
@@ -84,6 +89,7 @@ function formatDuration(schedule: Schedule) {
 
 export function ScheduleCard({
   schedule,
+  showTimeLabel,
   category,
   tasks,
   expanded,
@@ -97,6 +103,7 @@ export function ScheduleCard({
   onOpenAddTaskPanel,
 }: {
   schedule: Schedule;
+  showTimeLabel: boolean;
   category?: Category | null;
   tasks: Task[];
   expanded: boolean;
@@ -110,6 +117,7 @@ export function ScheduleCard({
   onOpenAddTaskPanel: () => void;
 }) {
   const id = useId();
+  const moves = useTaskMoveContext();
   const titleId = `${id}-title`;
   const detailsId = `${id}-details`;
   const classificationSettings = useClassificationSettings();
@@ -118,7 +126,7 @@ export function ScheduleCard({
   const completed = !!schedule.is_completed;
   const doneCount = tasks.filter((task) => task.status === "done").length;
   const duration = formatDuration(schedule);
-  const time = schedule.all_day ? "종일" : formatTime(schedule.start_datetime);
+  const time = formatScheduleTimeLabel(schedule);
   const accentColor =
     category?.color || scheduleTypeColor[schedule.schedule_type] || "#64748b";
   const chipLabel =
@@ -167,15 +175,21 @@ export function ScheduleCard({
   };
 
   return (
-    <li className="tasks-row tasks-schedule-row">
-      <div className="tasks-time" aria-hidden="true">
-        {time}
-      </div>
+    <li
+      className={`tasks-row tasks-schedule-row${showTimeLabel ? "" : " tasks-schedule-row-no-time"}`}
+    >
+      {showTimeLabel && (
+        <div className="tasks-time" aria-hidden="true">
+          {time}
+        </div>
+      )}
       <article
+        {...moves?.container(schedule.schedule_id, !schedule.is_company_schedule && !schedule.is_shared)}
         data-selection-key={`schedule:${schedule.schedule_id}`}
         className={`tasks-card${completed ? " tasks-card-completed" : ""}${selectedSchedule ? " tasks-card-selected" : ""}`}
         aria-labelledby={titleId}
       >
+        {moves?.dragged && !schedule.is_company_schedule && !schedule.is_shared && <span className="task-drop-hint">여기에 놓아 이 일정으로 이동</span>}
         <div className="tasks-card-top">
           <h3
             className="tasks-card-heading"
@@ -354,8 +368,13 @@ export function IndependentTasksSection({
 }) {
   const id = useId();
   const [expanded, setExpanded] = useState(false);
+  const moves = useTaskMoveContext();
+  useEffect(() => {
+    if (moves?.lastMoved?.scheduleId === null) setExpanded(true);
+  }, [moves?.lastMoved]);
   return (
     <section
+      {...moves?.container(null)}
       className="tasks-independent-section"
       aria-labelledby={`${id}-heading`}
     >

@@ -29,6 +29,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import GoogleAccountSettings from "@/components/GoogleAccountSettings";
 import ErrorState from "@/components/ui/ErrorState";
 import Spinner, { FullSpinner } from "@/components/ui/Spinner";
 import { Switch } from "@/components/ui/switch";
@@ -1709,6 +1710,8 @@ function AccountSection() {
       </section>
 
       <CompanyInviteInboxSection />
+
+      <GoogleAccountSettings />
 
       <CompanyMembershipSection />
 

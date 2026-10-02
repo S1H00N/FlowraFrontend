@@ -372,8 +372,12 @@ test("일정 날짜를 옮기면 연결된 할 일의 마감 시간은 유지된
   const startDate = page.getByLabel("시작 날짜", { exact: true });
   await startDate.click();
   await page.locator(".schedule-date-popover").getByRole("button", { name: "10", exact: true }).click();
-  await page.getByLabel("종료 날짜", { exact: true }).click();
+  // Committing the start date advances focus and opens the end-date calendar.
+  const endDate = page.getByLabel("종료 날짜", { exact: true });
+  await expect(endDate).toBeFocused();
+  await expect(endDate).toHaveAttribute("aria-expanded", "true");
   await page.locator(".schedule-date-popover").getByRole("button", { name: "10", exact: true }).click();
+  await expect(endDate).toHaveAttribute("aria-expanded", "false");
   await page.locator("[data-flowra-schedule-editor-footer]").getByRole("button", { name: "저장" }).click();
   await expect.poll(() => api.state.tasks[0].due_datetime).toContain("2026-09-10T12:30");
   expect(api.unhandled).toEqual([]);

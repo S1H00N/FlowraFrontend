@@ -1,3 +1,42 @@
+# 2026-10-01 할 일 순서·Google 인증 문서 반영
+
+새로 제공된 일반 API의 Tasks 계약, Google 로그인 문서, 라우트 및 오류 색인을 웹 구현과 대조했다. 기존 자체 순서 API 구현을 현재 계약으로 사용하지 않으며, 웹과 브라우저 fixture에서 해당 API 및 서버 모듈 의존성을 제거했다.
+
+## 반영 내용
+
+| 영역 | 수정 |
+| --- | --- |
+| 할 일 순서 API | `PATCH /tasks/:task_id/order`와 `PATCH /schedules/:schedule_id/tasks/reorder` API 및 타입 추가. 일정 내 드래그·이동 메뉴는 필터 없는 전체 목록을 조회하고 완료·숨겨진 항목까지 포함하여 벌크 순서를 전송 |
+| 일정 간 이동·연결 해제 | 기존 Task PATCH의 `schedule_id`·`sort_order` 사용. 연결 해제는 `schedule_id: null`로 요청하고 서버 순번은 `null`. 마감일은 이동 요청에서 변경하지 않음 |
+| 순서 충돌·목록 조회 | `TASK_ORDER_MISMATCH`는 캐시를 복구하고 목록을 다시 조회. 사용자가 재시도하면 최신 전체 ID를 다시 조회하며 자동 재전송하지 않음. 문서에 없는 Tasks page/size 및 pagination 가정 제거 |
+| 독립 할 일 | 서버 순번 API를 호출하지 않고 사용자별 브라우저 저장소에 수동 순서 유지. 다른 기기와 동기화되지 않으며 서버 `sort_order`는 `null` |
+| Google 로그인·가입 | Google Identity Services의 Google ID 토큰만 `prepare`로 전달. `signed_in`, `existing_account`, `signup` 분기, 직접 선택한 기존 계정의 비밀번호 연결, 201 로그인 및 202 이메일 확인 대기 처리 |
+| Google 계정 관리 | 설정에서 연결 계정 조회, `prepare-link` 후 현재 계정 비밀번호로 `link` 처리. 티켓 만료·소비·세션 교체 오류는 티켓을 폐기하고 새 Google 인증으로 복귀. 비밀번호 재설정 후 Google 연결 해제 안내 |
+| 인증 요청 경합 | 이메일 로그인·가입과 Google 인증이 하나의 요청 잠금을 공유. API 호출 직전 잠금을 확인하고 요청 중 다른 인증 입력·제출을 비활성화. 실패 후 다시 시도 가능 |
+| HTTP·오류 진단 | 공개 Google 요청은 Flowra Bearer를 제거하고 refresh 대상에서 제외. 잘못된 Google 토큰·연결 티켓·비밀번호의 401을 Flowra 세션 오류와 구분. 200·401의 비 JSON 프록시 응답은 재전송 없이 실패 처리. 204 허용, 원래 오류 메시지·details·요청 ID 보존 및 코드별 한글 안내 |
+| 문서 | Google 문서 안내 추가. 공식 Tasks 계약으로 대체된 자체 task-board 인계 문서·전달용 묶음·전용 생성 스크립트를 삭제하고 문서 링크를 현재 위치로 갱신 |
+
+## 검증
+
+| 검사 | 결과 |
+| --- | --- |
+| 전체 워크스페이스 타입 검사 | `pnpm.cmd run typecheck` 통과. 최종 인증 잠금 변경 후 웹 타입 검사도 통과 |
+| 브라우저 테스트 타입 검사 | `pnpm.cmd --filter @workspace/flowra-web run test:e2e:typecheck` 통과 |
+| API 계약·HTTP·알림함 테스트 | `pnpm.cmd --filter @workspace/flowra-web run test:api`: 62/62 통과 |
+| QA 빌드 | 최종 소스로 Vite QA 빌드 통과 |
+| 브라우저 | 첫 100건: 91 통과, 8 건너뜀, 1 실패. 최종 소스의 핵심 26건: 24 통과, 2 실패. 아래 테스트 수정 후 해당 2건 재실행 모두 통과 |
+| 파일 검사 | 수정한 소스·테스트의 UTF-8/BOM·한글 검사와 변경 구현의 `git diff --check` 통과 |
+
+브라우저 대상은 `google-auth.spec.ts`, `task-board-move.spec.ts`, `task-rows.spec.ts`, `tasks-independent.spec.ts`, `flows.spec.ts`이다. 마지막 실행 결과를 항목별로 합치면 고유 항목 **96건 통과, 8건 건너뜀**이며 단일 실행 결과는 아니다. 건너뛴 항목은 모바일의 마우스 드래그 3건과 데스크톱에서 별도로 검사한 화면 너비 5건이다. 모바일 이동은 메뉴로 검사했다.
+
+첫 실패는 시작 날짜 선택 후 종료 날짜로 자동 초점이 이동하여 달력이 열렸는데 테스트가 그 입력란을 다시 클릭한 문제였다. 자동 초점·달력 열림을 확인하고 선택하는 흐름으로 테스트를 수정했으며 최종 데스크톱·모바일 모두 통과했다. 마지막 두 실패는 가입 오류 토스트와 Google 오류 안내를 같은 `alert` 선택자로 읽은 문제였으며, Google 오류 안내를 구분한 뒤 데스크톱·모바일 모두 통과했다. 최종 인증 요청 경합 및 실패 후 재시도도 확인했다.
+
+원본 결과는 `artifacts/flowra-web/playwright-report-api-update/`, `playwright-report-api-update-final/`, `playwright-report-api-update-retry/`에 보관한다. 제공된 원본 `docs/devdocs/error-index.md`의 기존 EOF 빈 줄 경고는 구현 파일 검사에서 제외했다. 기존 UI sourcemap 경고는 빌드 실패를 일으키지 않았다.
+
+## 실제 환경 확인 범위
+
+검증은 모의 API와 모의 Google credential로 수행했다. 운영 백엔드의 DB 순번 migration·권한·동시 처리와 실제 Google 인증·메일 발송은 이 검증에 포함하지 않는다. 현재 로컬 웹 환경에는 `VITE_GOOGLE_OAUTH_CLIENT_ID`가 없어 Google 로그인 준비 안내를 표시한다. 실제 활성화하려면 웹 OAuth client ID, 백엔드 `GOOGLE_OAUTH_CLIENT_IDS`, Google OAuth의 허용 웹 origin을 설정해야 한다. ID 토큰과 일회용 연결 티켓은 URL·로그·장기 저장소에 저장하지 않는다.
+
 # 2026-09-21 API 명세 대조 및 웹 반영
 
 2026-09-16 기준 `backend-specs`의 API 문서 2개와 `devdocs`의 개발·디버깅 자료 7개를 현재 웹 구현과 대조했다. 작업 시작 시 존재했던 알림함 변경과 문서 교체·삭제는 보존했다.

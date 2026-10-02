@@ -53,7 +53,7 @@ function createRequestId() {
 
 function isPublicAuthRequest(config: InternalAxiosRequestConfig) {
   const pathname = (config.url ?? "").split(/[?#]/, 1)[0];
-  return /\/auth\/(login|signup|refresh|logout|verify-email|resend-verification-email|forgot-password|reset-password)\/?$/.test(pathname);
+  return /\/auth\/(login|signup|refresh|logout|verify-email|resend-verification-email|forgot-password|reset-password|google\/(prepare|link-with-password|signup))\/?$/.test(pathname);
 }
 
 function prepareRetry(config: RetriableConfig, token: string) {
@@ -135,7 +135,9 @@ apiClient.interceptors.request.use((config: RetriableConfig) => {
   }
   config._authUserId = userId;
   const token = authStorage.getAccessToken();
-  if (token) {
+  if (isPublicAuthRequest(config)) {
+    config.headers.delete("Authorization");
+  } else if (token) {
     config.headers.set("Authorization", `Bearer ${token}`);
   }
   if (!config.headers.has("X-Request-Id")) {
@@ -147,15 +149,46 @@ apiClient.interceptors.request.use((config: RetriableConfig) => {
 // ---- Response interceptor: refresh on 401 / TOKEN_EXPIRED ----
 
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // A proxy can return an HTML login/error page with a successful status.
+    // Preserve the response and request ID for diagnosis without treating it
+    // as an API result or automatically replaying a mutation.
+    if (response.status !== 204 && typeof response.data === "string") {
+      throw new AxiosError(
+        "Non-JSON API response",
+        "NON_JSON_RESPONSE",
+        response.config,
+        response.request,
+        response,
+      );
+    }
+    if (response.data?.success === false || response.data?.error) {
+      throw new AxiosError(
+        response.data.message || response.data.error?.message || "API request failed",
+        AxiosError.ERR_BAD_RESPONSE,
+        response.config,
+        response.request,
+        response,
+      );
+    }
+    return response;
+  },
   async (error: AxiosError<ApiErrorBody>) => {
+    if (typeof error.response?.data === "string") {
+      // A proxy's 401 HTML page does not prove the Flowra session expired.
+      error.code = "NON_JSON_RESPONSE";
+      return Promise.reject(error);
+    }
     const original = error.config as RetriableConfig | undefined;
     const status = error.response?.status;
     const code = error.response?.data?.error?.code;
     const isPublicAuthError =
       code === "INVALID_CREDENTIALS" ||
       code === "INVALID_EMAIL_TOKEN" ||
-      code === "INVALID_REFRESH_TOKEN";
+      code === "INVALID_REFRESH_TOKEN" ||
+      code === "INVALID_GOOGLE_ID_TOKEN" ||
+      code === "INVALID_GOOGLE_LINK_TICKET" ||
+      code === "GOOGLE_ACCOUNT_UNAVAILABLE";
 
     const isAuthError =
       !isPublicAuthError &&

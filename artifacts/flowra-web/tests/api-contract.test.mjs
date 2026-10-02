@@ -158,6 +158,23 @@ test("create omits absent relation IDs, patch preserves explicit null unlinking"
   assert.deepEqual(body(), { schedule_id: null });
 });
 
+test("task ordering uses official PATCH endpoints and string task IDs", async () => {
+  response = { task: { task_id: 31, schedule_id: 10, sort_order: 1 } };
+  assert.equal((await api.tasks.updateTaskOrder(31, { sort_order: 1 })).data.task.sort_order, 1);
+  assert.deepEqual(lastCall(), { method: "patch", args: ["/tasks/31/order", { sort_order: 1 }] });
+  response = { tasks: [{ task_id: 31, sort_order: 0 }, { task_id: 12, status: "done", sort_order: 1 }] };
+  assert.deepEqual((await api.tasks.reorderScheduleTasks(10, { task_ids: ["31", "12"] })).data.tasks, response.tasks);
+  assert.deepEqual(lastCall(), { method: "patch", args: ["/schedules/10/tasks/reorder", { task_ids: ["31", "12"] }] });
+  response = { task: { task_id: 31, schedule_id: 20, sort_order: 0 } };
+  await api.tasks.updateTask(31, { schedule_id: 20, sort_order: 0 });
+  assert.deepEqual(lastCall(), { method: "patch", args: ["/tasks/31", { schedule_id: "20", sort_order: 0 }] });
+  await api.tasks.createTask({ title: "Ordered task", schedule_id: 20, sort_order: 2 });
+  assert.deepEqual(body(), { title: "Ordered task", schedule_id: "20", sort_order: 2 });
+  response = { tasks: [{ task_id: 31, sort_order: 0 }] };
+  assert.deepEqual((await api.tasks.listTasks({ schedule_id: 20, page: 2, size: 10 })).data.tasks, response.tasks);
+  assert.deepEqual(lastCall(), { method: "get", args: ["/tasks", { params: { schedule_id: "20" } }] });
+});
+
 test("recurring creation preserves recurrence rules and omits empty category", async () => {
   response = { recurrence_group_id: "group", schedules: [] };
   await api.schedules.createRecurringSchedule({

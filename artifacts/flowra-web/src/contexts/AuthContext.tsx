@@ -18,7 +18,16 @@ import {
   deleteCurrentBrowserPushToken,
   getStoredBrowserPushToken,
 } from "@/lib/browserPush";
-import type { LoginRequest, SignupRequest, SignupResponseData, User } from "@/types";
+import type {
+  GoogleLinkWithPasswordRequest,
+  GooglePrepareResponseData,
+  GoogleSignupRequest,
+  GoogleSignupResponseData,
+  LoginRequest,
+  SignupRequest,
+  SignupResponseData,
+  User,
+} from "@/types";
 
 interface AuthContextValue {
   user: User | null;
@@ -27,6 +36,9 @@ interface AuthContextValue {
   login: (payload: LoginRequest) => Promise<void>;
   signup: (payload: SignupRequest) => Promise<SignupResponseData>;
   verifyEmail: (token: string) => Promise<void>;
+  signInWithGoogle: (idToken: string) => Promise<GooglePrepareResponseData>;
+  linkGoogleWithPassword: (payload: GoogleLinkWithPasswordRequest) => Promise<void>;
+  signupWithGoogle: (payload: GoogleSignupRequest) => Promise<GoogleSignupResponseData>;
   logout: () => Promise<void>;
 }
 
@@ -145,6 +157,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     persistLogin(res.data);
   }, [persistLogin]);
 
+  const signInWithGoogle = useCallback(async (idToken: string) => {
+    const res = await authApi.prepareGoogleLogin(idToken);
+    if (!res.success) throw new Error(res.message || "Google login failed.");
+    if (res.data.next_action === "signed_in") persistLogin(res.data);
+    return res.data;
+  }, [persistLogin]);
+
+  const linkGoogleWithPassword = useCallback(async (payload: GoogleLinkWithPasswordRequest) => {
+    const res = await authApi.linkGoogleWithPassword(payload);
+    if (!res.success) throw new Error(res.message || "Google linking failed.");
+    persistLogin(res.data);
+  }, [persistLogin]);
+
+  const signupWithGoogle = useCallback(async (payload: GoogleSignupRequest) => {
+    const res = await authApi.signupWithGoogle(payload);
+    if (!res.success) throw new Error(res.message || "Google signup failed.");
+    if (!("requires_email_verification" in res.data && res.data.requires_email_verification)) {
+      persistLogin(res.data);
+    }
+    return res.data;
+  }, [persistLogin]);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -153,9 +187,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       signup,
       verifyEmail,
+      signInWithGoogle,
+      linkGoogleWithPassword,
+      signupWithGoogle,
       logout,
     }),
-    [user, isInitializing, login, signup, verifyEmail, logout],
+    [user, isInitializing, login, signup, verifyEmail, signInWithGoogle, linkGoogleWithPassword, signupWithGoogle, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

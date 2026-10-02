@@ -1,9 +1,10 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import TaskItem from "@/components/TaskItem";
 import { useLinkedTaskDrag } from "@/hooks/useLinkedTaskDrag";
 import { useScheduleTaskOrder } from "@/hooks/useScheduleTaskOrder";
 import type { Schedule, Task } from "@/types";
+import { useTaskMoveContext } from "./TaskMoveContext";
 
 /** Keep task keys in one list so completing/reordering a row preserves keyboard focus. */
 export default function TaskList({
@@ -22,12 +23,19 @@ export default function TaskList({
   const id = useId();
   const [showCompleted, setShowCompleted] = useState(true);
   const [showAll, setShowAll] = useState(false);
+  const moves = useTaskMoveContext();
+  useEffect(() => {
+    if (moves?.lastMoved?.scheduleId === (schedule?.schedule_id ?? null)) {
+      setShowAll(true);
+      setShowCompleted(true);
+    }
+  }, [moves?.lastMoved, schedule?.schedule_id]);
   const { orderedTasks, moveTask } = useScheduleTaskOrder(
     schedule?.schedule_id ?? 0,
     tasks,
   );
   const getReorderProps = useLinkedTaskDrag(orderedTasks, moveTask);
-  const sorted = schedule ? orderedTasks : tasks;
+  const sorted = orderedTasks;
   const active = sorted.filter((task) => task.status !== "done");
   const done = sorted.filter((task) => task.status === "done");
   // Keep the rendered order stable when entering selection mode.
@@ -50,7 +58,8 @@ export default function TaskList({
         setShowCompleted(true);
         setShowAll(true);
       }}
-      reorder={schedule ? getReorderProps(task) : undefined}
+      highlighted={moves?.lastMoved?.task.task_id === task.task_id}
+      reorder={selectionMode ? undefined : moves ? moves.row(task, sorted) : getReorderProps(task)}
     />
   );
   return (

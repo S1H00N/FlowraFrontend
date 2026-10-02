@@ -39,6 +39,7 @@ export interface Task {
   due_datetime?: string | null;
   category_id?: number | null;
   schedule_id?: number | null;
+  sort_order?: number | null;
   location?: string | null;
   source_memo_id?: number | null;
   source_ai_result_id?: number | null;
@@ -56,6 +57,7 @@ export interface CreateTaskRequest {
   completed_at?: string | null;
   category_id?: string | number | null;
   schedule_id?: string | number | null;
+  sort_order?: number;
   location?: string | null;
 }
 
@@ -68,12 +70,11 @@ export interface UpdateTaskRequest {
   completed_at?: string | null;
   category_id?: string | number | null;
   schedule_id?: string | number | null;
+  sort_order?: number;
   location?: string | null;
 }
 
 export interface TaskListQuery {
-  page?: number;
-  size?: number;
   status?: TaskStatus | TaskStatus[];
   priority?: TaskPriority | TaskPriority[];
   category_id?: string | number | Array<string | number>;
@@ -83,4 +84,12 @@ export interface TaskListQuery {
   due_from?: string;
   due_to?: string;
   include_no_due?: boolean;
+}
+
+export interface UpdateTaskOrderRequest {
+  sort_order: number;
+}
+
+export interface ReorderScheduleTasksRequest {
+  task_ids: string[];
 }

@@ -9,6 +9,8 @@ export interface TaskReorderProps {
   onDragOver: (event: DragEvent<HTMLLIElement>) => void;
   onDrop: (event: DragEvent<HTMLLIElement>) => void;
   onKeyDown: (event: KeyboardEvent<HTMLLIElement>) => void;
+  moveUp?: () => void;
+  moveDown?: () => void;
 }
 
 export function useLinkedTaskDrag(
