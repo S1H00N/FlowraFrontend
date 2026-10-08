@@ -28,12 +28,13 @@ export default function VerifyEmail() {
     }
 
     let active = true;
+    let redirectTimer: number | undefined;
     verifyEmail(token)
       .then(() => {
         if (!active) return;
         setState("success");
         setMessage("이메일 인증이 완료되었습니다.");
-        window.setTimeout(() => navigate("/", { replace: true }), 900);
+        redirectTimer = window.setTimeout(() => navigate("/", { replace: true }), 900);
       })
       .catch((err) => {
         if (!active) return;
@@ -43,6 +44,7 @@ export default function VerifyEmail() {
 
     return () => {
       active = false;
+      if (redirectTimer !== undefined) window.clearTimeout(redirectTimer);
     };
   }, [navigate, pathToken, searchParams, verifyEmail]);
 

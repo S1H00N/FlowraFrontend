@@ -120,6 +120,7 @@ test('real account: UI login and six read-only pages', async ({ page, context },
       page.waitForResponse((response) => apiPath(response.url()) === '/auth/login' && response.request().method() === 'POST'),
       page.locator('form button[type="submit"]').click(),
     ]);
+    stage = `verify login HTTP (${loginResponse.status()})`;
     expect(loginResponse.ok(), 'Login HTTP response must succeed').toBe(true);
     stage = 'verify authenticated home';
     await expect.poll(() => new URL(page.url()).pathname === web.pathname).toBe(true);
@@ -143,9 +144,11 @@ test('real account: UI login and six read-only pages', async ({ page, context },
     stage = 'check browser and API errors';
     await Promise.all([...pendingReads]);
     expect(errors, 'Read-only smoke must have no browser errors, failed API reads, or attempted writes').toEqual([]);
-  } catch {
+  } catch (error) {
     // Suppress Playwright action logs (fill values) and any data in server errors.
-    throw new Error(`Live read-only smoke failed at: ${stage}. Sanitized checks: ${[...new Set(errors)].join('; ') || 'UI or required API assertion failed'}`);
+    const networkCode = error instanceof Error ? error.message.match(/net::ERR_[A-Z_]+/)?.[0] : undefined;
+    const failure = networkCode ?? (error instanceof Error && error.name === 'TimeoutError' ? 'UI timeout' : 'UI or required API assertion failed');
+    throw new Error(`Live read-only smoke failed at: ${stage}. Sanitized checks: ${[...new Set(errors)].join('; ') || failure}`);
   } finally {
     testInfo.annotations.push({
       type: 'read-only-summary',

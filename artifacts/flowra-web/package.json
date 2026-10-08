@@ -14,6 +14,7 @@
     "test:e2e:report": "playwright show-report",
     "test:e2e:typecheck": "tsc -p tests/e2e/tsconfig.json",
     "test:e2e:live": "playwright test --config playwright.live.config.ts",
+    "test:e2e:live:write": "playwright test --config playwright.lifecycle.config.ts",
     "test:e2e:live:typecheck": "tsc -p tests/live/tsconfig.json"
   },
   "devDependencies": {
@@ -51,6 +52,7 @@
   "dependencies": {
     "axios": "^1.15.1",
     "firebase": "^12.14.0",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^7.14.1"
   }
 }

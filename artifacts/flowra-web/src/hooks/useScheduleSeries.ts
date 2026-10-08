@@ -1,3 +1,4 @@
+import axios from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { deleteScheduleSeries, getScheduleSeries, updateScheduleSeries } from "@/api/schedules";
 import { SCHEDULES_QUERY_KEY, scheduleDetailKey } from "@/hooks/useSchedules";
@@ -44,7 +45,8 @@ export function useUpdateScheduleSeries() {
     onSuccess: async (impact, { payload }) => {
       if (payload.changes?.start_datetime === undefined && payload.changes?.end_datetime === undefined) return;
       const results = await Promise.allSettled(impact.schedules.map(syncLinkedTaskDates));
-      if (results.some((result) => result.status === "rejected")) {
+      if (results.some((result) => result.status === "rejected") &&
+          !results.some((result) => result.status === "rejected" && axios.isCancel(result.reason))) {
         toast.error("반복 일정 날짜는 변경됐지만 연결된 할 일 날짜를 모두 갱신하지 못했습니다.");
       }
     },

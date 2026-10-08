@@ -30,6 +30,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import AiChatWidget from "@/components/AiChatWidget";
@@ -182,6 +188,7 @@ export default function AppShell({
   wide = false,
   sidebarExtra,
   titleMeta,
+  headerDescriptionMode = "inline",
   greeting,
   headerActions,
   aiChatButtonOffset,
@@ -193,6 +200,7 @@ export default function AppShell({
   wide?: boolean;
   sidebarExtra?: ReactNode;
   titleMeta?: ReactNode;
+  headerDescriptionMode?: "inline" | "tooltip";
   greeting?: ReactNode;
   headerActions?: ReactNode;
   aiChatButtonOffset?: string;
@@ -519,20 +527,40 @@ export default function AppShell({
               ) : (
                 <div className="min-w-0 max-w-full overflow-hidden">
                   <div className="flex min-w-0 items-baseline gap-2">
-                    <h1
-                      className={`shrink-0 font-semibold text-slate-950 ${
-                        fullBleed ? "text-base" : "text-lg"
-                      }`}
-                    >
-                      {activeItem.label}
-                    </h1>
+                    {headerDescriptionMode === "tooltip" ? (
+                      <TooltipProvider delayDuration={200} disableHoverableContent>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <h1
+                              tabIndex={0}
+                              className={`shrink-0 cursor-help rounded-sm font-semibold text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-300 ${
+                                fullBleed ? "text-base" : "text-lg"
+                              }`}
+                            >
+                              {activeItem.label}
+                            </h1>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" align="start" sideOffset={8}>
+                            {activeItem.description}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      <h1
+                        className={`shrink-0 font-semibold text-slate-950 ${
+                          fullBleed ? "text-base" : "text-lg"
+                        }`}
+                      >
+                        {activeItem.label}
+                      </h1>
+                    )}
                     {titleMeta && (
                       <span className="hidden min-w-0 truncate text-xs font-medium text-slate-500 sm:block">
                         {titleMeta}
                       </span>
                     )}
                   </div>
-                  {!fullBleed && (
+                  {!fullBleed && headerDescriptionMode === "inline" && (
                     <p className="truncate text-sm text-slate-500">
                       {activeItem.description}
                     </p>

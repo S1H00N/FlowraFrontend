@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useCreateTask } from "@/hooks/useTasks";
@@ -22,17 +22,26 @@ const defaults: TaskFormValues = {
 
 export default function TaskForm({
   defaultScheduleId,
+  defaultDueDate,
   compact = false,
   onOpenDetails,
   onOpen,
   onCreated,
 }: {
   defaultScheduleId?: number;
+  defaultDueDate?: string;
   compact?: boolean;
   onOpenDetails?: () => void;
   onOpen?: () => void;
   onCreated?: (task: Task) => void;
 }) {
+  const formDefaults = useMemo(
+    () => ({
+      ...defaults,
+      due_datetime: defaultDueDate ? `${defaultDueDate}T23:59` : "",
+    }),
+    [defaultDueDate],
+  );
   const [localAdding, setLocalAdding] = useState(false);
   const composer = useTaskComposer();
   const quickAddScheduleId = defaultScheduleId ?? null;
@@ -60,7 +69,7 @@ export default function TaskForm({
     formState: { errors },
   } = useForm<TaskFormValues>({
     resolver: zodResolver(taskSchema),
-    defaultValues: defaults,
+    defaultValues: formDefaults,
   });
 
   const onSubmit = useCallback(
@@ -81,7 +90,7 @@ export default function TaskForm({
             : undefined,
         });
         onCreated?.(createdTask);
-        reset(defaults);
+        reset(formDefaults);
         if (compact) setFocus("title");
       } catch (err) {
         setError(getErrorMessage(err, "할 일 추가에 실패했습니다."));
@@ -89,13 +98,21 @@ export default function TaskForm({
         submitting.current = false;
       }
     },
-    [createMutation, reset, defaultScheduleId, compact, setFocus, onCreated],
+    [
+      createMutation,
+      reset,
+      formDefaults,
+      defaultScheduleId,
+      compact,
+      setFocus,
+      onCreated,
+    ],
   );
 
   const closeQuickAdd = useCallback(
     (restoreFocus: boolean) => {
       if (submitting.current) return;
-      reset(defaults);
+      reset(formDefaults);
       setError(null);
       if (composer) {
         composer.setActive((current) =>
@@ -109,7 +126,7 @@ export default function TaskForm({
       }
       if (restoreFocus) requestAnimationFrame(() => addButton.current?.focus());
     },
-    [composer, quickAddScheduleId, reset],
+    [composer, quickAddScheduleId, reset, formDefaults],
   );
 
   useEffect(() => {
@@ -194,7 +211,7 @@ export default function TaskForm({
           type="button"
           className="tasks-add-subtask"
           onClick={() => {
-            reset(defaults);
+            reset(formDefaults);
             setError(null);
             onOpen?.();
             if (composer) {

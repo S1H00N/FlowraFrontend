@@ -14,6 +14,14 @@ pnpm.cmd --filter @workspace/flowra-web run test:e2e
 pnpm.cmd --filter @workspace/flowra-web run test:e2e:report
 ```
 
+Google 모의 인증 검사에는 테스트용 client ID를 지정합니다. 아래 가상 ID와 모의 Google Identity Services 응답으로 로그인·가입·계정 연결 흐름을 확인합니다.
+
+```powershell
+$env:QA_GOOGLE_OAUTH_CLIENT_ID='flowra-qa.apps.googleusercontent.com'
+pnpm.cmd --filter @workspace/flowra-web run test:e2e
+Remove-Item Env:QA_GOOGLE_OAUTH_CLIENT_ID
+```
+
 설치된 Google Chrome을 기본 사용합니다. Chrome이 없는 환경은 다음과 같이 실행할 수 있습니다.
 
 ```powershell
@@ -29,6 +37,9 @@ pnpm.cmd --filter @workspace/flowra-web run test:e2e
 | 파일 | 검사 |
 | --- | --- |
 | `tests/e2e/fixtures.ts` | 고정 사용자·날짜·데이터, 요청 기록, 가상 API |
+| `tests/e2e/auth-session.spec.ts` | 계정 전환·다른 탭·지연 응답·로그아웃 경합과 캐시·초안 격리 |
+| `tests/e2e/auth-verification.spec.ts` | 일회용 이메일 인증의 단일 전송, 성공 안내 및 홈 이동 |
+| `tests/e2e/linked-task-dates.spec.ts` | 일정 날짜 변경, 연결 할 일 부분 실패 및 저장 응답 유실 복구 |
 | `tests/e2e/flows.spec.ts` | 로그인, 메뉴, 할 일 생성·완료, 일정 생성·편집, 메모 생성·편집·삭제 |
 | `tests/e2e/shell.spec.ts` | 사이드바, 설정, 테마, AI 패널, 캘린더 보기 |
 | `tests/e2e/tasks-design.spec.ts` | 할 일 카드, 완료·선택 분리, 검색·필터, 반응형 입력 패널과 포커스 |
@@ -86,13 +97,27 @@ pnpm.cmd --filter @workspace/flowra-web exec playwright show-report playwright-r
 이 파일은 Git에서 제외됩니다. 비밀번호와 인증 상태를 보고서나 저장소에 넣지 않습니다.
 실제 계정 검사는 기본 가상 API 검사와 별도 설정으로 실행하며, 기본 명령에서 자동으로 실행하지 않습니다.
 
-현재 별도 설정은 로그인 및 6개 페이지의 실제 API 조회만 검증합니다. 데이터 수정·삭제·메일·푸시 요청은 차단합니다.
+기본 실제 계정 설정은 로그인 및 6개 페이지의 실제 API 조회만 검증합니다. 데이터 수정·삭제·메일·푸시 요청은 차단합니다.
 `QA_WEB_BASE_URL`, `QA_API_BASE_URL`, `QA_EMAIL`, `QA_PASSWORD`를 테스트 대상 환경에 맞게 설정합니다.
 
 ```powershell
 pnpm.cmd --filter @workspace/flowra-web run test:e2e:live:typecheck
 pnpm.cmd --filter @workspace/flowra-web run test:e2e:live
 ```
+
+### 실제 저장 흐름
+
+`test:e2e:live:write`는 별도 설정으로 일정·연결 할 일·메모의 생성, 수정, 완료, 삭제와 새로고침 후 저장 상태를 확인합니다. 실행마다 고유한 QA 이름으로 데이터를 만들고, 이번 실행이 생성한 ID만 수정·삭제합니다. 종료 시 남은 QA 데이터를 정리하며, 기존 사용자 데이터와 메일·푸시·AI·회사·공유 요청은 변경하지 않습니다.
+
+```powershell
+$env:QA_MUTATIONS='1'
+pnpm.cmd --filter @workspace/flowra-web run test:e2e:live:write
+Remove-Item Env:QA_MUTATIONS
+```
+
+읽기 검사와 동일한 `.env.qa.local`의 계정을 사용합니다. 실제 저장 검사는 로그인 가능한 테스트 전용 계정에서 실행합니다. `QA_WEB_BASE_URL`이 배포 주소이면 배포된 웹을, 로컬 주소이면 로컬 웹을 검증하므로 수정한 소스를 확인할 때는 해당 소스를 실행하는 주소를 지정합니다. 실제 검사에서는 캡처·trace·영상·인증 상태·응답 본문을 저장하지 않으며 실패 단계와 HTTP 상태 등만 표시합니다.
+
+이번 핵심 흐름의 검증 결과와 남은 확인 항목은 [핵심 사용 흐름 QA 기록](core-lifecycle.md)에 정리합니다.
 
 ## 통합 결과와 기준 이미지
 

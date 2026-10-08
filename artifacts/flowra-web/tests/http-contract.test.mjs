@@ -44,6 +44,149 @@ function rejectResponse(config, status, code) {
   });
 }
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((complete) => { resolve = complete; });
+  return { promise, resolve };
+}
+
+test("a delayed schedule success from the previous user cannot start deadline writes in the new session", async () => {
+  const { apiClient, authStorage, logoutCount } = createClient();
+  const normalize = loadModule("api/normalize.ts");
+  const dateUtils = loadModule("utils/dateUtils.ts");
+  const schedules = loadModule("api/schedules.ts", { "./client": apiClient, "./normalize": normalize });
+  const tasks = loadModule("api/tasks.ts", { "./client": apiClient, "./normalize": normalize, "@/utils/dateUtils": dateUtils });
+  const { syncLinkedTaskDates } = loadModule("lib/syncLinkedTaskDates.ts", { "@/api/tasks": tasks, "@/utils/dateUtils": dateUtils });
+  const started = deferred();
+  const response = deferred();
+  const attempts = [];
+  const schedule = {
+    schedule_id: 201, user_id: 9001,
+    start_datetime: dateUtils.toOffsetISOString(new Date(2026, 8, 10, 10)),
+    end_datetime: dateUtils.toOffsetISOString(new Date(2026, 8, 10, 11)),
+  };
+  apiClient.defaults.adapter = async (config) => {
+    attempts.push({ method: config.method, url: config.url, token: config.headers.get("Authorization") });
+    if (config.url === "/schedules/201") {
+      started.resolve();
+      await response.promise;
+      return { status: 200, statusText: "OK", config, headers: {}, data: { success: true, data: { schedule } } };
+    }
+    const task = { task_id: 801, due_datetime: dateUtils.toOffsetISOString(new Date(2026, 8, 9, 12, 30)) };
+    return { status: 200, statusText: "OK", config, headers: {}, data: { success: true, data: { tasks: [task], task } } };
+  };
+  const result = schedules.updateSchedule(201, { start_datetime: schedule.start_datetime })
+    .then((res) => syncLinkedTaskDates(res.data.schedule));
+  const cancelled = assert.rejects(result, (error) => axios.isCancel(error));
+  await started.promise;
+  authStorage.setUser({ user_id: 9002 });
+  authStorage.setTokens("other-access", "other-refresh");
+  response.resolve();
+  await cancelled;
+  assert.deepEqual(attempts, [{ method: "patch", url: "/schedules/201", token: "Bearer old-access" }]);
+  assert.equal(logoutCount(), 0);
+  assert.equal(authStorage.getAccessToken(), "other-access");
+});
+
+test("late success, partial-failure envelopes and transport errors from another user are cancelled", async (t) => {
+  const refresh = t.mock.method(axios, "post", async () => { throw new Error("Must not refresh"); });
+  for (const outcome of ["success", "no-content", "failure-envelope", "unauthorized", "forbidden", "server-error", "network-error", "proxy-html"]) {
+    const { apiClient, authStorage, logoutCount } = createClient();
+    const started = deferred();
+    const response = deferred();
+    let attempts = 0;
+    apiClient.defaults.adapter = async (config) => {
+      attempts += 1;
+      started.resolve();
+      await response.promise;
+      if (outcome === "network-error") throw new axios.AxiosError("Network Error", "ERR_NETWORK", config);
+      if (outcome === "proxy-html") {
+        throw new axios.AxiosError("Proxy error", "ERR_BAD_RESPONSE", config, undefined, {
+          status: 401, statusText: "Unauthorized", config, headers: {}, data: "<html>Login</html>",
+        });
+      }
+      if (["unauthorized", "forbidden", "server-error"].includes(outcome)) {
+        throw rejectResponse(config, { unauthorized: 401, forbidden: 403, "server-error": 500 }[outcome], "UNAUTHORIZED");
+      }
+      return {
+        status: outcome === "no-content" ? 204 : 200, statusText: "OK", config, headers: {},
+        data: outcome === "no-content" ? "" : outcome === "failure-envelope"
+          ? { success: false, error: { code: "PARTIAL_FAILURE" }, data: { saved_ids: [1] } }
+          : { success: true, data: { task_id: 1 } },
+      };
+    };
+    const result = apiClient.patch("/tasks/1", { due_datetime: "2026-09-10T12:30:00+09:00" });
+    const cancelled = assert.rejects(result, (error) => axios.isCancel(error), outcome);
+    await started.promise;
+    authStorage.setUser({ user_id: 9002 });
+    authStorage.setTokens("other-access", "other-refresh");
+    response.resolve();
+    await cancelled;
+    assert.equal(attempts, 1, outcome);
+    assert.equal(logoutCount(), 0, outcome);
+    assert.equal(authStorage.getRefreshToken(), "other-refresh", outcome);
+  }
+  assert.equal(refresh.mock.callCount(), 0);
+});
+
+test("logout discards a late successful authenticated read", async () => {
+  const { apiClient, authStorage } = createClient();
+  const started = deferred();
+  const response = deferred();
+  apiClient.defaults.adapter = async (config) => {
+    started.resolve();
+    await response.promise;
+    return { status: 200, statusText: "OK", config, headers: {}, data: { success: true, data: { user_id: 9001 } } };
+  };
+  const result = apiClient.get("/users/me");
+  const cancelled = assert.rejects(result, (error) => axios.isCancel(error));
+  await started.promise;
+  authStorage.setUser(null);
+  authStorage.clear();
+  response.resolve();
+  await cancelled;
+});
+
+test("rotating tokens for the same user accepts pending successes without replaying them", async () => {
+  const { apiClient, authStorage } = createClient();
+  const started = deferred();
+  const response = deferred();
+  let attempts = 0;
+  apiClient.defaults.adapter = async (config) => {
+    attempts += 1;
+    started.resolve();
+    await response.promise;
+    return { status: 200, statusText: "OK", config, headers: {}, data: { success: true, data: { task_id: 1 } } };
+  };
+  const result = apiClient.patch("/tasks/1", { status: "done" });
+  await started.promise;
+  authStorage.setTokens("rotated-access", "rotated-refresh");
+  response.resolve();
+  assert.equal((await result).data.data.task_id, 1);
+  assert.equal(attempts, 1);
+});
+
+test("public login and anonymous Google outcomes stay valid when the current user changes", async (t) => {
+  const refresh = t.mock.method(axios, "post", async () => { throw new Error("Must not refresh"); });
+  for (const path of ["/auth/login", "/auth/google/prepare", "/auth/google/link-with-password", "/auth/google/signup"]) {
+    const { apiClient, authStorage, logoutCount } = createClient();
+    apiClient.defaults.adapter = async (config) => {
+      assert.equal(config.headers.has("Authorization"), false);
+      authStorage.setUser({ user_id: 9002 });
+      authStorage.setTokens("other-access", "other-refresh");
+      return { status: 200, statusText: "OK", config, headers: {}, data: { success: true, data: { user: { user_id: 9003 } } } };
+    };
+    assert.equal((await apiClient.post(path, {})).data.data.user.user_id, 9003);
+    apiClient.defaults.adapter = async (config) => {
+      authStorage.setUser({ user_id: 9004 });
+      throw rejectResponse(config, 401, "INVALID_CREDENTIALS");
+    };
+    await assert.rejects(apiClient.post(path, {}), (error) => !axios.isCancel(error) && error.response?.status === 401);
+    assert.equal(logoutCount(), 0);
+  }
+  assert.equal(refresh.mock.callCount(), 0);
+});
+
 test("concurrent 401 responses share rotated tokens and retry the original method/body once", async (t) => {
   const { apiClient, authStorage } = createClient();
   const attempts = [];

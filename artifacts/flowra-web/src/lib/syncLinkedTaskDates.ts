@@ -1,3 +1,4 @@
+import axios from "axios";
 import { listTasks, updateTask } from "@/api/tasks";
 import { toOffsetISOString } from "@/utils/dateUtils";
 import type { Schedule } from "@/types";
@@ -31,6 +32,7 @@ export async function syncLinkedTaskDates(schedule: Schedule) {
       if (!updated.success) throw new Error(updated.message || "할 일 마감 날짜를 변경하지 못했습니다.");
     }),
   );
-  const failure = results.find((result) => result.status === "rejected");
+  const failure = results.find((result) => result.status === "rejected" && axios.isCancel(result.reason))
+    ?? results.find((result) => result.status === "rejected");
   if (failure?.status === "rejected") throw failure.reason;
 }

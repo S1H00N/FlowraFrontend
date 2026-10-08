@@ -56,6 +56,11 @@ function isPublicAuthRequest(config: InternalAxiosRequestConfig) {
   return /\/auth\/(login|signup|refresh|logout|verify-email|resend-verification-email|forgot-password|reset-password|google\/(prepare|link-with-password|signup))\/?$/.test(pathname);
 }
 
+function hasAuthSessionChanged(config: RetriableConfig) {
+  return !isPublicAuthRequest(config) &&
+    config._authUserId !== (authStorage.getUser<{ user_id: number }>()?.user_id ?? null);
+}
+
 function prepareRetry(config: RetriableConfig, token: string) {
   config._retry = true;
   config.headers.set("Authorization", `Bearer ${token}`);
@@ -150,6 +155,9 @@ apiClient.interceptors.request.use((config: RetriableConfig) => {
 
 apiClient.interceptors.response.use(
   (response) => {
+    if (hasAuthSessionChanged(response.config as RetriableConfig)) {
+      throw new axios.CanceledError("Session changed while awaiting response");
+    }
     // A proxy can return an HTML login/error page with a successful status.
     // Preserve the response and request ID for diagnosis without treating it
     // as an API result or automatically replaying a mutation.
@@ -174,12 +182,15 @@ apiClient.interceptors.response.use(
     return response;
   },
   async (error: AxiosError<ApiErrorBody>) => {
+    const original = error.config as RetriableConfig | undefined;
+    if (original && hasAuthSessionChanged(original)) {
+      return Promise.reject(new axios.CanceledError("Session changed while awaiting response"));
+    }
     if (typeof error.response?.data === "string") {
       // A proxy's 401 HTML page does not prove the Flowra session expired.
       error.code = "NON_JSON_RESPONSE";
       return Promise.reject(error);
     }
-    const original = error.config as RetriableConfig | undefined;
     const status = error.response?.status;
     const code = error.response?.data?.error?.code;
     const isPublicAuthError =

@@ -1,3 +1,4 @@
+import axios from "axios";
 import {
   useMutation,
   useQuery,
@@ -499,12 +500,23 @@ export function useUpdateSchedule() {
       if (payload.start_datetime !== undefined || payload.end_datetime !== undefined) {
         try {
           await syncLinkedTaskDates(schedule);
-        } catch {
-          toast.error("일정 날짜는 변경됐지만 연결된 할 일 날짜를 모두 갱신하지 못했습니다.");
+        } catch (error) {
+          if (!axios.isCancel(error)) {
+            toast.error("일정 날짜는 변경됐지만 연결된 할 일 날짜를 모두 갱신하지 못했습니다.");
+          }
         } finally {
-          void queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY }),
+            queryClient.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY }),
+          ]);
         }
       }
+    },
+    onError: async () => {
+      // A failed response can still follow a committed server update.
+      await Promise.all([
+        SCHEDULES_QUERY_KEY, TASKS_QUERY_KEY, TODAY_HOME_QUERY_KEY,
+      ].map((queryKey) => queryClient.invalidateQueries({ queryKey })));
     },
     meta: {
       successMessage: "일정이 수정되었습니다.",

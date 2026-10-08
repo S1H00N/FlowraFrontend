@@ -211,6 +211,10 @@ export function CompactDateInput({
   minDate,
   calendarBoundaryRef,
   className,
+  triggerLabel,
+  triggerIcon,
+  triggerPressed,
+  disabled = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -223,6 +227,10 @@ export function CompactDateInput({
   minDate?: string;
   calendarBoundaryRef?: { current: HTMLElement | null };
   className?: string;
+  triggerLabel?: string;
+  triggerIcon?: ReactNode;
+  triggerPressed?: boolean;
+  disabled?: boolean;
 }) {
   const normalizedMinDate =
     minDate && /^\d{4}-\d{2}-\d{2}$/.test(minDate) ? minDate : null;
@@ -244,7 +252,10 @@ export function CompactDateInput({
   );
   const [calendarStyle, setCalendarStyle] = useState<CSSProperties>({});
   const [calendarReady, setCalendarReady] = useState(false);
-  const containerRef = useRef<HTMLLabelElement | null>(null);
+  const Container = triggerLabel === undefined ? "label" : "div";
+  const containerRef = useRef<HTMLElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const focusCalendarOnOpenRef = useRef(false);
   const calendarRef = useRef<HTMLDivElement | null>(null);
   const closingFromOutsidePointerRef = useRef(false);
   const highlightedDateKey = previewDateKey || effectiveValue;
@@ -344,14 +355,30 @@ export function CompactDateInput({
     }
 
     updateCalendarPosition();
+    const focusFrame =
+      triggerLabel !== undefined && focusCalendarOnOpenRef.current
+        ? window.requestAnimationFrame(() => {
+            focusCalendarOnOpenRef.current = false;
+            const selectedDay =
+              calendarRef.current?.querySelector<HTMLButtonElement>(
+                "[data-calendar-date][data-selected='true']:not(:disabled)",
+              );
+            const firstDay =
+              calendarRef.current?.querySelector<HTMLButtonElement>(
+                "[data-calendar-date]:not(:disabled)",
+              );
+            (selectedDay ?? firstDay)?.focus();
+          })
+        : null;
     window.addEventListener("resize", updateCalendarPosition);
     window.addEventListener("scroll", updateCalendarPosition, true);
 
     return () => {
+      if (focusFrame !== null) window.cancelAnimationFrame(focusFrame);
       window.removeEventListener("resize", updateCalendarPosition);
       window.removeEventListener("scroll", updateCalendarPosition, true);
     };
-  }, [open, updateCalendarPosition]);
+  }, [open, triggerLabel, updateCalendarPosition]);
 
   const closeCalendar = () => {
     setOpen(false);
@@ -391,7 +418,7 @@ export function CompactDateInput({
       }
 
       closingFromOutsidePointerRef.current = true;
-      commitDate(draft);
+      if (triggerLabel === undefined) commitDate(draft);
       closeCalendar();
       window.setTimeout(() => {
         closingFromOutsidePointerRef.current = false;
@@ -402,9 +429,10 @@ export function CompactDateInput({
     return () => {
       document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
     };
-  }, [commitDate, draft, open]);
+  }, [commitDate, draft, open, triggerLabel]);
 
   const openCalendar = () => {
+    if (disabled) return;
     onOpen?.();
     if (!open) setCalendarReady(false);
     setOpen(true);
@@ -418,11 +446,14 @@ export function CompactDateInput({
     setVisibleMonth(getCalendarViewMonth(dateKey));
     closeCalendar();
     onCommit?.();
+    if (triggerLabel !== undefined) triggerRef.current?.focus();
   };
 
   return (
-    <label
-      ref={containerRef}
+    <Container
+      ref={(element: HTMLLabelElement | HTMLDivElement | null) => {
+        containerRef.current = element;
+      }}
       className={cn(
         "relative flex h-9 min-w-0 items-center gap-2 rounded-md border border-transparent bg-transparent px-2 text-sm font-medium text-slate-900 transition hover:border-slate-200 hover:bg-white focus-within:border-violet-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-violet-100",
         className,
@@ -430,74 +461,123 @@ export function CompactDateInput({
       onBlur={(event) => {
         if (closingFromOutsidePointerRef.current) return;
         if (event.currentTarget.contains(event.relatedTarget)) return;
-        commitDate(draft);
+        if (
+          triggerLabel !== undefined &&
+          calendarRef.current?.contains(event.relatedTarget)
+        )
+          return;
+        if (triggerLabel === undefined) commitDate(draft);
         closeCalendar();
       }}
     >
-      <input
-        ref={inputRef}
-        type="text"
-        name="flowra_date_input"
-        autoComplete="none"
-        required={required}
-        value={draft}
-        onChange={(event) => {
-          const nextDraft = event.target.value;
-          setDraft(nextDraft);
-          const normalized = normalizeDateInput(nextDraft, effectiveValue);
-          if (normalized) {
-            const nextDateKey = clampDateKey(normalized);
-            setPreviewDateKey(nextDateKey);
-            setVisibleMonth(getCalendarViewMonth(nextDateKey));
-          }
-          openCalendar();
-        }}
-        onFocus={(event) => {
-          openCalendar();
-          setPreviewDateKey(effectiveValue);
-          event.currentTarget.select();
-          window.requestAnimationFrame(updateCalendarPosition);
-        }}
-        onClick={(event) => event.currentTarget.select()}
-        onMouseUp={(event) => event.preventDefault()}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            commitDate(draft);
-          }
-          if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-            event.preventDefault();
-            const currentDraft =
-              normalizeDateInput(draft, effectiveValue) ||
-              effectiveValue ||
-              toDateKey(new Date());
-            const nextDateKey = clampDateKey(
-              moveDateByKeyboard(
-                currentDraft,
-                event.key === "ArrowDown" ? 1 : -1,
-                event.shiftKey,
-              ),
-            );
-            setDraft(formatDateInputDisplay(nextDateKey));
-            setPreviewDateKey(nextDateKey);
-            setVisibleMonth(getCalendarViewMonth(nextDateKey));
+      {triggerLabel !== undefined ? (
+        <button
+          ref={triggerRef}
+          type="button"
+          aria-label={ariaLabel}
+          aria-expanded={open}
+          aria-pressed={triggerPressed}
+          disabled={disabled}
+          onClick={() => {
+            focusCalendarOnOpenRef.current = true;
             openCalendar();
-          }
-          if (event.key === "Escape") {
-            setDraft(displayValue);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              focusCalendarOnOpenRef.current = true;
+              openCalendar();
+            }
+            if (event.key === "Escape" && open) {
+              event.preventDefault();
+              event.stopPropagation();
+              closeCalendar();
+            }
+          }}
+          className="flex h-full min-w-0 flex-1 items-center justify-center gap-2 outline-none disabled:cursor-not-allowed"
+        >
+          <span className="truncate">{triggerLabel}</span>
+          {triggerIcon}
+        </button>
+      ) : (
+        <input
+          ref={inputRef}
+          type="text"
+          name="flowra_date_input"
+          autoComplete="none"
+          required={required}
+          disabled={disabled}
+          value={draft}
+          onChange={(event) => {
+            const nextDraft = event.target.value;
+            setDraft(nextDraft);
+            const normalized = normalizeDateInput(nextDraft, effectiveValue);
+            if (normalized) {
+              const nextDateKey = clampDateKey(normalized);
+              setPreviewDateKey(nextDateKey);
+              setVisibleMonth(getCalendarViewMonth(nextDateKey));
+            }
+            openCalendar();
+          }}
+          onFocus={(event) => {
+            openCalendar();
             setPreviewDateKey(effectiveValue);
-            setVisibleMonth(getCalendarViewMonth(effectiveValue));
-            closeCalendar();
-          }
-        }}
-        aria-label={ariaLabel}
-        aria-expanded={open}
-        className="h-full min-w-0 flex-1 bg-transparent p-0 text-sm font-medium text-slate-900 outline-none"
-      />
-      {open
+            event.currentTarget.select();
+            window.requestAnimationFrame(updateCalendarPosition);
+          }}
+          onClick={(event) => event.currentTarget.select()}
+          onMouseUp={(event) => event.preventDefault()}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitDate(draft);
+            }
+            if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+              event.preventDefault();
+              const currentDraft =
+                normalizeDateInput(draft, effectiveValue) ||
+                effectiveValue ||
+                toDateKey(new Date());
+              const nextDateKey = clampDateKey(
+                moveDateByKeyboard(
+                  currentDraft,
+                  event.key === "ArrowDown" ? 1 : -1,
+                  event.shiftKey,
+                ),
+              );
+              setDraft(formatDateInputDisplay(nextDateKey));
+              setPreviewDateKey(nextDateKey);
+              setVisibleMonth(getCalendarViewMonth(nextDateKey));
+              openCalendar();
+            }
+            if (event.key === "Escape") {
+              setDraft(displayValue);
+              setPreviewDateKey(effectiveValue);
+              setVisibleMonth(getCalendarViewMonth(effectiveValue));
+              closeCalendar();
+            }
+          }}
+          aria-label={ariaLabel}
+          aria-expanded={open}
+          className="h-full min-w-0 flex-1 bg-transparent p-0 text-sm font-medium text-slate-900 outline-none"
+        />
+      )}
+      {open && !disabled
         ? renderFloatingPortal(
             <div
               ref={calendarRef}
+              role={triggerLabel !== undefined ? "group" : undefined}
+              aria-label={
+                triggerLabel !== undefined ? `${ariaLabel} 선택` : undefined
+              }
+              onKeyDown={(event) => {
+                if (triggerLabel !== undefined && event.key === "Escape") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  closeCalendar();
+                  triggerRef.current?.focus();
+                }
+              }}
               style={{
                 ...calendarStyle,
                 visibility: calendarReady ? undefined : "hidden",
@@ -578,6 +658,14 @@ export function CompactDateInput({
                       key={dateKey}
                       type="button"
                       disabled={disabled}
+                      data-calendar-date={
+                        triggerLabel !== undefined ? dateKey : undefined
+                      }
+                      data-selected={
+                        triggerLabel !== undefined
+                          ? dateKey === selectedKey
+                          : undefined
+                      }
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => {
                         if (!disabled) selectDate(date);
@@ -599,7 +687,7 @@ export function CompactDateInput({
             </div>,
           )
         : null}
-    </label>
+    </Container>
   );
 }
 
@@ -830,7 +918,9 @@ export function CompactTimeInput({
 }) {
   const boxed = variant === "boxed";
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(formatTimeInputDisplay(value, emptyPlaceholder));
+  const [draft, setDraft] = useState(
+    formatTimeInputDisplay(value, emptyPlaceholder),
+  );
   const [userTyping, setUserTyping] = useState(false);
   const [activeOptionIndex, setActiveOptionIndex] = useState(0);
   const [lockedTimeOptions, setLockedTimeOptions] = useState<string[] | null>(
