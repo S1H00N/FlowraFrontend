@@ -6,6 +6,7 @@ import {
   getCompanyProject,
   getCompanyProjectGantt,
   listCompanyProjects,
+  listCompanyProjectMembers,
   listCompanyProjectWorkItemChildren,
   listCompanyProjectWorkReminders,
   listMyCompanyProjectCalendarItems,
@@ -18,6 +19,7 @@ import { TODAY_BRIEFING_QUERY_KEY } from "@/hooks/useTodayBriefing";
 import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
 import type {
   CompanyProject,
+  CompanyProjectMember,
   CompanyProjectCalendarItemsData,
   CompanyProjectCalendarItemsQuery,
   CompanyProjectDetailData,
@@ -103,7 +105,7 @@ function useInvalidateCompanyProjectSurfaces() {
 
 export function useCompanyProjects(
   query: CompanyProjectsQuery = {},
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; keepPreviousData?: boolean } = {},
 ) {
   return useQuery<CompanyProject[]>({
     queryKey: companyProjectsListKey(query),
@@ -115,7 +117,34 @@ export function useCompanyProjects(
       return res.data.projects;
     },
     enabled: options.enabled ?? true,
-    placeholderData: (previousData) => previousData,
+    placeholderData: (previousData, previousQuery) => {
+      const previousFilter = previousQuery?.queryKey[2] as CompanyProjectsQuery | undefined;
+      // A company change must never show another company's cached rows.
+      return options.keepPreviousData !== false && previousFilter?.company_id === query.company_id
+        ? previousData
+        : undefined;
+    },
+  });
+}
+
+export function useCompanyProjectMembers(
+  companyProjectId: number,
+  options: { enabled?: boolean } = {},
+) {
+  return useQuery<CompanyProjectMember[]>({
+    queryKey: [...COMPANY_PROJECTS_QUERY_KEY, "members", companyProjectId],
+    enabled: options.enabled ?? true,
+    retry: false,
+    queryFn: async () => {
+      const res = await listCompanyProjectMembers(companyProjectId);
+      if (!res.success) throw new Error(res.message || "프로젝트 권한을 확인하지 못했습니다.");
+      if (!Array.isArray(res.data?.members) || res.data.members.some((member) =>
+        !member || typeof member !== "object" || !Number.isSafeInteger(member.company_member_id) ||
+        member.company_member_id <= 0 || typeof member.role !== "string" ||
+        (member.status !== undefined && typeof member.status !== "string"),
+      )) throw new Error("프로젝트 멤버 응답 형식을 확인할 수 없습니다.");
+      return res.data.members;
+    },
   });
 }
 
@@ -253,7 +282,8 @@ export function useCreateCompanyProject() {
       }
       return res.data.project;
     },
-    onSuccess: () => invalidate(),
+    // A failed transport may still have committed this non-idempotent POST.
+    onSettled: invalidate,
     meta: {
       successMessage: "회사 프로젝트를 추가했습니다.",
       errorMessage: "회사 프로젝트 생성에 실패했습니다.",

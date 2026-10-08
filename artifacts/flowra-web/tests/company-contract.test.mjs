@@ -60,7 +60,66 @@ const approvalHooks = load("hooks/useCompanyScheduleApprovals");
 const inviteHooks = load("hooks/useCompanyInvites");
 const adminHooks = load("hooks/useCompanyAdmin");
 const membershipHooks = load("hooks/useCompanyMemberships");
+const projectHooks = load("hooks/useCompanyProjects");
 const body = () => JSON.parse(JSON.stringify(calls.at(-1).args[1]));
+
+const sampleProject = {
+  company_project_id: 51, company_id: 7, name: "Project", status: "draft",
+};
+
+test("project list uses documented company, search and status filters and retains pagination", async () => {
+  response = { items: [sampleProject], pagination: { total_items: 10 } };
+  const result = await projects.listCompanyProjects({ company_id: 7, status: "draft", q: "Project" });
+  assert.equal(calls.at(-1).args[0], "/company-projects");
+  assert.deepEqual(body().params, { company_id: "7", status: "draft", q: "Project" });
+  assert.deepEqual(result.data.projects, [sampleProject]);
+  assert.equal(result.data.pagination.total_items, 10);
+  response = { items: [] };
+  assert.deepEqual((await projects.listCompanyProjects()).data.projects, []);
+});
+
+test("malformed project lists and mismatched detail IDs remain errors rather than empty or unauthorized results", async () => {
+  for (const malformed of [{ unexpected: [] }, { items: [null] }, { items: [{ company_project_id: 51 }] }]) {
+    response = malformed;
+    await assert.rejects(() => projects.listCompanyProjects(), /응답 형식|유효하지 않은/);
+  }
+  response = { project: { ...sampleProject, company_project_id: 52 } };
+  await assert.rejects(() => projects.getCompanyProject(51), /상세 응답 형식/);
+  response = { project: { company_project_id: 51 } };
+  await assert.rejects(() => projects.getCompanyProject(51), /상세 응답 형식/);
+  response = { project: sampleProject, summary: { opaque: 10 }, detail_policy: { partial: true } };
+  const detail = await projects.getCompanyProject(51);
+  assert.deepEqual(detail.data.project, sampleProject);
+  assert.deepEqual(detail.data.summary, { opaque: 10 });
+  assert.deepEqual(detail.data.detail_policy, { partial: true });
+});
+
+test("project creation preserves date-only fields and requires a server project ID", async () => {
+  response = { project: sampleProject };
+  const created = await projects.createCompanyProject({ company_id: 7, name: "Project", phase_mode: "phased", visibility: "members", status: "draft", planned_start_date: "2026-10-08", planned_end_date: "2026-10-09" });
+  assert.deepEqual(body(), { company_id: "7", name: "Project", phase_mode: "phased", visibility: "members", status: "draft", planned_start_date: "2026-10-08", planned_end_date: "2026-10-09" });
+  assert.equal(created.data.project.company_project_id, 51);
+  response = { project: { name: "Project" } };
+  await assert.rejects(() => projects.createCompanyProject({ company_id: 7, name: "Project" }), /프로젝트 ID/);
+});
+
+test("company switches never reuse previous project rows and search can opt out of stale rows", () => {
+  const previousData = [sampleProject];
+  const previousQuery = { queryKey: ["company-projects", "list", { company_id: 7 }] };
+  assert.equal(projectHooks.useCompanyProjects({ company_id: 8 }).placeholderData(previousData, previousQuery), undefined);
+  assert.equal(projectHooks.useCompanyProjects({ company_id: 7 }, { keepPreviousData: false }).placeholderData(previousData, previousQuery), undefined);
+  assert.equal(projectHooks.useCompanyProjects({ company_id: 7 }).placeholderData(previousData, previousQuery), previousData);
+});
+
+test("project permissions reject damaged member rows and refresh lists even after creation transport failures", async () => {
+  response = { members: [null] };
+  await assert.rejects(() => projectHooks.useCompanyProjectMembers(51).queryFn(), /멤버 응답/);
+  response = { members: [{ company_member_id: 3, role: "owner" }] };
+  assert.equal((await projectHooks.useCompanyProjectMembers(51).queryFn())[0].role, "owner");
+  invalidations.length = 0;
+  projectHooks.useCreateCompanyProject().onSettled(undefined, new Error("response lost"));
+  assert.ok(invalidations.some((key) => JSON.stringify(key) === '["company-projects"]'));
+});
 
 test("company schedule creation and editing serialize offset times as UTC, preserving null clearing", async () => {
   response = { company_schedule: { company_schedule_id: 11 } };

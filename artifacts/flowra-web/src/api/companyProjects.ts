@@ -43,11 +43,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function extractList<T>(data: unknown, keys: string[]): T[] {
+function findList<T>(data: unknown, keys: string[]): T[] | undefined {
   if (Array.isArray(data)) return data as T[];
-  if (!isRecord(data)) return [];
+  if (!isRecord(data)) return undefined;
 
-  let emptyList: T[] = [];
+  let emptyList: T[] | undefined;
   for (const key of ["items", ...keys, "data", "results", "rows"]) {
     const value = data[key];
     if (Array.isArray(value)) {
@@ -57,12 +57,17 @@ function extractList<T>(data: unknown, keys: string[]): T[] {
       continue;
     }
     if (isRecord(value)) {
-      const nested = extractList<T>(value, keys);
-      if (nested.length > 0) return nested;
+      const nested = findList<T>(value, keys);
+      if (nested?.length) return nested;
+      if (nested) emptyList = nested;
     }
   }
 
   return emptyList;
+}
+
+function extractList<T>(data: unknown, keys: string[]): T[] {
+  return findList<T>(data, keys) ?? [];
 }
 
 function extractPagination<T>(
@@ -77,10 +82,17 @@ function extractPagination<T>(
 }
 
 function unwrapProject(data: CompanyProjectData): CompanyProject {
-  if (isRecord(data) && isRecord(data.project)) {
-    return data.project as unknown as CompanyProject;
+  const project: unknown = isRecord(data) && isRecord(data.project) ? data.project : data;
+  if (!isRecord(project) || !Number.isSafeInteger(project.company_project_id) || Number(project.company_project_id) <= 0) {
+    throw new Error("프로젝트 응답에 유효한 프로젝트 ID가 없습니다. 목록을 새로고침해 주세요.");
   }
-  return data as CompanyProject;
+  return project as unknown as CompanyProject;
+}
+
+function hasProjectBasics(project: unknown): project is CompanyProject {
+  return isRecord(project) && Number.isSafeInteger(project.company_project_id) && Number(project.company_project_id) > 0 &&
+    Number.isSafeInteger(project.company_id) && Number(project.company_id) > 0 &&
+    typeof project.name === "string" && typeof project.status === "string";
 }
 
 function unwrapAssignment(
@@ -176,13 +188,17 @@ export async function listCompanyProjects(
       params: normalizeCompanyProjectsQuery(query),
     },
   );
+  const projects = findList<CompanyProject>(res.data.data, ["projects", "company_projects"]);
+  if (!projects) {
+    throw new Error("프로젝트 목록 응답 형식을 확인할 수 없습니다. 다시 조회해 주세요.");
+  }
+  if (projects.some((project) => !hasProjectBasics(project))) {
+    throw new Error("프로젝트 목록에 유효하지 않은 정보가 있습니다. 다시 조회해 주세요.");
+  }
   return {
     ...res.data,
     data: {
-      projects: extractList<CompanyProject>(res.data.data, [
-        "projects",
-        "company_projects",
-      ]),
+      projects,
       pagination: extractPagination<CompanyProject>(res.data.data),
     } satisfies CompanyProjectListData,
   };
@@ -207,10 +223,13 @@ export async function getCompanyProject(companyProjectId: number) {
   const res = await apiClient.get<ApiResponse<CompanyProjectDetailData>>(
     `/company-projects/${companyProjectId}`,
   );
+  if (!hasProjectBasics(res.data.data?.project) || res.data.data.project.company_project_id !== companyProjectId) {
+    throw new Error("프로젝트 상세 응답 형식을 확인할 수 없습니다. 다시 조회해 주세요.");
+  }
   return {
     ...res.data,
     data: {
-      project: res.data.data.project,
+      project: unwrapProject(res.data.data.project),
       phases: res.data.data.phases ?? [],
       work_items: res.data.data.work_items ?? [],
       departments: res.data.data.departments ?? [],

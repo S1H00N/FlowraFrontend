@@ -34,6 +34,10 @@ interface CustomSelectProps<TValue extends CustomSelectValue> {
   triggerLabel?: string;
   triggerIcon?: ReactNode;
   triggerColorDot?: string | null;
+  showFallbackMarker?: boolean;
+  matchTriggerWidth?: boolean;
+  wrapDescriptions?: boolean;
+  collisionBoundaryRef?: { current: HTMLElement | null };
   placeholder?: string;
   disabled?: boolean;
   side?: "top" | "right" | "bottom" | "left";
@@ -55,6 +59,10 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
   triggerLabel,
   triggerIcon,
   triggerColorDot,
+  showFallbackMarker = true,
+  matchTriggerWidth = false,
+  wrapDescriptions = false,
+  collisionBoundaryRef,
   placeholder = "선택",
   disabled = false,
   side = "bottom",
@@ -73,6 +81,7 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
+  const [menuSide, setMenuSide] = useState(side);
   const selectedOption = options.find((option) => option.value === value);
   const selectedIndex = options.findIndex((option) => option.value === value);
   const enabledIndexes = useMemo(
@@ -106,6 +115,101 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
       Math.max(160, viewportWidth - margin * 2),
     );
     const maxHeight = Math.min(288, Math.max(140, viewportHeight - margin * 2));
+
+    // Forms can opt into a field-width menu without changing existing page menus.
+    if (matchTriggerWidth && (side === "bottom" || side === "top")) {
+      const boundary = collisionBoundaryRef?.current;
+      const bounds = {
+        left: margin,
+        right: viewportWidth - margin,
+        top: margin,
+        bottom: viewportHeight - margin,
+      };
+      if (boundary) {
+        const boundaryRect = boundary.getBoundingClientRect();
+        const clientLeft = boundaryRect.left + boundary.clientLeft;
+        const clientTop = boundaryRect.top + boundary.clientTop;
+        bounds.left = Math.max(bounds.left, clientLeft);
+        bounds.right = Math.min(
+          bounds.right,
+          clientLeft + boundary.clientWidth,
+        );
+        bounds.top = Math.max(bounds.top, clientTop);
+        bounds.bottom = Math.min(
+          bounds.bottom,
+          clientTop + boundary.clientHeight,
+        );
+      }
+      // A menu cannot stay connected when its field has scrolled out of view.
+      if (
+        boundary &&
+        (rect.bottom <= bounds.top ||
+          rect.top >= bounds.bottom ||
+          rect.right <= bounds.left ||
+          rect.left >= bounds.right)
+      ) {
+        setOpen(false);
+        setMenuStyle(null);
+        return;
+      }
+      const menuWidth = Math.min(
+        rect.width,
+        Math.max(0, bounds.right - bounds.left),
+      );
+      const menu = menuRef.current;
+      const menuBox = boundary && menu ? window.getComputedStyle(menu) : null;
+      const minimumMenuHeight =
+        menu && menuBox
+          ? menu.offsetHeight -
+            menu.clientHeight +
+            parseFloat(menuBox.paddingTop) +
+            parseFloat(menuBox.paddingBottom)
+          : 0;
+      const naturalHeight = Math.min(
+        menu
+          ? menu.scrollHeight + menu.offsetHeight - menu.clientHeight
+          : maxHeight,
+        maxHeight,
+      );
+      const anchorTop = Math.min(bounds.bottom, Math.max(rect.top, bounds.top));
+      const anchorBottom = Math.max(
+        bounds.top,
+        Math.min(rect.bottom, bounds.bottom),
+      );
+      const spaceBelow = Math.max(0, bounds.bottom - anchorBottom - sideOffset);
+      const spaceAbove = Math.max(0, anchorTop - bounds.top - sideOffset);
+      const openAbove =
+        side === "top"
+          ? spaceAbove >= naturalHeight || spaceAbove >= spaceBelow
+          : spaceBelow < naturalHeight && spaceAbove > spaceBelow;
+      const menuHeight = Math.min(
+        naturalHeight,
+        openAbove ? spaceAbove : spaceBelow,
+      );
+      // Padding and borders must also fit when virtually no space remains.
+      if (boundary && Math.floor(menuHeight) <= minimumMenuHeight) {
+        setOpen(false);
+        setMenuStyle(null);
+        return;
+      }
+      const left = Math.min(
+        Math.max(bounds.left, rect.left),
+        Math.max(bounds.left, bounds.right - menuWidth),
+      );
+
+      setMenuSide(openAbove ? "top" : "bottom");
+      setMenuStyle({
+        left: Math.round(left),
+        top: Math.round(
+          openAbove
+            ? anchorTop - menuHeight - sideOffset
+            : anchorBottom + sideOffset,
+        ),
+        width: menuWidth,
+        maxHeight: Math.floor(menuHeight),
+      });
+      return;
+    }
 
     if (viewportWidth < 640) {
       setMenuStyle({
@@ -180,7 +284,14 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
       width: Math.round(width),
       maxHeight: Math.round(maxHeight),
     });
-  }, [align, floatingBoundary, side, sideOffset]);
+  }, [
+    align,
+    collisionBoundaryRef,
+    floatingBoundary,
+    matchTriggerWidth,
+    side,
+    sideOffset,
+  ]);
 
   useEffect(() => {
     if (!open) {
@@ -189,14 +300,24 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
     }
 
     updateMenuPosition();
+    // Recalculate after description wrapping or a field-width layout changes height.
+    const resizeObserver =
+      matchTriggerWidth && typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(updateMenuPosition)
+        : null;
+    if (menuRef.current) resizeObserver?.observe(menuRef.current);
+    if (triggerRef.current) resizeObserver?.observe(triggerRef.current);
+    if (collisionBoundaryRef?.current)
+      resizeObserver?.observe(collisionBoundaryRef.current);
     window.addEventListener("resize", updateMenuPosition);
     window.addEventListener("scroll", updateMenuPosition, true);
 
     return () => {
       window.removeEventListener("resize", updateMenuPosition);
       window.removeEventListener("scroll", updateMenuPosition, true);
+      resizeObserver?.disconnect();
     };
-  }, [open, updateMenuPosition]);
+  }, [collisionBoundaryRef, matchTriggerWidth, open, updateMenuPosition]);
 
   useEffect(() => {
     if (!open) return;
@@ -364,7 +485,7 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
           aria-label={ariaLabel}
           tabIndex={-1}
           data-state="open"
-          data-side={side}
+          data-side={matchTriggerWidth ? menuSide : side}
           onKeyDown={handleMenuKeyDown}
           onMouseLeave={clearPreview}
           style={{
@@ -378,7 +499,8 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
             position: "fixed",
           }}
           className={cn(
-            "z-[130] min-w-56 overflow-y-auto overflow-x-hidden rounded-xl border p-1.5 shadow-2xl outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+            "z-[130] overflow-y-auto overflow-x-hidden rounded-xl border p-1.5 shadow-2xl outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+            matchTriggerWidth ? "min-w-0" : "min-w-56",
             darkMenu
               ? "border-zinc-800 bg-zinc-950 text-zinc-100 shadow-zinc-950/30"
               : "border-slate-200 bg-white text-slate-900 shadow-slate-200/80",
@@ -427,7 +549,10 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
                       : "bg-violet-50 text-violet-700"),
                 )}
               >
-                <OptionMarker option={option} />
+                <OptionMarker
+                  option={option}
+                  showFallback={showFallbackMarker}
+                />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-semibold">
                     {option.label}
@@ -435,7 +560,10 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
                   {option.description ? (
                     <span
                       className={cn(
-                        "mt-0.5 block truncate text-xs font-medium",
+                        "mt-0.5 block text-xs font-medium",
+                        wrapDescriptions
+                          ? "whitespace-normal break-words leading-5"
+                          : "truncate",
                         darkMenu ? "text-zinc-500" : "text-slate-500",
                       )}
                     >
@@ -499,7 +627,11 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
                 {triggerIcon}
               </span>
             ) : triggerLabel || hasTriggerColorDot ? null : (
-              <OptionMarker option={selectedOption} muted={!hasValue} />
+              <OptionMarker
+                option={selectedOption}
+                muted={!hasValue}
+                showFallback={showFallbackMarker}
+              />
             )}
             {hasTriggerColorDot ? (
               <span
@@ -533,9 +665,11 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
 function OptionMarker<TValue extends CustomSelectValue>({
   option,
   muted = false,
+  showFallback = true,
 }: {
   option?: CustomSelectOption<TValue>;
   muted?: boolean;
+  showFallback?: boolean;
 }) {
   if (option?.icon) {
     return (
@@ -559,6 +693,8 @@ function OptionMarker<TValue extends CustomSelectValue>({
       />
     );
   }
+
+  if (!showFallback) return null;
 
   return (
     <span

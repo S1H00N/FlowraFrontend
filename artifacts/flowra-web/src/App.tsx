@@ -13,6 +13,9 @@ import { FullSpinner } from "@/components/ui/Spinner";
 import { toast } from "@/lib/toast";
 import { getErrorMessage } from "@/lib/error";
 import { useApplyUserTheme } from "@/lib/userSettings";
+import { installProjectHistoryGuard } from "@/lib/projectNavigationGuard";
+
+installProjectHistoryGuard();
 
 const Home = lazy(() => import("@/pages/Home"));
 const Notices = lazy(() => import("@/pages/Notices"));
@@ -24,6 +27,8 @@ const ForgotPassword = lazy(() => import("@/pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("@/pages/ResetPassword"));
 const Tasks = lazy(() => import("@/pages/Tasks"));
 const Schedules = lazy(() => import("@/pages/Schedules"));
+const Projects = lazy(() => import("@/pages/Projects"));
+const ProjectDetail = lazy(() => import("@/pages/ProjectDetail"));
 const Memos = lazy(() => import("@/pages/Memos"));
 const Settings = lazy(() => import("@/pages/Settings"));
 const CompanyInvite = lazy(() => import("@/pages/CompanyInvite"));
@@ -169,6 +174,14 @@ function App() {
                     <Schedules />
                   </SessionProtectedRoute>
                 }
+              />
+              <Route
+                path="/projects"
+                element={<SessionProtectedRoute><Projects /></SessionProtectedRoute>}
+              />
+              <Route
+                path="/projects/:companyProjectId"
+                element={<SessionProtectedRoute><ProjectDetail /></SessionProtectedRoute>}
               />
               <Route
                 path="/memos"

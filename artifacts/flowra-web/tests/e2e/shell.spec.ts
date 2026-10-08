@@ -78,7 +78,7 @@ test('주요 메뉴를 클릭해 이동하고 브라우저 뒤로가기로 돌�
     .getByRole('heading', { name: '공지사항', exact: true })).toBeVisible();
 });
 
-test('mini calendar keeps all five navigation links stationary', async ({ page }) => {
+test('mini calendar keeps all six navigation links stationary', async ({ page }) => {
   await page.goto('/');
   await openSidebarIfNeeded(page);
   const links = sidebar(page).getByRole('navigation').getByRole('link');
@@ -87,7 +87,7 @@ test('mini calendar keeps all five navigation links stationary', async ({ page }
     return { x, y, width, height };
   }));
   const initialPositions = await positions();
-  expect(initialPositions).toHaveLength(5);
+  expect(initialPositions).toHaveLength(6);
 
   for (const path of ['/tasks', '/schedules', '/memos', '/notices', '/']) {
     await sidebar(page).getByRole('navigation').locator(`a[href="${path}"]`).click();

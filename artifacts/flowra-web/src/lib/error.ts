@@ -22,6 +22,7 @@ const errorMessages: Record<string, string> = {
   GOOGLE_VERIFICATION_EMAIL_FAILED: "확인 메일을 보내지 못했습니다. Google 로그인을 다시 시작해 주세요.",
   TASK_ORDER_MISMATCH: "할 일 목록이 변경되었습니다. 새로고침한 목록에서 다시 순서를 변경해 주세요.",
   TASK_SCHEDULE_REQUIRED: "일정에 연결된 할 일만 순서를 저장할 수 있습니다.",
+  COMPANY_PROJECT_CREATE_DISABLED: "프로젝트를 생성할 수 없습니다.\n현재 소속 부서에서는 프로젝트 생성이 제한되어 있습니다. 부서 관리자에게 권한을 문의해 주세요.",
 };
 
 function getErrorBody(err: unknown): ErrorBody | null {

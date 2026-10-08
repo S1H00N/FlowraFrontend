@@ -10,7 +10,7 @@ import {
   type Ref,
 } from "react";
 import { FloatingPanelPortal } from "@/components/ui/FloatingPanelPortal";
-import { ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
+import { ChevronLeft, ChevronRight, RotateCcw, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUserSettings, type WeekStartDay } from "@/lib/userSettings";
 
@@ -215,6 +215,7 @@ export function CompactDateInput({
   triggerIcon,
   triggerPressed,
   disabled = false,
+  clearLabel,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -231,6 +232,7 @@ export function CompactDateInput({
   triggerIcon?: ReactNode;
   triggerPressed?: boolean;
   disabled?: boolean;
+  clearLabel?: string;
 }) {
   const normalizedMinDate =
     minDate && /^\d{4}-\d{2}-\d{2}$/.test(minDate) ? minDate : null;
@@ -252,12 +254,14 @@ export function CompactDateInput({
   );
   const [calendarStyle, setCalendarStyle] = useState<CSSProperties>({});
   const [calendarReady, setCalendarReady] = useState(false);
-  const Container = triggerLabel === undefined ? "label" : "div";
+  const Container =
+    triggerLabel === undefined && clearLabel === undefined ? "label" : "div";
   const containerRef = useRef<HTMLElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const focusCalendarOnOpenRef = useRef(false);
   const calendarRef = useRef<HTMLDivElement | null>(null);
   const closingFromOutsidePointerRef = useRef(false);
+  const restoringFocusAfterClearRef = useRef(false);
   const highlightedDateKey = previewDateKey || effectiveValue;
   const selectedDate = new Date(`${highlightedDateKey}T00:00:00`);
   const selectedKey = Number.isNaN(selectedDate.getTime())
@@ -458,6 +462,18 @@ export function CompactDateInput({
         "relative flex h-9 min-w-0 items-center gap-2 rounded-md border border-transparent bg-transparent px-2 text-sm font-medium text-slate-900 transition hover:border-slate-200 hover:bg-white focus-within:border-violet-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-violet-100",
         className,
       )}
+      onClick={(event) => {
+        if (
+          clearLabel !== undefined &&
+          triggerLabel === undefined &&
+          event.currentTarget.contains(event.target as Node)
+        ) {
+          containerRef.current
+            ?.querySelector<HTMLInputElement>("input")
+            ?.focus();
+          openCalendar();
+        }
+      }}
       onBlur={(event) => {
         if (closingFromOutsidePointerRef.current) return;
         if (event.currentTarget.contains(event.relatedTarget)) return;
@@ -520,12 +536,21 @@ export function CompactDateInput({
             openCalendar();
           }}
           onFocus={(event) => {
+            if (restoringFocusAfterClearRef.current) return;
             openCalendar();
             setPreviewDateKey(effectiveValue);
             event.currentTarget.select();
             window.requestAnimationFrame(updateCalendarPosition);
           }}
           onClick={(event) => event.currentTarget.select()}
+          onBlur={(event) => {
+            // Tab to the internal clear button still commits an edited date.
+            if (
+              clearLabel !== undefined &&
+              containerRef.current?.contains(event.relatedTarget)
+            )
+              commitDate(draft);
+          }}
           onMouseUp={(event) => event.preventDefault()}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -559,8 +584,42 @@ export function CompactDateInput({
           }}
           aria-label={ariaLabel}
           aria-expanded={open}
-          className="h-full min-w-0 flex-1 bg-transparent p-0 text-sm font-medium text-slate-900 outline-none"
+          className={cn(
+            "h-full min-w-0 flex-1 bg-transparent p-0 text-sm font-medium text-slate-900 outline-none",
+            clearLabel !== undefined && "pr-10",
+          )}
         />
+      )}
+      {clearLabel !== undefined && value && (
+        <button
+          type="button"
+          aria-label={clearLabel}
+          disabled={disabled}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            closeCalendar();
+            onChange("");
+            setDraft(emptyPlaceholder ?? "날짜 선택");
+            onCommit?.();
+            restoringFocusAfterClearRef.current = true;
+            if (triggerLabel === undefined) {
+              containerRef.current
+                ?.querySelector<HTMLInputElement>("input")
+                ?.focus({ preventScroll: true });
+            } else {
+              triggerRef.current?.focus({ preventScroll: true });
+            }
+            restoringFocusAfterClearRef.current = false;
+          }}
+          className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/20 disabled:pointer-events-none disabled:opacity-50"
+        >
+          <X aria-hidden="true" className="h-4 w-4" />
+        </button>
       )}
       {open && !disabled
         ? renderFloatingPortal(

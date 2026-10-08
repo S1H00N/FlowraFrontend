@@ -10,6 +10,7 @@ import {
   PanelLeft,
   Settings,
   CheckSquare2,
+  FolderKanban,
 } from "lucide-react";
 import {
   Fragment,
@@ -61,6 +62,12 @@ const navigation = [
     label: "캘린더",
     description: "시간표와 약속을 정리합니다.",
     icon: CalendarDays,
+  },
+  {
+    to: "/projects",
+    label: "프로젝트",
+    description: "회사 프로젝트의 계획과 진행 상태를 관리합니다.",
+    icon: FolderKanban,
   },
   {
     to: "/memos",
@@ -248,7 +255,7 @@ export default function AppShell({
   const activeItem =
     location.pathname === settingsNavigationItem.to
       ? settingsNavigationItem
-      : (navigation.find((item) => item.to === location.pathname) ??
+      : (navigation.find((item) => item.to === location.pathname || (item.to !== "/" && location.pathname.startsWith(`${item.to}/`))) ??
         navigation[0]);
   const initials = displayName.slice(0, 1).toUpperCase();
   const headerSidebarLabel = isDesktop
