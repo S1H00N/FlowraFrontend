@@ -4,9 +4,11 @@
 
 AI 관련 기능만 따로 모은 참고 문서입니다.
 
+현행 계약 보강: 2026-10-12. 코드 기본 OPENAI_MODEL은 gpt-6-luna입니다. 실제 모델은 배포 환경의 OPENAI_MODEL/OPENAI_MEMO_PARSE_LIGHT_MODEL/OPENAI_MEMO_PARSE_MODEL 설정과 응답 model_used를 확인합니다. 아래 날짜가 붙은 평가 기록은 당시 결과입니다.
+
 - 사용자 앱 API: `/api/v1`
 - 관리자 조회 API: `/admin/api/v1`
-- 사용자 앱 응답 envelope는 [api_general.md](./api_general.md) 기준. 관리자 응답은 원본 백엔드의 `api_admin.md`를 참조합니다(현재 프론트 저장소에 미포함).
+- 기본 응답 envelope는 [api_general.md](./api_general.md), api_admin.md (백엔드 원본: `docs/api_admin.md`) 기준
 
 이 문서는 아래를 설명합니다.
 
@@ -40,9 +42,7 @@ AI 관련 기능만 따로 모은 참고 문서입니다.
 - 메모 생성/수정 시 `auto_parse=true`를 주거나, 별도 parse API를 호출해서 AI 파싱을 트리거할 수 있음
 - 파싱 자체는 현재 비동기 큐 방식이며, 요청 직후 바로 완성 결과가 오는 구조는 아님
 
-파싱 요청은 DB에 영속 저장하며, worker가 15초 주기로 요청된 작업을 처리합니다.
-실행 lease는 10분이며 만료된 작업은 복구합니다. 최대 3회 시도하고,
-force 재요청과 내용 수정은 generation을 바꿔 이전 결과가 새 상태를 덮어쓰지 못하게 합니다.
+현재 파싱 요청은 메모와 함께 DB에 영속 저장합니다. setImmediate는 빠른 시작 신호이며 15초 주기 recovery job이 요청 작업을 처리합니다. 10분 실행 lease, generation fence, 최대3회 재시도로 재시작 후 요청을 복구합니다. 미요청 pending은 자동 처리하지 않습니다. [F11 계약](../../devdocs/api-reference/feature-lifecycle.md#f11-메모-파싱-복구)을 따릅니다.
 즉:
 
 - `POST /memos/:memo_id/parse` 는 파싱 작업 시작 요청
@@ -600,7 +600,11 @@ Response 예시:
           }
         ]
       }
-    ]
+    ],
+    "pagination": {
+      "has_more": false,
+      "next_cursor": null
+    }
   }
 }
 ```
@@ -609,24 +613,10 @@ Response 예시:
 
 - 세션 목록의 각 항목도 `ai_chat_session_id`를 사용합니다.
 - `messages`는 각 세션의 최신 메시지 1개만 포함됩니다.
-- `data.pagination`은 `{ "has_more": true, "next_cursor": "<불투명 cursor>" }` 형식이며 마지막 페이지의 `next_cursor`는 `null`입니다.
-- 페이지를 추가할 때 `ai_chat_session_id`로 중복을 제거합니다. 메시지 전송으로 정렬 순서가 바뀔 수 있으므로 목록을 새로고침할 수 있어야 합니다.
 
-### `PATCH /api/v1/ai-chat/sessions/:session_id`
+### `GET /api/v1/ai-chat/sessions/:session_id`
 
-본인 채팅방의 제목 또는 보관 상태를 수정합니다.
-
-```json
-{
-  "title": "다음 주 일정 정리",
-  "status": "archived"
-}
-```
-
-- `title`과 `status` 중 최소 1개 필수. `title`은 trim 후 1~100자, `status`는 `active` 또는 `archived`입니다.
-- 성공 시 `data.session`을 반환합니다. `status=active`로 복원해도 기존 메시지를 유지합니다.
-- 보관한 채팅방은 조회·삭제할 수 있으나 메시지 전송·제안 적용은 `409 AI_CHAT_SESSION_ARCHIVED`입니다.
-- AI 응답 대기 중 보관하면 늦은 assistant 메시지는 저장되지 않습니다. 사용자 메시지가 먼저 저장됐을 수 있으므로 실패 후 메시지를 재조회합니다.
+본인 세션 상세 조회. data.session에 세션 DB 행과 생성시각 오름차순 messages[]를 반환하며 메시지마다 applications를 포함합니다. 이 상세 API는 메시지 전체를 반환하므로 대화가 길면 아래 메시지 limit/cursor API를 사용합니다. 타인/없는 세션은404 AI_CHAT_SESSION_NOT_FOUND.
 
 ### `DELETE /api/v1/ai-chat/sessions/:session_id`
 
@@ -691,14 +681,6 @@ Response 주요 필드:
 ### `GET /api/v1/ai-chat/sessions/:session_id/messages`
 
 세션 메시지 목록과 적용 이력을 조회합니다.
-
-Query params:
-
-- `limit`: 1~100. 화면에서는 50개씩 조회합니다.
-- `cursor`: 이전 응답의 `data.pagination.next_cursor`. 더 과거 페이지를 가리킵니다.
-- 응답의 `data.messages`는 최신 페이지를 **페이지 내부 시간 오름차순**으로 반환합니다. 과거 페이지는 기존 메시지 앞에 붙이고 메시지 ID로 중복을 제거합니다.
-- `data.pagination`은 `{has_more,next_cursor}`입니다. limit/cursor를 모두 생략하면 기존 전체 조회를 유지합니다.
-- `400 INVALID_CURSOR`가 오면 해당 cursor를 재시도하지 않고 첫 페이지부터 조회합니다.
 
 Path params:
 
@@ -767,7 +749,7 @@ Response 주요 필드:
 
 ## AI 결과를 소비하는 보조 API
 
-이 API들은 AI 파싱 결과로 생성된 일정/할 일을 사용자에게 보여줍니다. 홈의 `briefing_text`는 AI 생성 및 캐시/fallback을 사용하며, 오늘 브리핑은 데이터 집계 API입니다.
+이 API들은 OpenAI를 직접 호출하지는 않지만, AI 파싱 결과로 생성된 일정/할 일을 사용자에게 보여주는 데 중요합니다.
 
 ### 6. 오늘 홈 피드
 
@@ -966,7 +948,7 @@ Response 예시:
 1. `POST /api/v1/memos`
    - `auto_parse=true`
 2. `GET /api/v1/memos/:memo_id/parse-result`
-   - `latest_result.action_states`와 `remaining_action_indexes`로 적용 가능한 액션 확인
+   - `latest_result.status == suggested` 확인
 3. `POST /api/v1/memos/:memo_id/apply`
    - `apply_type=schedule`
 4. `GET /api/v1/home/today`
@@ -995,7 +977,7 @@ Response 예시:
 
 ## 구현 메모
 
-- 기본 AI 호출 모델은 `env.OPENAI_MODEL` (코드 기본값 `gpt-5.6-luna`)
+- 기본 AI 호출 모델은 env.OPENAI_MODEL (현행 코드 기본값 gpt-6-luna)
 - 메모 파싱은 간단한 메모면 `env.OPENAI_MEMO_PARSE_LIGHT_MODEL`, 복잡한 메모면 `env.OPENAI_MEMO_PARSE_MODEL`을 우선 사용하고, 없으면 `env.OPENAI_MODEL`로 fallback
 - 기준 timezone 해석은 `env.AI_DEFAULT_TIMEZONE`
 - 상대 날짜 해석은 현재 시점 기준
@@ -1015,7 +997,7 @@ Response 예시:
 - parse webhook 또는 SSE
 - 다국어 프롬프트/응답 전략 분리
 - confidence 기준 자동 적용 정책
-- 데이터 기반 `/briefings/today`에 LLM 요약 확장
+- 홈/브리핑 요약 품질 확장. 현재도 OpenAI 요약과 데이터 hash 캐시를 사용하고 실패 시 결정적 텍스트로 fallback합니다.
 
 ---
 
@@ -1120,7 +1102,7 @@ GET에 401이 왔다면 인증이 먼저 거절된 것입니다. 401 자체는 �
 - 현재 저장된 제안 수정 endpoint는 없습니다. 사용자에게 조건을 명확히 해 다시 요청하게 하거나, 확인한 값으로 일반 일정 생성 흐름을 사용합니다. 일반 생성으로 우회한 일정은 원래 AI action의 적용 이력과 자동 연결되지 않습니다.
 - 새 응답은 공통 반복 계산기로 저장 전 검증합니다. 실패한 채팅 응답은 `response_type=clarification`, 빈 suggested_actions, confidence_score=0으로 반환합니다. 원래 skip 조건을 임의로 지우지는 않습니다. 메모 분석은 `OPENAI_PARSE_INVALID_RECURRENCE`로 실패 처리하며 원인 코드를 parse_error_message에서 확인할 수 있습니다. 과거 제안은 자동 수정하지 않습니다.
 
-원본 백엔드 코드 근거(현재 프론트 저장소에 미포함): 반복 계산 `src/common/utils/recurrence.ts`, AI 응답 검증 `src/modules/ai-chat/openai-ai-chat.service.ts`, apply 구현 `src/modules/ai-chat/ai-chat.service.ts`.
+근거: 반복 계산 (백엔드 원본: `src/common/utils/recurrence.ts`), AI 응답 검증 (백엔드 원본: `src/modules/ai-chat/openai-ai-chat.service.ts`), apply 구현 (백엔드 원본: `src/modules/ai-chat/ai-chat.service.ts`).
 
 ### D. 적용 오류 대응표
 
@@ -1206,23 +1188,23 @@ GET에 401이 왔다면 인증이 먼저 거절된 것입니다. 401 자체는 �
 
 - 공통 프롬프트는 포함 요일과 제외 규칙을 구분하고, 첫 발생 날짜·개별 종료 시각·시리즈 종료·생성 한도를 설명합니다.
 - 사전 검증은 일반 적용과 동일한 `build_recurring_occurrences`를 사용합니다. 채팅의 부적합 제안은 전체 actions를 비우고 재질문하며, 메모의 실행 불가 제안은 분석 실패로 처리합니다. 검증만으로 사용자의 의미를 모두 이해했다고 보장하지는 않습니다.
-- 코드 기본값과 현재 배포의 기본/간단 메모 모델은 `gpt-5.6-luna`입니다. 복잡 메모는 `OPENAI_MEMO_PARSE_MODEL=gpt-5.6-terra`를 사용하며 Terra 요청에는 `reasoning.effort=medium`을 명시합니다. 기본 모델을 공유하는 홈 브리핑에도 Luna가 적용됩니다.
+- 2026-09-16 평가 당시 코드 기본값과 배포의 기본/간단 메모 모델은 gpt-5.6-luna였고, 복잡 메모는 OPENAI_MEMO_PARSE_MODEL=gpt-5.6-terra, 기본 모델을 공유하는 홈 브리핑도 Luna였습니다. 현행 모델 선택은 문서 상단의 코드 기본값·배포 환경·model_used를 확인합니다.
 - 과거 채팅 metadata의 모델 이름과 이미 저장된 제안은 바뀌지 않습니다. 같은 과거 message에 apply만 재시도하면 새 모델을 호출하지 않습니다. 새로운 메시지나 메모 재파싱이 필요합니다.
 - 로컬 회귀: `npm run test:ai-recurrence` (실제 API/DB 호출 없음).
 - 실제 모델 평가: `node --require tsx/cjs devdocs/tools/eval-ai-recurrence.cjs gpt-5.6-luna`. 앱 시스템 프롬프트와 합성 입력을 OpenAI로 전송하고 API 사용량이 발생합니다. 앱 DB는 변경하지 않습니다.
 - Luna는 반복/제외/다중 요일/모순/메모/홈 7개 사례를 통과했습니다. 당시 채팅 모델의 조건부 Terra 비교는 실행하지 않았으며, 이후 복잡 메모 전환은 별도 Terra 평가로 검증했습니다. 이는 제한된 회귀 샘플이며 모든 입력의 품질 보장이 아닙니다.
-- 원본 백엔드의 설계·검증 결과 `devdocs/plans/ai-recurrence-hardening.md`, 합성 평가 응답 `devdocs/reviews/ai-recurrence-gpt-5.6-luna.json`은 현재 프론트 저장소에 미포함입니다. [OpenAI 공식 Luna 문서](https://developers.openai.com/api/docs/models/gpt-5.6-luna).
+- 설계·검증 결과 (백엔드 원본: `devdocs/plans/ai-recurrence-hardening.md`), 합성 평가 응답 (백엔드 원본: `devdocs/reviews/ai-recurrence-gpt-5.6-luna.json`), [OpenAI 공식 Luna 문서](https://developers.openai.com/api/docs/models/gpt-5.6-luna).
 
 
 ### K. 복잡 메모 Terra 설정
 
-- 기존 복잡도 점수 4 미만은 간단 메모 경로(Luna), 4 이상은 복잡 메모 경로(Terra)입니다. 길이·줄/절 수·날짜 수·업무 키워드·정정/반복 등의 기존 점수 산식은 유지했습니다.
+- 복잡도 점수4 미만은 low effort/간단 메모 모델 경로, 4 이상은 medium effort/복잡 메모 모델 경로입니다. 각 모델은 환경설정 또는 OPENAI_MODEL fallback으로 결정하며 이 절의 Terra는 당시 평가 설정입니다. 길이·줄/절 수·날짜 수·업무 키워드·정정/반복 등의 기존 점수 산식은 유지했습니다.
 - 일반 메모 파싱과 기존 일정 컨텍스트 재파싱 모두 동일 분기를 사용합니다. `model_used`가 실제 선택 모델입니다.
 - 정확히 `gpt-5.6-terra`를 선택했을 때 `reasoning: { effort: "medium" }`을 명시합니다. 다른 모델 override에 이 옵션을 강제하지 않습니다.
 - 공식 기본 추론은 GPT-5.4가 none, Terra가 medium입니다. 추론 수준은 고정 토큰 할당이 아니므로 medium 요청에서도 usage의 reasoning_tokens가 0일 수 있습니다.
 - `max_output_tokens=6000`은 유지했습니다. 실제 합성 평가 3건 모두 completed, 출력 511~855토큰이었습니다. 더 큰 입력에서는 한도/응답 상태를 계속 확인해야 합니다.
-- 현재 배포 설정은 Terra이며 `OPENAI_MEMO_PARSE_MODEL`을 비워 두면 기존 규칙대로 `OPENAI_MODEL`로 fallback합니다. 예제 환경 파일에는 Terra를 명시했습니다.
-- 원본 백엔드의 Terra 전환 결과 `devdocs/plans/terra-complex-memo.md`, 합성 평가 기록 `devdocs/reviews/terra-complex-memo.json`은 현재 프론트 저장소에 미포함입니다.
+- 2026-09-16 평가 당시 배포 설정은 Terra였으며 `OPENAI_MEMO_PARSE_MODEL`을 비워 두면 기존 규칙대로 `OPENAI_MODEL`로 fallback합니다. 예제 환경 파일에는 Terra를 명시했습니다.
+- Terra 전환 결과 (백엔드 원본: `devdocs/plans/terra-complex-memo.md`), 합성 평가 기록 (백엔드 원본: `devdocs/reviews/terra-complex-memo.json`).
 
 ## 채팅 페이지·수정 API 및 메모 복구 보강
 

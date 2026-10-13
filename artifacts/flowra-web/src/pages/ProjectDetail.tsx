@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, FolderKanban, RefreshCw } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import AppShell from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import EmptyState from "@/components/ui/EmptyState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
+import ProjectWorkManager from "@/components/projects/ProjectWorkManager";
 import {
   formatProjectDate,
   isActiveProjectMembership,
@@ -15,11 +17,14 @@ import {
   ProjectStatusBadge,
 } from "@/components/projects/ProjectPresentation";
 import { useCompanyMemberships } from "@/hooks/useCompanyMemberships";
-import { useCompanyProject } from "@/hooks/useCompanyProjects";
+import {
+  COMPANY_PROJECTS_QUERY_KEY,
+  useCompanyProject,
+} from "@/hooks/useCompanyProjects";
 import "./Projects.css";
 
-// Additional project sections can consume this ID and the existing API hooks in phase two.
 export default function ProjectDetail() {
+  const queryClient = useQueryClient();
   const { companyProjectId } = useParams();
   const id =
     companyProjectId &&
@@ -49,7 +54,9 @@ export default function ProjectDetail() {
     (item) => item.company_id === project?.company_id,
   );
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [tab, setTab] = useState<"overview" | "work">("work");
   useEffect(() => setEditingId(null), [id, membership?.company_member_id]);
+  useEffect(() => setTab("work"), [id]);
   const listCompany = requestedMembership?.company_id ?? membership?.company_id;
   const backUrl = listCompany
     ? `/projects?company_id=${listCompany}`
@@ -61,7 +68,7 @@ export default function ProjectDetail() {
 
   return (
     <AppShell>
-      <div className="projects-page flowra-page-stack">
+      <div className="projects-page projects-work-page flowra-page-stack">
         <div className="projects-detail-nav">
           <Button asChild variant="ghost">
             <Link to={backUrl}>
@@ -79,7 +86,12 @@ export default function ProjectDetail() {
               !companyAccessible ||
               activeMemberships.length === 0
             }
-            onClick={() => void detail.refetch()}
+            onClick={() => {
+              void detail.refetch();
+              void queryClient.invalidateQueries({
+                queryKey: [...COMPANY_PROJECTS_QUERY_KEY, "members", id ?? 0],
+              });
+            }}
           >
             <RefreshCw className={detail.isFetching ? "animate-spin" : ""} />
           </Button>
@@ -123,10 +135,6 @@ export default function ProjectDetail() {
                 <div>
                   <ProjectStatusBadge status={project.status} />
                   <h2>{project.name}</h2>
-                  <p>
-                    {membership.company?.name ??
-                      `회사 ${membership.company_id}`}
-                  </p>
                 </div>
                 <ProjectEditAction
                   project={project}
@@ -134,69 +142,162 @@ export default function ProjectDetail() {
                   onEdit={() => setEditingId(project.company_project_id)}
                 />
               </div>
-              <p className="projects-detail-description">
-                {project.description || "등록된 프로젝트 설명이 없습니다."}
-              </p>
+              <div className="projects-detail-meta">
+                <span>
+                  {membership.company?.name ?? `회사 ${membership.company_id}`}
+                  {project.origin_department_id
+                    ? ` · ${membership.department?.department_id === project.origin_department_id ? membership.department.name : `부서 ${project.origin_department_id}`}`
+                    : ""}
+                </span>
+                <span>
+                  {formatProjectDate(project.planned_start_date)} ~{" "}
+                  {formatProjectDate(project.planned_end_date)}
+                </span>
+              </div>
             </header>
-            <section
-              className="projects-overview flowra-surface"
-              aria-labelledby="project-overview-title"
-              aria-busy={detail.isFetching}
+            <div
+              className="projects-detail-tabs"
+              role="tablist"
+              aria-label="프로젝트 상세 탐색"
             >
-              <h3 id="project-overview-title">프로젝트 개요</h3>
-              <dl className="projects-overview-fields">
-                <div>
-                  <dt>계획 시작일</dt>
-                  <dd>{formatProjectDate(project.planned_start_date)}</dd>
-                </div>
-                <div>
-                  <dt>계획 종료일</dt>
-                  <dd>{formatProjectDate(project.planned_end_date)}</dd>
-                </div>
-                <div>
-                  <dt>소속 회사</dt>
-                  <dd>
-                    {membership.company?.name ??
-                      `회사 ${membership.company_id}`}
-                  </dd>
-                </div>
-                <div>
-                  <dt>소속 부서</dt>
-                  <dd>
-                    {project.origin_department_id
-                      ? membership.department?.department_id ===
-                        project.origin_department_id
-                        ? membership.department.name
-                        : `부서 ${project.origin_department_id}`
-                      : "미지정"}
-                  </dd>
-                </div>
-                {project.visibility && (
+              <Button
+                id="project-overview-tab"
+                role="tab"
+                variant="ghost"
+                aria-selected={tab === "overview"}
+                aria-controls="project-overview-panel"
+                tabIndex={tab === "overview" ? 0 : -1}
+                onClick={() => setTab("overview")}
+                onKeyDown={(event) => {
+                  if (
+                    ["ArrowLeft", "ArrowRight", "Home", "End"].includes(
+                      event.key,
+                    )
+                  ) {
+                    event.preventDefault();
+                    const nextTab = event.key === "Home" ? "overview" : "work";
+                    setTab(nextTab);
+                    document.getElementById(`project-${nextTab}-tab`)?.focus();
+                  }
+                }}
+              >
+                개요
+              </Button>
+              <Button
+                id="project-work-tab"
+                role="tab"
+                variant="ghost"
+                aria-selected={tab === "work"}
+                aria-controls="project-work-panel"
+                tabIndex={tab === "work" ? 0 : -1}
+                onClick={() => setTab("work")}
+                onKeyDown={(event) => {
+                  if (
+                    ["ArrowLeft", "ArrowRight", "Home", "End"].includes(
+                      event.key,
+                    )
+                  ) {
+                    event.preventDefault();
+                    const nextTab = event.key === "End" ? "work" : "overview";
+                    setTab(nextTab);
+                    document.getElementById(`project-${nextTab}-tab`)?.focus();
+                  }
+                }}
+              >
+                업무 목록
+              </Button>
+            </div>
+            <div
+              id="project-work-panel"
+              role="tabpanel"
+              aria-labelledby="project-work-tab"
+              hidden={tab !== "work"}
+            >
+              {detail.data && (
+                <ProjectWorkManager
+                  key={`${id}:${membership.company_member_id}`}
+                  detail={detail.data}
+                  detailUpdatedAt={detail.dataUpdatedAt}
+                  membership={membership}
+                  active={tab === "work"}
+                />
+              )}
+            </div>
+            <div
+              id="project-overview-panel"
+              role="tabpanel"
+              aria-labelledby="project-overview-tab"
+              hidden={tab !== "overview"}
+            >
+              <section
+                className="projects-overview flowra-surface"
+                aria-labelledby="project-overview-title"
+                aria-busy={detail.isFetching}
+              >
+                <h3 id="project-overview-title">프로젝트 개요</h3>
+                <p className="projects-detail-description">
+                  {project.description || "등록된 프로젝트 설명이 없습니다."}
+                </p>
+                <dl className="projects-overview-fields">
                   <div>
-                    <dt>공개 범위</dt>
+                    <dt>계획 시작일</dt>
+                    <dd>{formatProjectDate(project.planned_start_date)}</dd>
+                  </div>
+                  <div>
+                    <dt>계획 종료일</dt>
+                    <dd>{formatProjectDate(project.planned_end_date)}</dd>
+                  </div>
+                  <div>
+                    <dt>소속 회사</dt>
                     <dd>
-                      {PROJECT_VISIBILITY_OPTIONS.find(
-                        (item) => item.value === project.visibility,
-                      )?.label ?? project.visibility}
+                      {membership.company?.name ??
+                        `회사 ${membership.company_id}`}
                     </dd>
                   </div>
-                )}
-                {project.phase_mode && (
                   <div>
-                    <dt>운영 방식</dt>
+                    <dt>소속 부서</dt>
                     <dd>
-                      {project.phase_mode === "phased"
-                        ? "단계별 관리"
-                        : project.phase_mode === "phase_less"
-                          ? "단계 없이 관리"
-                          : project.phase_mode}
+                      {project.origin_department_id
+                        ? membership.department?.department_id ===
+                          project.origin_department_id
+                          ? membership.department.name
+                          : `부서 ${project.origin_department_id}`
+                        : "미지정"}
                     </dd>
                   </div>
-                )}
-              </dl>
-              {/* TODO: Show project summary only after the backend documents its fields and aggregation scope.
-                Detail work_items may be partial; their length is not a total or a progress percentage. */}
-            </section>
+                  {project.visibility && (
+                    <div>
+                      <dt>공개 범위</dt>
+                      <dd>
+                        {PROJECT_VISIBILITY_OPTIONS.find(
+                          (item) => item.value === project.visibility,
+                        )?.label ?? project.visibility}
+                      </dd>
+                    </div>
+                  )}
+                  {project.phase_mode && (
+                    <div>
+                      <dt>운영 방식</dt>
+                      <dd>
+                        {project.phase_mode === "phased"
+                          ? "단계별 관리"
+                          : project.phase_mode === "phase_less"
+                            ? "단계 없이 관리"
+                            : project.phase_mode}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+                {detail.data?.summary && <>
+                  <dl className="projects-overview-fields" aria-label="프로젝트 전체 건수">
+                    <div><dt>전체 단계</dt><dd>{detail.data.summary.phase_count}개</dd></div>
+                    <div><dt>전체 업무</dt><dd>{detail.data.summary.work_item_count}개</dd></div>
+                    <div><dt>전체 배정</dt><dd>{detail.data.summary.assignment_count}건</dd></div>
+                  </dl>
+                  <p className="projects-note">취소된 항목을 포함한 전체 건수입니다. 배정 건수는 담당자 인원 수와 다를 수 있습니다.</p>
+                </>}
+              </section>
+            </div>
             {editingId === project.company_project_id && (
               <ProjectFormDialog
                 key={`${id}-${membership.company_member_id}`}

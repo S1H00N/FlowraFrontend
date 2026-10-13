@@ -2,6 +2,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
 } from "@tanstack/react-query";
 import {
   applyMemo,
@@ -28,6 +29,17 @@ import type {
 } from "@/types";
 
 export const MEMOS_QUERY_KEY = ["memos"] as const;
+
+export function refreshMemoApplyQueries(queryClient: QueryClient) {
+  return Promise.all([
+    MEMOS_QUERY_KEY,
+    TASKS_QUERY_KEY,
+    SCHEDULES_QUERY_KEY,
+    REMINDERS_QUERY_KEY,
+    TODAY_BRIEFING_QUERY_KEY,
+    TODAY_HOME_QUERY_KEY,
+  ].map((queryKey) => queryClient.invalidateQueries({ queryKey })));
+}
 
 export function isMemoParseInFlight(memo: Pick<Memo, "parse_status" | "parse_requested">) {
   return memo.parse_status === "processing" ||
@@ -168,7 +180,9 @@ export function useParseMemo() {
         throw new Error(res.message || "AI 파싱 요청에 실패했습니다.");
       return res.data.memo;
     },
-    onSuccess: () => invalidate(),
+    // A conflict or lost response can still mean parsing was queued on the server.
+    onSettled: () => invalidate(),
+    retry: false,
     meta: {
       successMessage: "AI 분석을 시작했습니다.",
       errorMessage: "AI 분석 요청에 실패했습니다.",
@@ -209,14 +223,13 @@ export function useApplyMemo() {
         throw new Error(res.message || "AI 결과 적용에 실패했습니다.");
       return res.data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: MEMOS_QUERY_KEY });
-      qc.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
-      qc.invalidateQueries({ queryKey: SCHEDULES_QUERY_KEY });
-      qc.invalidateQueries({ queryKey: REMINDERS_QUERY_KEY });
-      qc.invalidateQueries({ queryKey: TODAY_BRIEFING_QUERY_KEY });
-      qc.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
+    onSettled: (_data, error) => {
+      const refresh = refreshMemoApplyQueries(qc);
+      // Successful responses update the card immediately; unknown outcomes wait for reconciliation.
+      if (error) return refresh;
+      return undefined;
     },
+    retry: false,
     meta: {
       successMessage: "AI 결과를 실행 항목으로 만들었습니다.",
       errorMessage: "AI 결과 적용에 실패했습니다.",

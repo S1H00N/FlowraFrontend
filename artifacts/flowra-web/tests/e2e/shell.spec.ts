@@ -79,7 +79,16 @@ test('주요 메뉴를 클릭해 이동하고 브라우저 뒤로가기로 돌�
 });
 
 test('mini calendar keeps all six navigation links stationary', async ({ page }) => {
+  const main = appShell(page).getByRole('main');
+  const pageReady = {
+    '/': main.getByRole('heading', { name: '오늘 할 일', exact: true }),
+    '/tasks': main.locator('[data-flowra-task-board] [data-selection-key="schedule:201"]'),
+    '/schedules': main.locator('[data-flowra-schedule-page]'),
+    '/memos': main.getByRole('heading', { name: 'QA 회의 메모', exact: true }),
+    '/notices': main.getByRole('heading', { name: '공지사항', exact: true }),
+  };
   await page.goto('/');
+  await expect(pageReady['/']).toBeVisible();
   await openSidebarIfNeeded(page);
   const links = sidebar(page).getByRole('navigation').getByRole('link');
   const positions = () => links.evaluateAll((elements) => elements.map((element) => {
@@ -89,9 +98,10 @@ test('mini calendar keeps all six navigation links stationary', async ({ page })
   const initialPositions = await positions();
   expect(initialPositions).toHaveLength(6);
 
-  for (const path of ['/tasks', '/schedules', '/memos', '/notices', '/']) {
+  for (const path of ['/tasks', '/schedules', '/memos', '/notices', '/'] as const) {
     await sidebar(page).getByRole('navigation').locator(`a[href="${path}"]`).click();
     await expect(page).toHaveURL((url) => url.pathname === path);
+    await expect(pageReady[path]).toBeVisible();
     await openSidebarIfNeeded(page);
     const calendar = sidebar(page).locator('[data-flowra-schedule-sidebar]');
     await expect(calendar).toBeVisible();

@@ -316,6 +316,14 @@ export async function installMockApi(page: Page, options: MockOptions = {}) {
       if (resource[2] && method === "DELETE") {
         const deleted = collection.splice(index, 1)[0];
         if (kind === "tasks") compactSchedule(deleted.schedule_id as number | null | undefined);
+        if (kind === "schedules") {
+          state.tasks.forEach((task) => {
+            if (task.schedule_id === id) Object.assign(task, { schedule_id: null, sort_order: null });
+          });
+          state.reminders = state.reminders.filter((reminder) =>
+            reminder.target_type !== "schedule" || reminder.target_id !== id,
+          );
+        }
         return reply({});
       }
     }
@@ -323,6 +331,12 @@ export async function installMockApi(page: Page, options: MockOptions = {}) {
       const ids = new Set((body.schedule_ids as unknown[] || []).map(Number));
       const before = state.schedules.length;
       state.schedules = state.schedules.filter((item) => !ids.has(item.schedule_id));
+      state.tasks.forEach((task) => {
+        if (task.schedule_id != null && ids.has(task.schedule_id)) Object.assign(task, { schedule_id: null, sort_order: null });
+      });
+      state.reminders = state.reminders.filter((reminder) =>
+        reminder.target_type !== "schedule" || !ids.has(reminder.target_id),
+      );
       return reply({ deleted_count: before - state.schedules.length, failed_ids: [] });
     }
     const memoParse = path.match(/^\/memos\/(\d+)\/(parse|parse-result)$/);
@@ -358,6 +372,11 @@ export async function installMockApi(page: Page, options: MockOptions = {}) {
     const chat = path.match(/^\/ai-chat\/sessions\/(\d+)(\/messages)?$/);
     if (chat) {
       const sessionId = Number(chat[1]);
+      if (!chat[2] && method === "GET") {
+        const session = state.sessions.find((item) => item.session_id === sessionId);
+        return session ? reply({ session: { ...session, messages: state.messages.filter((item) => item.session_id === sessionId) } })
+          : fail(404, "AI_CHAT_SESSION_NOT_FOUND", "대화를 찾을 수 없습니다.");
+      }
       if (chat[2] && method === "GET") return reply(listData(state.messages.filter((item) => item.session_id === sessionId), "messages"));
       if (chat[2] && method === "POST") {
         const userMessage: AiChatMessage = { message_id: nextId++, session_id: sessionId, role: "user", content: String(body.content || body.message || ""), created_at: QA_NOW };

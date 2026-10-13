@@ -6,7 +6,6 @@ import {
   type HomeProjectWorkItem,
   type TaskStatus,
 } from "@/types";
-import { toOffsetISOString } from "@/utils/dateUtils";
 
 export function ProjectWorkItemCard({
   item,
@@ -45,7 +44,7 @@ export function ProjectWorkItemCard({
                   : {
                       status: "done",
                       progress_percent: 100,
-                      completed_at: toOffsetISOString(new Date()),
+                      completed_at: new Date().toISOString(),
                     },
               },
               { onSuccess: onCompletionChange },
@@ -114,7 +113,7 @@ function ProjectWorkItemRow({
               : {
                   status: "done",
                   progress_percent: 100,
-                  completed_at: toOffsetISOString(new Date()),
+                  completed_at: new Date().toISOString(),
                 },
           })
         }

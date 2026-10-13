@@ -666,8 +666,8 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
       name: "QA 날짜 초기화 프로젝트",
       planned_end_date: "2026-09-30",
     });
-    // The existing create API omits empty dates; PATCH sends explicit null to clear them.
-    expect(createdBody).not.toHaveProperty("planned_start_date");
+    // Nullable project dates preserve an explicit cleared value on creation too.
+    expect(createdBody).toHaveProperty("planned_start_date", null);
     expect(
       api.projects.find((project) => project.company_project_id === 997)
         ?.planned_start_date,

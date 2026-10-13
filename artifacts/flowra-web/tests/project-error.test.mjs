@@ -103,6 +103,29 @@ test("localization preserves the original code, server message and diagnostic de
   });
 });
 
+test("project contract failures explain the action while retaining server diagnostics", () => {
+  for (const [code, status, message] of [
+    ["PROJECT_WORK_ITEM_DEPTH_EXCEEDED", 400, "하위 업무는 최대 5단계까지 만들 수 있습니다. 이동할 업무의 하위 단계도 확인해 주세요."],
+    ["INVALID_PROJECT_WORK_ITEM_PARENT", 400, "업무를 자기 자신이나 자신의 하위 업무 아래로 옮길 수 없습니다."],
+    ["PROJECT_DEPENDENCY_CYCLE", 400, "업무 연결이 순환합니다. 선행·후행 업무의 연결을 확인해 주세요."],
+    ["PROJECT_DEPENDENCY_EXISTS", 409, "같은 선행·후행 업무와 종류의 연결이 이미 있습니다."],
+    ["PROJECT_LAST_OWNER_REQUIRED", 409, "프로젝트에는 활성 소유자가 최소 한 명 있어야 합니다."],
+    ["INVALID_PROJECT_ASSIGNMENT_STATE", 400, "완료 상태의 배정에만 완료 시각을 지정할 수 있습니다."],
+    ["INVALID_WORK_ITEM_DATE_RANGE", 400, "업무 계획 종료일은 시작일보다 빠를 수 없습니다."],
+    ["INVALID_ASSIGNMENT_DATE_RANGE", 400, "배정 종료 시각은 시작 시각보다 빠를 수 없습니다."],
+  ]) {
+    const error = projectFailure({
+      message: "Original server message",
+      error: { code, details: { work_item_id: 101 } },
+    }, status);
+    assert.equal(getErrorMessage(error), message);
+    assert.deepEqual(getApiErrorDetails(error), {
+      status, code, message: "Original server message",
+      details: { work_item_id: 101 }, requestId: "project-create-request",
+    });
+  }
+});
+
 test("network and unrelated server failures are not classified as disabled project creation", () => {
   const fallback = "프로젝트를 저장하지 못했습니다.";
   assert.equal(

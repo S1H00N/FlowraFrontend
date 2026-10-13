@@ -6,14 +6,16 @@
 
 | 상황 | 시작 문서 | 코드 추적 |
 | --- | --- | --- |
-| 일반 앱 로그인·일정·할 일·공유 | [일반 명세](../../docs/api_general.md) | [일반 라우트](routes-general.md) |
-| AI 채팅·메모 분석·적용 실패 | [AI 명세의 디버깅 절](../../docs/api_ai.md#ai-개발자-디버깅-계약) | 일반 라우트의 ai-chat/memos, [오류 색인](error-index.md) |
-| 시스템 관리자 도구 | [시스템 관리자 명세](../../docs/api_admin.md) | [관리자 라우트](routes-admin.md) |
-| 기업 패널·부서 범위·역할 | [기업 관리자 명세](../../docs/api_company_admin.md) | [기업 관리자 라우트](routes-company-admin.md) |
-| 외부 조직 동기화 | [조직 명세](../../docs/api_org.md) | [조직 라우트](routes-org.md) |
-| 기능에 대응하는 API가 안 보임 | [현재 기능 공백](../reviews/feature-lifecycle-gaps.md) | 라우트 색인에서 method/path 존재 여부 확인 |
+| 일반 앱 로그인·일정·할 일·공유 | [일반 명세](../../docs/backend-specs/api_general.md) | [일반 라우트](./routes-general.md) |
+| AI 채팅·메모 분석·적용 실패 | [AI 명세의 디버깅 절](../../docs/backend-specs/api_ai.md#ai-개발자-디버깅-계약) | 일반 라우트의 ai-chat/memos, [오류 색인](./error-index.md) |
+| 시스템 관리자 도구 | 시스템 관리자 명세 (백엔드 원본: `docs/api_admin.md`) | [관리자 라우트](./routes-admin.md) |
+| 기업 패널·부서 범위·역할 | 기업 관리자 명세 (백엔드 원본: `docs/api_company_admin.md`) | [기업 관리자 라우트](./routes-company-admin.md) |
+| 외부 조직 동기화 | 조직 명세 (백엔드 원본: `docs/api_org.md`) | [조직 라우트](./routes-org.md) |
+| 기능에 대응하는 API가 안 보임 | 현재 기능 공백 (백엔드 원본: `devdocs/reviews/feature-lifecycle-gaps.md`) | 라우트 색인에서 method/path 존재 여부 확인 |
 
 기존 명세의 예제 값은 설명용이다. 요청 제약의 최종 기준은 DTO와 서비스 검사다. 라우트 색인의 입력 검증 링크로 필수·기본값·허용 enum·배열 크기·refine 조건을 확인할 수 있다.
+
+2026-10-12 현행 계약 보강: [기업 프로젝트 공통 계약](./company-projects.md)을 일반/기업/시스템 관리자 명세에서 함께 사용한다. 2026-10-12 CHECK migration으로 수동 진행률 source·baseline recovery·reminder failed를 허용하고, 배정 role과 실제 달력/숫자 값을 DTO에서400으로 검증한다. [일반 명세](../../docs/backend-specs/api_general.md)는 UI 설정·독립 Task 순서·알림 삭제/숨김·원자적 재계획·버전 충돌의 미지원 범위를 설명한다.
 
 ## 2. API 영역과 자격 증명
 
@@ -56,6 +58,8 @@ Cloudflare의 HTML 오류 페이지는 백엔드 JSON 오류와 구분한다. �
 | 기본값 | DTO가 서버에서 채운다. 클라이언트 기본값은 명세와 맞춘다. `optional()`과 `default()`를 구분한다. |
 | PATCH 빈 객체 | 다수 DTO의 refine에서 거절된다. 일부 특별한 DTO에는 다른 조건이 있으므로 검증 링크를 확인한다. |
 
+프로젝트 숫자 필드는 정상 숫자 문자열을 받지만 non-nullable null/boolean/빈 문자열/배열은400이다. assigned_only는 문자열 true/false를 정상 구분한다. 날짜 DATE 응답도 ISO datetime이며, YYYY-MM-DD 요청은 실제 달력/윤년을 검증한다. PATCH는 nullable 필드의 null 해제와 생략 유지가 다르다.
+
 URLSearchParams를 사용하면 offset의 `+`가 공백으로 해석되는 실수를 피할 수 있다.
 
 ```js
@@ -69,7 +73,7 @@ const url = `/api/v1/schedules?${query.toString()}`;
 
 전역 JSON 크기 제한은 1mb다. 현재 body parser는 request-id/log middleware보다 앞서므로 잘못된 JSON·크기 초과 응답에 요청 ID나 DB 요청 로그가 없을 수 있다. 이 parser 오류는 현재 일반 오류 middleware에서 500으로 보일 수도 있다. “500은 항상 비즈니스 로직 실패”로 좁히지 않는다.
 
-근거: [app](../../src/app.ts), [검증](../../src/common/http/validate-request.ts), [직렬화](../../src/common/utils/serialize.ts).
+근거: app (백엔드 원본: `src/app.ts`), 검증 (백엔드 원본: `src/common/http/validate-request.ts`), 직렬화 (백엔드 원본: `src/common/utils/serialize.ts`).
 
 ## 4. 응답과 오류 읽기
 
@@ -118,7 +122,7 @@ const url = `/api/v1/schedules?${query.toString()}`;
 
 일반 Prisma unique 충돌은 `RESOURCE_CONFLICT`, 없는 레코드 변경은 `RESOURCE_NOT_FOUND`로 매핑된다. 시스템 관리자는 각각 `CONFLICT`, `NOT_FOUND`다. 모든 엔드포인트가 이 이름만 사용하지는 않는다. 서비스에서 더 구체적인 코드를 먼저 던질 수 있다.
 
-[일반 오류 처리](../../src/common/http/error-middleware.ts) · [관리자 오류 처리](../../src/admin/common/admin-error-middleware.ts) · [전체 생성 지점](error-index.md)
+일반 오류 처리 (백엔드 원본: `src/common/http/error-middleware.ts`) · 관리자 오류 처리 (백엔드 원본: `src/admin/common/admin-error-middleware.ts`) · [전체 생성 지점](./error-index.md)
 
 ## 5. 인증 갱신과 권한 디버깅
 
@@ -134,7 +138,7 @@ const url = `/api/v1/schedules?${query.toString()}`;
 
 현재 일반 authenticate는 일부 내부 세션 오류도 `UNAUTHORIZED`로 바꾼다. 401 코드만으로 “만료”라고 확정하지 않는다. 로그의 user ID가 null이면 인증 컨텍스트가 설정되기 전에 끝났다는 뜻이지, 반드시 로그아웃 사용자라는 증거는 아니다.
 
-근거: [사용자 인증](../../src/common/middleware/authenticate.ts), [refresh 구현](../../src/modules/auth/auth.service.ts), [세션](../../src/common/auth/sessions.ts).
+근거: 사용자 인증 (백엔드 원본: `src/common/middleware/authenticate.ts`), refresh 구현 (백엔드 원본: `src/modules/auth/auth.service.ts`), 세션 (백엔드 원본: `src/common/auth/sessions.ts`).
 
 ## 6. 요청 추적과 장애 전달
 
@@ -183,6 +187,8 @@ journalctl -u flowra-backend-dev.service --since '10 minutes ago' --no-pager | r
 | 승인/거절 | 현재 요청 상태 재조회. 중복 클릭 방지와 서버의 상태 충돌 처리 모두 필요 |
 
 원자성도 endpoint별이다. 트랜잭션 내 DB 변경이 롤백되더라도 별도 메일/푸시/로그까지 모두 취소된다는 뜻은 아니다. 조직 연동은 데이터 변경 뒤 sync log 저장 실패가 응답 실패로 보일 가능성을 고려한다.
+
+개인 Schedule CREATE/반복 CREATE/PATCH/DELETE/bulk DELETE는 일정 변경과 활동로그를 같은 transaction에서 저장/롤백한다. 삭제는 일정 대상 Reminder도 함께 정리하며 연결 Task는 남기고 연결/순서만 해제한다. 새 일정 생성과 기존 Task 연결은 서로 다른 요청이며 연결 실패가 일정 삭제를 뜻하지 않는다. 일반 expected_version/If-Match 검사도 없고 Task 락/집합 불일치409는 읽은 버전 이후 변경을 감지하지 않는다. [재계획 실패·동시 수정 계약](../../docs/backend-specs/api_general.md#개인-일정과-기존-할-일의-재계획)을 따른다.
 
 ## 8. 공통 HTTP helper 예시
 

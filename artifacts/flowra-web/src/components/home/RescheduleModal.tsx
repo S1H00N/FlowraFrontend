@@ -6,6 +6,7 @@ import {
   isRescheduleDraftValid,
   isRescheduleStartPast,
   RescheduleFields,
+  RescheduleCreationNotice,
   RescheduleRecoveryNotice,
   RescheduleTaskSummary,
 } from "@/components/home/RescheduleFields";
@@ -21,6 +22,7 @@ import {
 import { FloatingPanelPortalProvider } from "@/components/ui/FloatingPanelPortal";
 import { getErrorMessage } from "@/lib/error";
 import type { Schedule, Task } from "@/types";
+import type { RescheduleRecoveryChoice, ScheduleCreationRecovery } from "@/hooks/useTaskReschedule";
 
 export default function RescheduleModal({
   task,
@@ -28,6 +30,7 @@ export default function RescheduleModal({
   timezone,
   pending,
   existing,
+  creationRecovery,
   onSave,
   onClose,
   onRestoreFocus,
@@ -37,7 +40,8 @@ export default function RescheduleModal({
   timezone: string;
   pending: boolean;
   existing?: Schedule;
-  onSave: (start: Date, duration: number) => Promise<void>;
+  creationRecovery?: ScheduleCreationRecovery;
+  onSave: (start: Date, duration: number, choice?: RescheduleRecoveryChoice) => Promise<void>;
   onClose: () => void;
   onRestoreFocus: () => void;
 }) {
@@ -51,16 +55,17 @@ export default function RescheduleModal({
   const start = getRescheduleStart(draft);
   const valid = isRescheduleDraftValid(draft, today);
 
-  async function submit() {
-    if (submitting.current || pending || (!existing && !valid)) return;
-    if (!existing && isRescheduleStartPast(start)) {
+  async function submit(choice?: RescheduleRecoveryChoice) {
+    const creating = !existing && (!creationRecovery || !!(choice && "createNew" in choice));
+    if (submitting.current || pending || (creating && !valid)) return;
+    if (creating && isRescheduleStartPast(start)) {
       setError("현재 시각 이후의 시작 시간을 선택해 주세요.");
       return;
     }
     submitting.current = true;
     setError(null);
     try {
-      await onSave(start, draft.duration);
+      await onSave(start, draft.duration, choice);
     } catch (err) {
       setError(
         getErrorMessage(err, "일정을 저장하지 못했어요. 다시 시도해 주세요."),
@@ -117,6 +122,7 @@ export default function RescheduleModal({
               timezone={timezone}
             />
             {existing ? <RescheduleRecoveryNotice existing={existing} /> : null}
+            {creationRecovery && <RescheduleCreationNotice recovery={creationRecovery} pending={pending} onChoose={(choice) => void submit(choice)} />}
             <RescheduleFields
               value={draft}
               onChange={(next) => {
@@ -145,7 +151,7 @@ export default function RescheduleModal({
             <Button
               type="button"
               className="h-10"
-              disabled={pending || (!existing && !valid)}
+              disabled={pending || !!creationRecovery || (!existing && !valid)}
               onClick={() => void submit()}
             >
               {pending

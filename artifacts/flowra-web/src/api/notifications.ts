@@ -6,6 +6,8 @@ import type {
   MarkAllNotificationsReadData,
   MarkNotificationReadData,
   NotificationRecipient,
+  NotificationReadRecipient,
+  NotificationsPagination,
   NotificationsListData,
   NotificationUnreadCountData,
   NotificationsQuery,
@@ -20,7 +22,7 @@ type NotificationsListResponseData =
 
 type NotificationResponseData =
   | NotificationRecipient
-  | { notification: NotificationRecipient };
+  | { notification: NotificationReadRecipient | NotificationRecipient };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -46,12 +48,19 @@ function extractMeta(
   data: NotificationsListResponseData,
 ): NotificationsListData["meta"] {
   if (Array.isArray(data)) return undefined;
-  return data.meta ?? data.pagination;
+  if (data.meta) return data.meta;
+  if (!data.pagination) return undefined;
+  return {
+    page: data.pagination.page,
+    page_size: data.pagination.size,
+    total: data.pagination.total_items,
+    total_pages: data.pagination.total_pages,
+  } satisfies NotificationsPagination;
 }
 
 function unwrapNotification(
   data: NotificationResponseData,
-): NotificationRecipient {
+): MarkNotificationReadData["notification"] {
   return "notification" in data ? data.notification : data;
 }
 

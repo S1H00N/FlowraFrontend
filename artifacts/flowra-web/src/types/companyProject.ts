@@ -1,5 +1,4 @@
 import type { Pagination } from "./api";
-import type { ReminderType } from "./reminder";
 import type { TaskPriority, TaskStatus } from "./task";
 
 export type CompanyProjectStatus =
@@ -11,6 +10,9 @@ export type CompanyProjectStatus =
   | "archived";
 
 export type CompanyProjectPhaseMode = "phase_less" | "phased";
+export type CompanyProjectWorkItemStatus = TaskStatus | "cancelled";
+export type CompanyProjectMemberRole = "owner" | "manager" | "member" | "viewer";
+export type CompanyProjectAssignmentRole = "owner" | "assignee" | "reviewer" | "watcher";
 export type CompanyProjectVisibility =
   | "company"
   | "department_tree"
@@ -73,6 +75,9 @@ export interface CompanyProject {
   origin_department_id?: number | null;
   planned_start_date?: string | null;
   planned_end_date?: string | null;
+  actual_start_date?: string | null;
+  actual_end_date?: string | null;
+  completed_at?: string | null;
   created_at?: string;
   updated_at?: string | null;
   [key: string]: unknown;
@@ -83,8 +88,12 @@ export interface CompanyProjectPhase {
   company_project_id?: number;
   name: string;
   description?: string | null;
+  status?: string;
   planned_start_date?: string | null;
   planned_end_date?: string | null;
+  actual_start_date?: string | null;
+  actual_end_date?: string | null;
+  progress_percent?: number;
   sort_order?: number | null;
   [key: string]: unknown;
 }
@@ -95,6 +104,7 @@ export interface CompanyProjectWorkItemRollup {
   done_count?: number;
   delayed_count?: number;
   progress_percent?: number;
+  rollup_progress_percent?: number;
   [key: string]: unknown;
 }
 
@@ -106,13 +116,19 @@ export interface CompanyProjectWorkItem {
   depth_level?: number;
   title: string;
   description?: string | null;
-  status: TaskStatus | "cancelled" | string;
+  status: CompanyProjectWorkItemStatus | string;
   priority?: TaskPriority | string | null;
   planned_start_date?: string | null;
   planned_end_date?: string | null;
+  actual_start_date?: string | null;
+  actual_end_date?: string | null;
+  planned_minutes?: number | null;
   due_datetime?: string | null;
   progress_percent?: number;
   progress_override_percent?: number | null;
+  progress_weight?: number;
+  is_milestone?: boolean;
+  completed_at?: string | null;
   sort_order?: number;
   wbs_code?: string | null;
   rollup?: CompanyProjectWorkItemRollup | null;
@@ -124,6 +140,11 @@ export interface CompanyProjectAssignment {
   company_project_work_assignment_id?: number;
   company_project_work_item_id?: number;
   assignee_company_member_id?: number | null;
+  department_id?: number | null;
+  assigned_by_company_member_id?: number | null;
+  role?: CompanyProjectAssignmentRole;
+  allocation_percent?: number | null;
+  planned_minutes?: number | null;
   status?: TaskStatus | "cancelled" | string;
   progress_percent?: number | null;
   starts_at?: string | null;
@@ -160,7 +181,7 @@ export interface CompanyProjectsQuery {
 }
 
 export interface CreateCompanyProjectRequest {
-  company_id: string | number;
+  company_id?: string | number;
   name: string;
   description?: string | null;
   status?: Extract<CompanyProjectStatus, "draft" | "active">;
@@ -169,9 +190,92 @@ export interface CreateCompanyProjectRequest {
     CompanyProjectVisibility,
     "department_tree" | "members"
   >;
-  origin_department_id?: string | number;
+  origin_department_id?: string | number | null;
   planned_start_date?: string | null;
   planned_end_date?: string | null;
+  actual_start_date?: string | null;
+  actual_end_date?: string | null;
+}
+
+export interface CompanyProjectSummary {
+  phase_count: number;
+  work_item_count: number;
+  assignment_count: number;
+}
+
+export interface CompanyProjectDetailPolicy {
+  scale: CompanyProjectScale;
+  mode: "full" | "summary";
+  max_depth: number;
+  full_load_allowed: boolean;
+  returned_work_item_count: number;
+}
+
+export interface CreateCompanyProjectPhaseRequest {
+  name: string;
+  description?: string | null;
+  status?: CompanyProjectWorkItemStatus;
+  planned_start_date?: string | null;
+  planned_end_date?: string | null;
+  actual_start_date?: string | null;
+  actual_end_date?: string | null;
+  sort_order?: number;
+  external_phase_id?: string | null;
+}
+
+export type UpdateCompanyProjectPhaseRequest = Partial<CreateCompanyProjectPhaseRequest>;
+
+export interface CreateCompanyProjectWorkItemRequest {
+  title: string;
+  company_project_phase_id?: number | null;
+  parent_work_item_id?: number | null;
+  description?: string | null;
+  status?: CompanyProjectWorkItemStatus;
+  priority?: TaskPriority;
+  planned_start_date?: string | null;
+  planned_end_date?: string | null;
+  actual_start_date?: string | null;
+  actual_end_date?: string | null;
+  planned_minutes?: number | null;
+  due_datetime?: string | null;
+  progress_percent?: number;
+  progress_weight?: number;
+  is_milestone?: boolean;
+  sort_order?: number;
+  wbs_code?: string | null;
+  external_work_item_id?: string | null;
+  department_ids?: number[];
+}
+
+export interface UpdateCompanyProjectWorkItemRequest extends Partial<Omit<CreateCompanyProjectWorkItemRequest, "external_work_item_id">> {
+  completed_at?: string | null;
+  progress_override_percent?: number | null;
+}
+
+export interface CreateCompanyProjectAssignmentRequest {
+  assignee_company_member_id: number;
+  department_id?: number | null;
+  assigned_by_company_member_id?: number | null;
+  role?: CompanyProjectAssignmentRole;
+  allocation_percent?: number | null;
+  planned_minutes?: number | null;
+  status?: CompanyProjectWorkItemStatus;
+  progress_percent?: number;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  external_assignment_id?: string | null;
+}
+
+export interface UpdateManagedCompanyProjectAssignmentRequest extends Partial<Omit<CreateCompanyProjectAssignmentRequest, "external_assignment_id">> {
+  completed_at?: string | null;
+}
+
+export interface CreateCompanyProjectDependencyRequest {
+  predecessor_work_item_id: number;
+  successor_work_item_id: number;
+  dependency_type?: CompanyProjectDependencyType;
+  lag_days?: number;
+  external_dependency_id?: string | null;
 }
 
 export interface CompanyProjectDetailData {
@@ -181,8 +285,8 @@ export interface CompanyProjectDetailData {
   departments: Array<Record<string, unknown>>;
   assignments: CompanyProjectAssignment[];
   dependencies: CompanyProjectWorkDependency[];
-  summary?: Record<string, unknown>;
-  detail_policy?: Record<string, unknown>;
+  summary?: CompanyProjectSummary;
+  detail_policy?: CompanyProjectDetailPolicy;
 }
 
 export interface UpdateCompanyProjectRequest {
@@ -202,19 +306,19 @@ export interface CompanyProjectMember {
   project_member_id?: number;
   company_project_member_id?: number;
   company_member_id: number;
-  role: string;
+  role: CompanyProjectMemberRole | string;
   status?: string;
   [key: string]: unknown;
 }
 
 export interface CreateCompanyProjectMemberRequest {
   company_member_id: string | number;
-  role?: string;
+  role?: CompanyProjectMemberRole;
 }
 
 export interface UpdateCompanyProjectMemberRequest {
-  role?: string;
-  status?: string;
+  role?: CompanyProjectMemberRole;
+  status?: "active" | "inactive";
 }
 
 export interface CompanyProjectGanttQuery {
@@ -226,7 +330,6 @@ export interface CompanyProjectGanttQuery {
 }
 
 export interface CompanyProjectGanttData {
-  project: CompanyProject;
   gantt_policy: CompanyProjectGanttPolicy;
   phases: CompanyProjectPhase[];
   items: CompanyProjectWorkItem[];
@@ -238,7 +341,11 @@ export interface CompanyProjectWorkItemChildrenQuery {
 }
 
 export interface CompanyProjectWorkItemChildrenData {
+  parent?: CompanyProjectWorkItem;
   items: CompanyProjectWorkItem[];
+  departments: Array<Record<string, unknown>>;
+  assignments: CompanyProjectAssignment[];
+  dependencies: CompanyProjectWorkDependency[];
 }
 
 export interface MyCompanyProjectWorkItemsQuery {
@@ -267,13 +374,13 @@ export type CompanyProjectWorkReminderStatus =
   | "failed";
 
 export type CompanyProjectWorkReminderType =
-  | ReminderType
   | "custom"
-  | string;
+  | "before_start"
+  | "before_due";
 
 export interface CreateCompanyProjectWorkReminderRequest {
   remind_at: string;
-  reminder_type: CompanyProjectWorkReminderType;
+  reminder_type?: CompanyProjectWorkReminderType;
   message?: string | null;
 }
 

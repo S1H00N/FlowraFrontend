@@ -4,6 +4,7 @@ import type {
   ApiListData,
   ApiResponse,
   CompanyProject,
+  CompanyProjectAssignment,
   CompanyProjectCalendarItemsData,
   CompanyProjectCalendarItemsQuery,
   CompanyProjectDetailData,
@@ -11,6 +12,7 @@ import type {
   CompanyProjectGanttQuery,
   CompanyProjectListData,
   CompanyProjectMember,
+  CompanyProjectPhase,
   CompanyProjectWorkItem,
   CompanyProjectWorkItemChildrenData,
   CompanyProjectWorkItemChildrenQuery,
@@ -19,6 +21,14 @@ import type {
   CompanyProjectWorkRemindersQuery,
   CompanyProjectsQuery,
   CreateCompanyProjectRequest,
+  CreateCompanyProjectPhaseRequest,
+  UpdateCompanyProjectPhaseRequest,
+  CreateCompanyProjectWorkItemRequest,
+  UpdateCompanyProjectWorkItemRequest,
+  CreateCompanyProjectAssignmentRequest,
+  UpdateManagedCompanyProjectAssignmentRequest,
+  CreateCompanyProjectDependencyRequest,
+  CompanyProjectWorkDependency,
   CreateCompanyProjectMemberRequest,
   CreateCompanyProjectWorkReminderRequest,
   MyCompanyProjectWorkItemsData,
@@ -95,6 +105,81 @@ function hasProjectBasics(project: unknown): project is CompanyProject {
     typeof project.name === "string" && typeof project.status === "string";
 }
 
+function isResourceId(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) > 0;
+}
+
+function hasValidAssignments(values: unknown): values is CompanyProjectAssignment[] {
+  return Array.isArray(values) && values.every((value) => isRecord(value) &&
+    ["assignment_id", "company_project_work_assignment_id", "company_project_work_item_id"]
+      .every((key) => value[key] === undefined || isResourceId(value[key])) &&
+    // Zero is the documented privacy mask, never a real company member ID.
+    (value.assignee_company_member_id == null || value.assignee_company_member_id === 0 ||
+      isResourceId(value.assignee_company_member_id)));
+}
+
+function hasValidDependencies(values: unknown): values is CompanyProjectWorkDependency[] {
+  return Array.isArray(values) && values.every((value) => isRecord(value) &&
+    ["company_project_work_dependency_id", "predecessor_work_item_id", "successor_work_item_id"]
+      .every((key) => value[key] === undefined || isResourceId(value[key])));
+}
+
+function requestFields(payload: object, allowed: readonly string[], datetimeFields: readonly string[] = []) {
+  const source = payload as Record<string, unknown>;
+  return Object.fromEntries(allowed.flatMap((key) => {
+    const value = source[key];
+    if (value === undefined) return [];
+    return [[key, datetimeFields.includes(key) && typeof value === "string" && value
+      ? new Date(value).toISOString() : value]];
+  }));
+}
+
+const phaseFields = ["name", "description", "status", "planned_start_date", "planned_end_date",
+  "actual_start_date", "actual_end_date", "sort_order", "external_phase_id"] as const;
+const workItemFields = ["title", "company_project_phase_id", "parent_work_item_id", "description", "status",
+  "priority", "planned_start_date", "planned_end_date", "actual_start_date", "actual_end_date", "planned_minutes",
+  "due_datetime", "progress_percent", "progress_weight", "is_milestone", "sort_order", "wbs_code", "department_ids"] as const;
+const assignmentFields = ["assignee_company_member_id", "department_id", "assigned_by_company_member_id",
+  "role", "allocation_percent", "planned_minutes", "status", "progress_percent", "starts_at", "ends_at"] as const;
+
+function belongsToProject(value: Record<string, unknown>, companyProjectId: number) {
+  return value.company_project_id === undefined || value.company_project_id === companyProjectId;
+}
+
+function hasPhaseBasics(value: unknown, companyProjectId: number): value is CompanyProjectPhase {
+  return isRecord(value) && isResourceId(value.company_project_phase_id) &&
+    typeof value.name === "string" && belongsToProject(value, companyProjectId);
+}
+
+function hasWorkItemBasics(value: unknown, companyProjectId: number): value is CompanyProjectWorkItem {
+  return isRecord(value) && isResourceId(value.company_project_work_item_id) &&
+    typeof value.title === "string" && typeof value.status === "string" &&
+    belongsToProject(value, companyProjectId) &&
+    (value.parent_work_item_id == null || isResourceId(value.parent_work_item_id)) &&
+    (value.company_project_phase_id == null || isResourceId(value.company_project_phase_id)) &&
+    value.parent_work_item_id !== value.company_project_work_item_id;
+}
+
+function hasUniqueIds<T>(items: T[], getId: (item: T) => number) {
+  return new Set(items.map(getId)).size === items.length;
+}
+
+function requirePhase(value: unknown, companyProjectId: number, phaseId?: number) {
+  if (!hasPhaseBasics(value, companyProjectId) ||
+    (phaseId !== undefined && value.company_project_phase_id !== phaseId)) {
+    throw new Error("단계 응답 형식을 확인할 수 없습니다. 프로젝트를 새로고침해 주세요.");
+  }
+  return value;
+}
+
+function requireWorkItem(value: unknown, companyProjectId: number, workItemId?: number) {
+  if (!hasWorkItemBasics(value, companyProjectId) ||
+    (workItemId !== undefined && value.company_project_work_item_id !== workItemId)) {
+    throw new Error("업무 응답 형식을 확인할 수 없습니다. 프로젝트를 새로고침해 주세요.");
+  }
+  return value;
+}
+
 function unwrapAssignment(
   data: CompanyProjectWorkAssignmentData,
 ): Record<string, unknown> {
@@ -129,12 +214,10 @@ function normalizeCreateCompanyProjectPayload(
   payload: CreateCompanyProjectRequest,
 ) {
   return compactParams({
-    ...payload,
+    ...requestFields(payload, ["company_id", "name", "description", "status", "phase_mode", "visibility",
+      "origin_department_id", "planned_start_date", "planned_end_date", "actual_start_date", "actual_end_date"]),
     company_id: toOptionalString(payload.company_id),
-    origin_department_id: toOptionalString(payload.origin_department_id),
-    description: payload.description || undefined,
-    planned_start_date: payload.planned_start_date || undefined,
-    planned_end_date: payload.planned_end_date || undefined,
+    origin_department_id: payload.origin_department_id === null ? null : toOptionalString(payload.origin_department_id),
   });
 }
 
@@ -219,25 +302,132 @@ export async function createCompanyProject(
   };
 }
 
-export async function getCompanyProject(companyProjectId: number) {
+export async function getCompanyProject(
+  companyProjectId: number,
+  options: { signal?: AbortSignal } = {},
+) {
   const res = await apiClient.get<ApiResponse<CompanyProjectDetailData>>(
     `/company-projects/${companyProjectId}`,
+    { signal: options.signal },
   );
   if (!hasProjectBasics(res.data.data?.project) || res.data.data.project.company_project_id !== companyProjectId) {
     throw new Error("프로젝트 상세 응답 형식을 확인할 수 없습니다. 다시 조회해 주세요.");
+  }
+  const phases = res.data.data.phases ?? [];
+  const workItems = res.data.data.work_items ?? [];
+  const assignments = res.data.data.assignments ?? [];
+  const dependencies = res.data.data.dependencies ?? [];
+  if (!Array.isArray(phases) || phases.some((phase) => !hasPhaseBasics(phase, companyProjectId)) ||
+    !hasUniqueIds(phases, (phase) => phase.company_project_phase_id) ||
+    !Array.isArray(workItems) || workItems.some((item) => !hasWorkItemBasics(item, companyProjectId)) ||
+    !hasUniqueIds(workItems, (item) => item.company_project_work_item_id) ||
+    [res.data.data.phases, res.data.data.work_items, res.data.data.departments,
+      res.data.data.assignments, res.data.data.dependencies]
+      .some((value) => value !== undefined && !Array.isArray(value)) ||
+    !hasValidAssignments(assignments) || !hasValidDependencies(dependencies)) {
+    throw new Error("프로젝트 업무 응답 형식을 확인할 수 없습니다. 다시 조회해 주세요.");
   }
   return {
     ...res.data,
     data: {
       project: unwrapProject(res.data.data.project),
-      phases: res.data.data.phases ?? [],
-      work_items: res.data.data.work_items ?? [],
+      phases,
+      work_items: workItems,
       departments: res.data.data.departments ?? [],
-      assignments: res.data.data.assignments ?? [],
-      dependencies: res.data.data.dependencies ?? [],
+      assignments,
+      dependencies,
       summary: res.data.data.summary,
       detail_policy: res.data.data.detail_policy,
     } satisfies CompanyProjectDetailData,
+  };
+}
+
+export async function createCompanyProjectPhase(companyProjectId: number, payload: CreateCompanyProjectPhaseRequest) {
+  const res = await apiClient.post<ApiResponse<{ phase: CompanyProjectPhase }>>(
+    `/company-projects/${companyProjectId}/phases`, requestFields(payload, phaseFields),
+  );
+  return { ...res.data, data: { phase: requirePhase(res.data.data?.phase, companyProjectId) } };
+}
+
+export async function updateCompanyProjectPhase(companyProjectId: number, phaseId: number, payload: UpdateCompanyProjectPhaseRequest) {
+  const res = await apiClient.patch<ApiResponse<{ phase: CompanyProjectPhase }>>(
+    `/company-projects/${companyProjectId}/phases/${phaseId}`, requestFields(payload, phaseFields),
+  );
+  return { ...res.data, data: { phase: requirePhase(res.data.data?.phase, companyProjectId, phaseId) } };
+}
+
+export async function createCompanyProjectWorkItem(companyProjectId: number, payload: CreateCompanyProjectWorkItemRequest) {
+  const res = await apiClient.post<ApiResponse<{ work_item: CompanyProjectWorkItem }>>(
+    `/company-projects/${companyProjectId}/work-items`,
+    requestFields(payload, [...workItemFields, "external_work_item_id"], ["due_datetime"]),
+  );
+  return { ...res.data, data: { work_item: requireWorkItem(res.data.data?.work_item, companyProjectId) } };
+}
+
+export async function updateCompanyProjectWorkItem(companyProjectId: number, workItemId: number, payload: UpdateCompanyProjectWorkItemRequest) {
+  const res = await apiClient.patch<ApiResponse<{ work_item: CompanyProjectWorkItem }>>(
+    `/company-projects/${companyProjectId}/work-items/${workItemId}`,
+    requestFields(payload, [...workItemFields, "completed_at", "progress_override_percent"], ["due_datetime", "completed_at"]),
+  );
+  return { ...res.data, data: { work_item: requireWorkItem(res.data.data?.work_item, companyProjectId, workItemId) } };
+}
+
+export async function replaceCompanyProjectWorkDepartments(companyProjectId: number, workItemId: number, departmentIds: number[]) {
+  const res = await apiClient.put<ApiResponse<{ departments: Array<Record<string, unknown>> }>>(
+    `/company-projects/${companyProjectId}/work-items/${workItemId}/departments`, { department_ids: departmentIds },
+  );
+  return res.data;
+}
+
+export async function createCompanyProjectAssignment(companyProjectId: number, workItemId: number, payload: CreateCompanyProjectAssignmentRequest) {
+  const res = await apiClient.post<ApiResponse<{ assignment: CompanyProjectAssignment }>>(
+    `/company-projects/${companyProjectId}/work-items/${workItemId}/assignments`,
+    requestFields(payload, [...assignmentFields, "external_assignment_id"], ["starts_at", "ends_at"]),
+  );
+  return res.data;
+}
+
+export async function updateManagedCompanyProjectAssignment(companyProjectId: number, workItemId: number, assignmentId: number, payload: UpdateManagedCompanyProjectAssignmentRequest) {
+  const res = await apiClient.patch<ApiResponse<{ assignment: CompanyProjectAssignment }>>(
+    `/company-projects/${companyProjectId}/work-items/${workItemId}/assignments/${assignmentId}`,
+    requestFields(payload, [...assignmentFields, "completed_at"], ["starts_at", "ends_at", "completed_at"]),
+  );
+  return res.data;
+}
+
+export async function createCompanyProjectDependency(companyProjectId: number, payload: CreateCompanyProjectDependencyRequest) {
+  const res = await apiClient.post<ApiResponse<{ dependency: CompanyProjectWorkDependency }>>(
+    `/company-projects/${companyProjectId}/dependencies`,
+    requestFields(payload, ["predecessor_work_item_id", "successor_work_item_id", "dependency_type", "lag_days", "external_dependency_id"]),
+  );
+  return res.data;
+}
+
+export async function deleteCompanyProjectDependency(companyProjectId: number, dependencyId: number) {
+  const res = await apiClient.delete<ApiResponse<Record<string, never>>>(
+    `/company-projects/${companyProjectId}/dependencies/${dependencyId}`,
+  );
+  return res.data;
+}
+
+// DELETE transitions to cancelled; these resources remain in project history.
+export async function cancelCompanyProjectPhase(companyProjectId: number, phaseId: number) {
+  const res = await apiClient.delete<ApiResponse<{ phase: CompanyProjectPhase }>>(
+    `/company-projects/${companyProjectId}/phases/${phaseId}`,
+  );
+  return {
+    ...res.data,
+    data: { phase: requirePhase(res.data.data?.phase, companyProjectId, phaseId) },
+  };
+}
+
+export async function cancelCompanyProjectWorkItem(companyProjectId: number, workItemId: number) {
+  const res = await apiClient.delete<ApiResponse<{ work_item: CompanyProjectWorkItem }>>(
+    `/company-projects/${companyProjectId}/work-items/${workItemId}`,
+  );
+  return {
+    ...res.data,
+    data: { work_item: requireWorkItem(res.data.data?.work_item, companyProjectId, workItemId) },
   };
 }
 
@@ -249,13 +439,9 @@ export async function updateCompanyProject(
   const res = await apiClient.patch<ApiResponse<CompanyProjectData>>(
     `/company-projects/${companyProjectId}`,
     compactParams({
-      ...payload,
-      origin_department_id:
-        payload.origin_department_id === null
-          ? null
-          : toOptionalString(payload.origin_department_id),
-      completed_at:
-        payload.completed_at ? new Date(payload.completed_at).toISOString() : payload.completed_at,
+      ...requestFields(payload, ["name", "description", "status", "visibility", "origin_department_id",
+        "planned_start_date", "planned_end_date", "actual_start_date", "actual_end_date", "completed_at"], ["completed_at"]),
+      origin_department_id: payload.origin_department_id === null ? null : toOptionalString(payload.origin_department_id),
     }),
   );
   return { ...res.data, data: { project: unwrapProject(res.data.data) } };
@@ -314,7 +500,6 @@ export async function getCompanyProjectGantt(
   return {
     ...res.data,
     data: {
-      project: res.data.data.project,
       gantt_policy: res.data.data.gantt_policy,
       phases: res.data.data.phases ?? [],
       items: res.data.data.items ?? [],
@@ -327,20 +512,36 @@ export async function listCompanyProjectWorkItemChildren(
   companyProjectId: number,
   workItemId: number,
   query: CompanyProjectWorkItemChildrenQuery = {},
+  options: { signal?: AbortSignal } = {},
 ) {
-  const res = await apiClient.get<ApiResponse<ListResponseData<CompanyProjectWorkItem>>>(
+  const res = await apiClient.get<ApiResponse<CompanyProjectWorkItemChildrenData>>(
     `/company-projects/${companyProjectId}/work-items/${workItemId}/children`,
     {
       params: compactParams({ depth: query.depth }),
+      signal: options.signal,
     },
   );
+  const items = findList<CompanyProjectWorkItem>(res.data.data, ["children", "work_items"]);
+  const parent = res.data.data?.parent;
+  const departments = res.data.data?.departments ?? [];
+  const assignments = res.data.data?.assignments ?? [];
+  const dependencies = res.data.data?.dependencies ?? [];
+  if (!items || items.some((item) => !hasWorkItemBasics(item, companyProjectId) ||
+    item.company_project_work_item_id === workItemId ||
+    ((query.depth ?? 1) === 1 && item.parent_work_item_id !== workItemId)) ||
+    !hasUniqueIds(items, (item) => item.company_project_work_item_id) ||
+    (parent !== undefined && (!hasWorkItemBasics(parent, companyProjectId) || parent.company_project_work_item_id !== workItemId)) ||
+    !Array.isArray(departments) || !hasValidAssignments(assignments) || !hasValidDependencies(dependencies)) {
+    throw new Error("하위 업무 응답 형식을 확인할 수 없습니다. 다시 조회해 주세요.");
+  }
   return {
     ...res.data,
     data: {
-      items: extractList<CompanyProjectWorkItem>(res.data.data, [
-        "children",
-        "work_items",
-      ]),
+      parent,
+      items,
+      departments,
+      assignments,
+      dependencies,
     } satisfies CompanyProjectWorkItemChildrenData,
   };
 }
@@ -371,7 +572,7 @@ export async function updateCompanyProjectWorkAssignment(
 ) {
   const res = await apiClient.patch<ApiResponse<CompanyProjectWorkAssignmentData>>(
     `/company-projects/work-assignments/${assignmentId}`,
-    compactParams(payload as Record<string, unknown>),
+    requestFields(payload, ["status", "progress_percent", "completed_at"], ["completed_at"]),
   );
   return {
     ...res.data,
@@ -439,7 +640,7 @@ export async function listCompanyProjectWorkReminders(
 }
 
 export async function deleteCompanyProjectWorkReminder(reminderId: number) {
-  const res = await apiClient.delete<ApiResponse<Record<string, never>>>(
+  const res = await apiClient.delete<ApiResponse<{ reminder: CompanyProjectWorkReminder }>>(
     `/company-projects/work-reminders/${reminderId}`,
   );
   return res.data;

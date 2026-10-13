@@ -72,7 +72,7 @@ export function useCreateReminder() {
         throw new Error(res.message || "알림 생성에 실패했습니다.");
       return res.data.reminder;
     },
-    onSuccess: () => invalidate(),
+    onSettled: () => invalidate(),
     meta: {
       successMessage: "알림을 등록했습니다.",
       errorMessage: "알림 등록에 실패했습니다.",
@@ -89,7 +89,7 @@ export function useDeleteReminder() {
         throw new Error(res.message || "알림 삭제에 실패했습니다.");
       return res.data;
     },
-    onSuccess: () => invalidate(),
+    onSettled: () => invalidate(),
     meta: {
       successMessage: "알림을 삭제했습니다.",
       errorMessage: "알림 삭제에 실패했습니다.",
@@ -112,7 +112,7 @@ export function useUpdateReminder() {
         throw new Error(res.message || "알림 수정에 실패했습니다.");
       return res.data.reminder;
     },
-    onSuccess: () => invalidate(),
+    onSettled: () => invalidate(),
     meta: {
       successMessage: "알림을 수정했습니다.",
       errorMessage: "알림 수정에 실패했습니다.",

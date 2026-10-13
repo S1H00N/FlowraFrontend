@@ -14,6 +14,7 @@ test("할 일과 일정은 저장 응답 전에도 완료 상태가 보인다", 
   await page.clock.setFixedTime(new Date(QA_NOW));
   await seedAuth(page);
   await page.goto("/tasks");
+  await page.locator('[data-selection-key="schedule:201"] .tasks-card-open').click();
 
   let releaseTask!: () => void;
   let taskStarted!: () => void;
@@ -76,6 +77,7 @@ test("선택한 여러 항목의 완료 요청은 함께 시작된다", async ({
   await page.clock.setFixedTime(new Date(QA_NOW));
   await seedAuth(page);
   await page.goto("/tasks");
+  await page.locator('[data-selection-key="schedule:201"] .tasks-card-open').click();
 
   let release!: () => void;
   let bothStarted!: () => void;
@@ -93,8 +95,8 @@ test("선택한 여러 항목의 완료 요청은 함께 시작된다", async ({
 
   const bar = page.getByRole("group", { name: "선택한 항목 작업" });
   try {
-    await page.getByRole("checkbox", { name: "동시 처리 800 선택" }).check();
-    await page.getByRole("checkbox", { name: "동시 처리 801 선택" }).check();
+    await page.locator('[data-selection-key="task:800"] .tasks-subtask-open').click({ modifiers: ["Control"] });
+    await page.locator('[data-selection-key="task:801"] .tasks-subtask-open').click({ modifiers: ["Control"] });
     await bar.getByRole("button", { name: "완료 처리", exact: true }).click();
     await requestsStarted;
     expect(pendingIds.size).toBe(2);

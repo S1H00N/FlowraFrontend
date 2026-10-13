@@ -113,6 +113,13 @@ export async function listAiChatSessions(query: AiChatSessionsQuery = {}) {
   };
 }
 
+export async function getAiChatSession(sessionId: number) {
+  const res = await apiClient.get<ApiResponse<AiChatSessionData>>(
+    `/ai-chat/sessions/${sessionId}`,
+  );
+  return { ...res.data, data: { session: unwrapSession(res.data.data) } };
+}
+
 export async function deleteAiChatSession(sessionId: number) {
   try {
     const res = await apiClient.delete<ApiResponse<Record<string, never>>>(
@@ -173,7 +180,8 @@ export async function applyAiChatMessageAction(
   const res = await apiClient.post<ApiResponse<ApplyAiChatMessageResponse>>(
     `/ai-chat/messages/${messageId}/apply`,
     compactParams({
-      ...payload,
+      apply_type: payload.apply_type,
+      action_index: payload.action_index,
       category_id: toOptionalString(payload.category_id),
       schedule_id: toOptionalString(payload.schedule_id),
     }),

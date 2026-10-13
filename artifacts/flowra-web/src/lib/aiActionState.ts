@@ -5,6 +5,7 @@ type ActionResult = AiActionApplyState & {
   result_status?: string | null;
   action_status?: string | null;
   applied_actions?: Array<{ action_index?: number }>;
+  applications?: Array<{ action_index?: number }>;
 };
 
 export function isAiActionApplied(
@@ -19,6 +20,8 @@ export function isAiActionApplied(
   if (Array.isArray(result.applied_action_indexes))
     return result.applied_action_indexes.includes(index);
   if (result.applied_actions?.some((action) => action.action_index === index))
+    return true;
+  if (result.applications?.some((action) => action.action_index === index))
     return true;
   const status = result.result_status ?? result.action_status ?? result.status;
   return status === "approved" || status === "applied";
@@ -42,4 +45,15 @@ export function canApplyAiAction(
   if (Array.isArray(result.executable_action_indexes))
     return result.executable_action_indexes.includes(index);
   return true;
+}
+
+export function reconcileAiAppliedResources<T>(
+  result: ActionResult,
+  resources: Record<number, T[]>,
+): Record<number, T[]> {
+  const entries = Object.entries(resources);
+  const appliedEntries = entries.filter(([index]) => isAiActionApplied(result, Number(index)));
+  return appliedEntries.length === entries.length
+    ? resources
+    : Object.fromEntries(appliedEntries);
 }

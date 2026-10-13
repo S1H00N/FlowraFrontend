@@ -41,6 +41,7 @@ import {
   MEMOS_QUERY_KEY,
   isMemoParseInFlight,
   memoParseResultKey,
+  refreshMemoApplyQueries,
   useApplyMemo,
   useCreateMemo,
   useDeleteMemo,
@@ -71,7 +72,7 @@ import {
   type Task,
 } from "@/types";
 import { getErrorMessage } from "@/lib/error";
-import { canApplyAiAction, isAiActionApplied } from "@/lib/aiActionState";
+import { canApplyAiAction, isAiActionApplied, reconcileAiAppliedResources } from "@/lib/aiActionState";
 import {
   formatAiSuggestedActionDateTime,
   getAiSuggestedActionDateLabel as getActionDateLabel,
@@ -1223,6 +1224,7 @@ function AiResultContent({
     ({ action }) =>
       action.type === "create_schedule" || action.type === "create_task",
   ).length;
+  const effectiveResult = useMemo(() => ({ ...result, ...applyState }), [result, applyState]);
   const resultAppliedResourceMap = useMemo(() => {
     const refs: AppliedResourceRef[] = [];
     const map = new Map<number, AppliedResourceRef[]>();
@@ -1284,14 +1286,18 @@ function AiResultContent({
     const map = new Map<number, AppliedResourceRef[]>();
     const localMap = localAppliedResourceMapFromRecord(localAppliedResources);
 
+    // A mutation response identifies the newest resources before list queries settle.
+    localMap.forEach((refs, index) => {
+      if (isAiActionApplied(effectiveResult, index))
+        refs.forEach((ref) => addResourceRef(map, index, ref));
+    });
     resultAppliedResourceMap.forEach((refs, index) => {
-      refs.forEach((ref) => addResourceRef(map, index, ref));
+      if (isAiActionApplied(effectiveResult, index))
+        refs.forEach((ref) => addResourceRef(map, index, ref));
     });
     sourceMatchedResourceMap.forEach((refs, index) => {
-      refs.forEach((ref) => addResourceRef(map, index, ref));
-    });
-    localMap.forEach((refs, index) => {
-      refs.forEach((ref) => addResourceRef(map, index, ref));
+      if (isAiActionApplied(effectiveResult, index))
+        refs.forEach((ref) => addResourceRef(map, index, ref));
     });
 
     return map;
@@ -1299,6 +1305,7 @@ function AiResultContent({
     localAppliedResources,
     resultAppliedResourceMap,
     sourceMatchedResourceMap,
+    effectiveResult,
   ]);
 
   useEffect(() => {
@@ -1312,6 +1319,12 @@ function AiResultContent({
     setBulkApplyingIndexes(new Set());
     setBulkRemovingIndexes(new Set());
   }, [result.ai_result_id]);
+
+  useEffect(() => {
+    setApplyState(null);
+    setLocalAppliedResources((current) => reconcileAiAppliedResources(result, current));
+    setAppliedLink(null);
+  }, [result]);
 
   const toggleExpanded = (index: number) => {
     setExpanded((prev) => {
@@ -1428,7 +1441,6 @@ function AiResultContent({
     return resourceRefs;
   };
 
-  const effectiveResult = { ...result, ...applyState };
   const isActionApplied = (index: number) => isAiActionApplied(effectiveResult, index);
 
   const canApplyAction = (index: number) => {
@@ -1468,6 +1480,7 @@ function AiResultContent({
     scheduleActionIndex: number,
     extraResourceMap?: Map<number, AppliedResourceRef[]>,
   ) => {
+    if (!extraResourceMap?.has(scheduleActionIndex) && !isActionApplied(scheduleActionIndex)) return null;
     const refs = [
       ...(extraResourceMap?.get(scheduleActionIndex) ?? []),
       ...(appliedResourceMap.get(scheduleActionIndex) ?? []),
@@ -1497,6 +1510,7 @@ function AiResultContent({
     const scheduleId = getScheduleIdForTaskAction(index, extraResourceMap);
 
     return {
+      ai_result_id: result.ai_result_id,
       apply_type: "action" as const,
       action_index: index,
       ...(scheduleId ? { schedule_id: scheduleId } : {}),
@@ -1547,7 +1561,10 @@ function AiResultContent({
         );
 
       if (appliesEveryRemainingAction) {
-        const res = await applyMemoRequest(memoId, { apply_type: "all" });
+        const res = await applyMemoRequest(memoId, {
+          ai_result_id: result.ai_result_id,
+          apply_type: "all",
+        });
         if (!res.success) {
           throw new Error(res.message || "AI 결과 적용에 실패했습니다.");
         }
@@ -1573,7 +1590,7 @@ function AiResultContent({
           addTransientResourceRefs(transientResourceMap, resourceRefs, index);
         }
 
-        await Promise.all(
+        const taskResults = await Promise.allSettled(
           taskIndexes.map(async (index) => {
             const res = await applyMemoRequest(
               memoId,
@@ -1587,15 +1604,15 @@ function AiResultContent({
             addTransientResourceRefs(transientResourceMap, resourceRefs, index);
           }),
         );
+        const failedTask = taskResults.find(
+          (entry): entry is PromiseRejectedResult => entry.status === "rejected",
+        );
+        if (failedTask) throw failedTask.reason;
       }
-
-      void queryClient.invalidateQueries({ queryKey: MEMOS_QUERY_KEY });
-      void queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
-      void queryClient.invalidateQueries({ queryKey: SCHEDULES_QUERY_KEY });
-      void queryClient.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
     } catch (err) {
       setApplyError(getErrorMessage(err, "AI 결과 적용에 실패했습니다."));
     } finally {
+      await refreshMemoApplyQueries(queryClient);
       setBulkApplyingIndexes(new Set());
     }
   };
@@ -2308,7 +2325,7 @@ function MemoAiPanel({
   );
 
   const status = data?.memo.parse_status ?? memo?.parse_status;
-  const result = data?.latest_result ?? memo?.last_ai_result ?? null;
+  const result = data ? data.latest_result : memo?.last_ai_result ?? null;
   const actions = result ? getSuggestedActions(result) : [];
   const scheduleCount = actions.filter(
     (action) => action.type === "create_schedule",
@@ -2387,7 +2404,7 @@ function MemoAiPanel({
             retrying={parseMutation.isPending}
           />
         ) : result ? (
-          <AiResultContent memoId={memo.memo_id} result={result} />
+          <AiResultContent key={result.ai_result_id} memoId={memo.memo_id} result={result} />
         ) : (
           <div className="flex flex-col items-center gap-2 py-10 text-slate-400">
             <Sparkles className="h-6 w-6 text-slate-300" />
@@ -2462,10 +2479,9 @@ export default function Memos() {
   );
   const selectedStatus =
     parseResultQuery.data?.memo.parse_status ?? selectedMemo?.parse_status;
-  const selectedResult =
-    parseResultQuery.data?.latest_result ??
-    selectedMemo?.last_ai_result ??
-    null;
+  const selectedResult = parseResultQuery.data
+    ? parseResultQuery.data.latest_result
+    : selectedMemo?.last_ai_result ?? null;
 
   useEffect(() => {
     if (

@@ -269,15 +269,13 @@ export function useApplyAiChatMessageAction() {
       if (variables.sessionId && !isDeletedSession(qc, variables.sessionId)) {
         await qc.invalidateQueries({ queryKey: aiChatMessagesKey(variables.sessionId) });
       }
-      if (getErrorCode(error) === "AI_CHAT_SESSION_ARCHIVED") {
+      if (["AI_CHAT_SESSION_ARCHIVED", "AI_CHAT_SESSION_NOT_FOUND", "AI_CHAT_MESSAGE_NOT_FOUND"].includes(getErrorCode(error) ?? "")) {
         await qc.invalidateQueries({ queryKey: [...AI_CHAT_QUERY_KEY, "sessions"] });
       }
-      if (getErrorCode(error) === "AI_CHAT_ACTION_ALREADY_APPLIED") {
-        await Promise.all([
-          TASKS_QUERY_KEY, SCHEDULES_QUERY_KEY, REMINDERS_QUERY_KEY,
-          TODAY_HOME_QUERY_KEY, TODAY_BRIEFING_QUERY_KEY,
-        ].map((queryKey) => qc.invalidateQueries({ queryKey })));
-      }
+      await Promise.all([
+        TASKS_QUERY_KEY, SCHEDULES_QUERY_KEY, REMINDERS_QUERY_KEY,
+        TODAY_HOME_QUERY_KEY, TODAY_BRIEFING_QUERY_KEY,
+      ].map((queryKey) => qc.invalidateQueries({ queryKey })));
     },
     retry: false,
     meta: {

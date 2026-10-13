@@ -49,7 +49,7 @@ export default function Projects() {
     values: Record<string, string | undefined>,
     replace = false,
   ) => {
-    const next = new URLSearchParams(params);
+    const next = new URLSearchParams(window.location.search);
     for (const [key, value] of Object.entries(values)) {
       if (value) next.set(key, value);
       else next.delete(key);
@@ -62,7 +62,8 @@ export default function Projects() {
   useEffect(() => {
     if (search.trim() === q) return;
     const timeout = window.setTimeout(() => {
-      const next = new URLSearchParams(params);
+      // A filter click can update history before this effect's timer is cleared.
+      const next = new URLSearchParams(window.location.search);
       if (search.trim()) next.set("q", search.trim());
       else next.delete("q");
       setParams(next, { replace: true });

@@ -7,6 +7,7 @@ import {
 } from "@/components/CompactDateTimeInputs";
 import CustomSelect from "@/components/ui/CustomSelect";
 import { Button } from "@/components/ui/button";
+import type { RescheduleRecoveryChoice, ScheduleCreationRecovery } from "@/hooks/useTaskReschedule";
 import { taskDueLabel } from "@/lib/homeTasks";
 import { cn } from "@/lib/utils";
 import type { Schedule, Task } from "@/types";
@@ -101,6 +102,32 @@ export function RescheduleTaskSummary({
       <p className="mt-1 text-xs leading-5 text-slate-500">
         {taskDueLabel(task, today, timezone)}
       </p>
+    </div>
+  );
+}
+
+export function RescheduleCreationNotice({ recovery, pending, onChoose }: {
+  recovery: ScheduleCreationRecovery;
+  pending: boolean;
+  onChoose: (choice?: RescheduleRecoveryChoice) => void;
+}) {
+  return (
+    <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+      <p>일정 생성 결과를 확인해 주세요. 응답을 받지 못했어도 일정이 저장됐을 수 있어요.</p>
+      {recovery.candidates.map((schedule) => (
+        <div key={schedule.schedule_id} className="flex flex-wrap items-center gap-2">
+          <Link className="underline" to={`/schedules?schedule_id=${schedule.schedule_id}`} target="_blank" rel="noreferrer">
+            {schedule.title} · {new Date(schedule.start_datetime).toLocaleString("ko-KR")}
+          </Link>
+          <Button type="button" size="sm" variant="outline" disabled={pending} onClick={() => onChoose({ scheduleId: schedule.schedule_id })}>이 일정에 연결</Button>
+        </div>
+      ))}
+      {recovery.listChecked && recovery.candidates.length === 0 && <p>현재 목록에는 같은 제목과 시간의 일정이 없어요.</p>}
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" size="sm" variant="outline" disabled={pending} onClick={() => onChoose()}>목록 다시 확인</Button>
+        <Button type="button" size="sm" variant="outline" disabled={pending || !recovery.listChecked} onClick={() => onChoose({ createNew: true })}>새 일정 만들기</Button>
+      </div>
+      {recovery.listChecked && <p className="text-xs">새 일정 만들기는 기존 일정을 유지하고 일정을 하나 더 만들어요.</p>}
     </div>
   );
 }

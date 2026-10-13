@@ -28,6 +28,8 @@ import {
 } from "@/api/schedules";
 import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
 import { TASKS_QUERY_KEY } from "@/hooks/useTasks";
+import { REMINDERS_QUERY_KEY } from "@/hooks/useReminders";
+import { TODAY_BRIEFING_QUERY_KEY } from "@/hooks/useTodayBriefing";
 import { syncLinkedTaskDates } from "@/lib/syncLinkedTaskDates";
 import { toast } from "@/lib/toast";
 import { toOffsetISOString } from "@/utils/dateUtils";
@@ -575,7 +577,12 @@ export function useDeleteSchedule() {
     onSuccess: (_data, scheduleId) => {
       removeScheduleFromListCaches(queryClient, scheduleId);
       queryClient.removeQueries({ queryKey: scheduleDetailKey(scheduleId) });
+    },
+    onSettled: () => {
       invalidate();
+      for (const queryKey of [TASKS_QUERY_KEY, REMINDERS_QUERY_KEY, TODAY_BRIEFING_QUERY_KEY]) {
+        void queryClient.invalidateQueries({ queryKey });
+      }
     },
     meta: {
       successMessage: "일정이 삭제되었습니다.",
@@ -775,13 +782,27 @@ export function useDeleteScheduleShare() {
 
 export function useDeleteSchedules() {
   const invalidate = useInvalidateSchedules();
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (scheduleIds: number[]) => {
       const res = await deleteSchedulesBulk(scheduleIds);
       if (!res.success) throw new Error(res.message || "삭제에 실패했습니다.");
       return res.data;
     },
-    onSuccess: () => invalidate(),
+    onSuccess: (data, scheduleIds) => {
+      const failedIds = new Set(data.failed_ids.map(String));
+      for (const scheduleId of scheduleIds) {
+        if (failedIds.has(String(scheduleId))) continue;
+        removeScheduleFromListCaches(queryClient, scheduleId);
+        queryClient.removeQueries({ queryKey: scheduleDetailKey(scheduleId) });
+      }
+    },
+    onSettled: () => {
+      invalidate();
+      for (const queryKey of [TASKS_QUERY_KEY, REMINDERS_QUERY_KEY, TODAY_BRIEFING_QUERY_KEY]) {
+        void queryClient.invalidateQueries({ queryKey });
+      }
+    },
     meta: {
       errorMessage: "일정 삭제에 실패했습니다.",
     },

@@ -4,6 +4,8 @@
 
 일반 사용자 앱이 사용하는 백엔드 API 명세입니다.
 
+현행 계약 보강: 2026-10-12. [기업 프로젝트 공통 계약](../../devdocs/api-reference/company-projects.md)에 생성/수정 DTO, 계층·취소 규칙, 부분 조회·집계와 실제 DB 저장 제한을 기술합니다.
+
 ## 기본 정보
 
 - Base URL: `/api/v1`
@@ -28,6 +30,9 @@
 - `POST /auth/resend-verification-email`
 - `POST /auth/forgot-password`
 - `POST /auth/reset-password`
+- `POST /auth/google/prepare`
+- `POST /auth/google/link-with-password`
+- `POST /auth/google/signup`
 - `GET /company-memberships/invites/:token`
 - `GET /schedule-share-links/:token`
 - `GET /holidays`
@@ -531,6 +536,8 @@ Response data:
 
 내 프로필 수정.
 
+이 API는 아래 프로필 필드만 저장합니다. 테마·달력 기본 보기·주 시작일·표시 캘린더의 사용자 환경설정 조회/저장 API는 현재 없습니다. timezone은 서버 저장되어 기기 간 재조회할 수 있지만 다른 UI 설정의 동기화를 뜻하지 않습니다. theme만 보내면 unknown 제거 후 빈 PATCH로 검증 오류이고, 허용 필드와 함께 보내면 theme은 저장하지 않습니다.
+
 Request body:
 
 하나 이상의 필드가 필요합니다.
@@ -1033,6 +1040,8 @@ Response data:
 
 ### `DELETE /schedules/:schedule_id`
 
+본인 일정의 행을 잠그고 일정 대상 Reminder·일정 삭제·활동로그를 한 transaction으로 처리합니다. 로그 실패도 삭제를 롤백합니다. 연결 Task는 보존하고 schedule_id/sort_order를 null로 해제하며 Share/ShareLink는 FK로 제거합니다. Task 대상 Reminder는 보존합니다.
+
 개인 일정 삭제.
 
 Response data:
@@ -1045,7 +1054,7 @@ Response data:
 
 ### `DELETE /schedules/bulk`
 
-개인 일정을 여러 건 삭제합니다. 본인 소유가 아닌 ID 또는 존재하지 않는 ID는 `failed_ids`에 포함됩니다.
+개인 일정을 여러 건 삭제합니다. 본인 소유가 아닌 ID 또는 존재하지 않는 ID는 failed_ids에 포함됩니다. 소유 일정의 행을 ID순으로 잠그고 일정 대상 Reminder·일정·활동로그를 한 transaction에서 정리합니다. Task는 보존하고 연결·순서는 null로 해제하며 Task 대상 Reminder와 타인 일정은 유지합니다.
 
 Request body:
 
@@ -1067,6 +1076,34 @@ Response data:
 | --- | --- | --- |
 | `deleted_count` | number | 삭제된 일정 수 |
 | `failed_ids` | number[] | 삭제하지 못한 ID |
+
+## 개인 일정과 기존 할 일의 재계획
+
+현재 기존 Task를 새 일정에 연결하려면 두 요청이 필요합니다. 한 요청으로 일정 생성과 기존 Task 연결을 transaction 처리하는 범용 재계획 API는 없습니다.
+
+```http
+POST /api/v1/schedules
+Content-Type: application/json
+
+{"title":"재계획 일정","start_datetime":"2026-10-12T10:00:00+09:00"}
+```
+
+생성 응답201 data.schedule의 ID로 `PATCH /api/v1/tasks/:task_id {"schedule_id":"생성된 ID"}`를 요청합니다. Task와 일정 모두 본인 소유여야 합니다. 이 PATCH 내부의 연결·순번·활동로그는 한 transaction으로 반영하지만 앞선 일정 생성은 별개입니다.
+
+| 상황 | 실제 결과·처리 |
+| --- | --- |
+| 일정 생성 성공 후 Task 연결 실패 | 새 일정은 남고 기존 Task 연결은 유지. 일정을 조회하여 재연결/사용자 의도에 따른 정리를 결정 |
+| 일정 생성 응답 유실 | POST 재시도 시 중복 일정 가능. 재생성 전에 목록 확인 |
+| 여러 기기에서 같은 Task를 다른 일정에 연결 | 사용자 락으로 직렬화하되 나중 처리 연결이 적용. 앞선 생성 일정은 자동 삭제되지 않음 |
+| schedule_id만 변경 | Task due_datetime/status/completed_at과 일정 완료 상태는 자동 동기화하지 않음 |
+| 생성/수정/삭제 후 활동로그 저장 실패 | 일정 변경·정리·로그가 같은 transaction으로 롤백됨. 반복 생성과 bulk 삭제도 동일 |
+| 일정 시작/종료시각 동시 수정 | 행 잠금 후 최신값으로 병합·검증. 최종 범위가 역전되는 요청은400 INVALID_SCHEDULE_RANGE |
+
+범용 Idempotency-Key, expected_version, If-Match 지원은 없습니다. updated_at은 수정 전조건이 아니며 X-Request-Id는 추적용입니다. Task 락과 TASK_ORDER_MISMATCH는 버전 충돌 검사와 다릅니다. AI apply의 신규 일정·신규 Task 원자 생성/기적용 중복 제어는 기존 Task 재계획에 적용할 수 없습니다.
+
+회사 프로젝트 Work Item은 개인 Task와 다른 리소스입니다. 응답에 company_schedule_id가 있어도 현재 업무 생성/수정·조직 sync DTO에는 이 연결을 저장하는 API가 없습니다. 개인 Task schedule_id를 회사 Work Item에 적용하지 않습니다.
+
+근거: 일정 서비스 (백엔드 원본: `src/modules/schedules/schedules.service.ts`), Task ordering (백엔드 원본: `src/modules/tasks/task-ordering.ts`), 프로젝트 DTO (백엔드 원본: `src/modules/company-projects/company-projects.dto.ts`), DB 기간 제약 (백엔드 원본: `prisma/migrations/20260417160000_init/migration.sql`), [공통 재시도 계약](../../devdocs/api-reference/debugging-guide.md).
 
 ## Schedule Sharing
 
@@ -1653,6 +1690,32 @@ Response data:
 
 모든 Company Projects API는 인증 필요. 프로젝트 업무는 개인 일정(`schedules`)과 다른 리소스이며, 개인 캘린더에서 표시할 때는 실제 담당자 assignment 기준 조회 API를 사용합니다.
 
+
+[프로젝트 공통 계약](../../devdocs/api-reference/company-projects.md)에 생성/수정 DTO의 모든 필드·기본값·nullable·계층·상태·오류를 기술합니다. 진행률 manual_override·baseline recovery·reminder failed는 20261012090000_project_contract_constraints migration 적용 후 정상 저장됩니다. 배정 역할·숫자·달력 날짜는 DTO에서400으로 검증하며 graph 변경은 project 잠금으로 직렬화합니다.
+
+### 프로젝트 관리 API
+
+활성 회사 구성원이면서 해당 프로젝트의 활성 owner/manager이면 일반 사용자 토큰으로 아래 경로를 호출할 수 있습니다. 멤버 위임·제거는 owner만 가능하고 마지막 owner 제거는409입니다. 기업 전체 관리 권한을 부여하는 기능은 아닙니다.
+
+| Method | `/api/v1` 뒤 경로 | 최소 요청·data |
+| --- | --- | --- |
+| PATCH | `/company-projects/:company_project_id` | name/description/status/visibility/origin_department_id/계획·실적 날짜/completed_at 중1개 이상 → project |
+| POST | `/company-projects/:company_project_id/phases` | `{name:"기획"}` → phase,201 |
+| PATCH / DELETE | `/company-projects/:company_project_id/phases/:phase_id` | PATCH 허용필드1개 이상 / DELETE Phase만 취소 → phase |
+| POST | `/company-projects/:company_project_id/work-items` | `{title:"요구사항 정리"}` → work_item,201 |
+| PATCH / DELETE | `/company-projects/:company_project_id/work-items/:work_item_id` | PATCH 허용필드1개 이상 / DELETE subtree 취소 → work_item |
+| PUT | `/company-projects/:company_project_id/work-items/:work_item_id/departments` | `{department_ids:[3]}` → departments |
+| POST | `/company-projects/:company_project_id/work-items/:work_item_id/assignments` | `{assignee_company_member_id:20}` → assignment,201 |
+| PATCH | `/company-projects/:company_project_id/work-items/:work_item_id/assignments/:assignment_id` | 담당자 교체 포함 허용필드1개 이상 → assignment |
+| POST | `/company-projects/:company_project_id/dependencies` | 선행·후행 업무 ID 필수 → dependency,201 |
+| DELETE | `/company-projects/:company_project_id/dependencies/:dependency_id` | body 없음 → data:{} |
+
+필수 필드는 Phase name, 업무 title, 배정 assignee_company_member_id입니다. 세부 허용 필드는 공통 계약의 필드표를 따릅니다. root depth=1/최대5이며 Phase는 선택입니다. 부모의 Phase·책임 부서를 자동 상속하지 않습니다. parent_work_item_id:null은 루트 이동, company_project_phase_id:null은 Phase 연결 해제입니다. 자기 자신/자손 아래 이동 또는 이동 후 자손 깊이 초과는 거절하고 transaction을 롤백합니다.
+
+업무 status:done은 진행률100·완료시각·자식·담당자 상태를 자동 반영하지 않습니다. PATCH status:cancelled는 해당 업무만 취소합니다. 업무 DELETE는 자신+모든 자손·배정·예약 reminder를 취소하고 관련 의존성을 삭제합니다. Phase DELETE는 소속 업무를 취소하지 않습니다.
+
+담당자 해제는 assignment.status=cancelled로 표현하며 assignee null/assignment DELETE는 없습니다. 관리용 assignment PATCH와 아래 본인용 `/work-assignments/:assignment_id` PATCH는 다른 계약입니다. 부서 null fallback, 완료시각 처리, 역할4종, 의존성 생성/삭제 규칙은 공통 계약을 따릅니다.
+
 ### `GET /company-projects`
 
 로그인 사용자가 볼 수 있는 회사 프로젝트 목록 조회.
@@ -1664,6 +1727,8 @@ Query params:
 - `q`: 이름/설명 검색
 - `from`, `to`: 프로젝트 계획 기간이 조회 범위와 겹치는 항목만 조회
 - `assigned_only`: `true`이면 본인 assignment가 있는 프로젝트만 조회
+
+assigned_only는 true/false를 정상 구분합니다. false 또는 생략이면 본인 배정 필터를 적용하지 않습니다. 반환은 data.projects이며 각 프로젝트에 summary/detail_policy/현재 사용자 role을 추가하지 않습니다.
 
 visibility:
 
@@ -1727,9 +1792,32 @@ Response data:
 - 일반 사용자는 본인 assignment 또는 프로젝트 `owner`/`manager` 권한이 있는 경우에만 담당자 식별 정보를 볼 수 있습니다.
 - 대형 프로젝트는 상세 응답에서 상위 depth만 반환될 수 있으며, 하위 업무는 children API로 조회합니다.
 
+
+정확한 집계/정책 구조의 예시:
+
+```json
+{
+  "summary": { "phase_count": 3, "work_item_count": 501, "assignment_count": 700 },
+  "detail_policy": {
+    "scale": "medium",
+    "mode": "summary",
+    "max_depth": 2,
+    "full_load_allowed": false,
+    "returned_work_item_count": 100
+  }
+}
+```
+
+- summary는 취소된 행을 포함한 프로젝트 전체 건수입니다. assignment_count는 고유 사람 수가 아닙니다. 전체 완료 수·지연 수·완료율 집계는 현재 없습니다.
+- 전체 업무>500이면 summary/depth≤2, 그 외 full/depth≤5. scale은 전체 업무>1500 또는 계획기간>365일이면 large, 그 외 >300이면 medium, 나머지 small입니다. mode/scale은 독립적입니다.
+- returned_work_item_count는 반환 배열 길이입니다. 상세에는 mode/max_depth override query가 없습니다. full_load_allowed는 이 상세가 full인지 표시합니다.
+- work_items는 평면 배열이며 rollup을 붙이지 않습니다. phases는 전체, departments/assignments는 반환 업무에 연결된 행만, dependencies는 양쪽이 반환 업무에 있을 때만 포함합니다.
+- 담당자 마스킹은 assignee_company_member_id=0, assigned_by/completed_by ID=null입니다. 생성자/활성 owner·manager는 전체 식별자를 볼 수 있습니다.
+- project/phase.progress_percent는 업무에서 자동 집계되는 전체 완료율이 아닙니다. [rollup 계산·캐시 의미](../../devdocs/api-reference/company-projects.md)를 확인합니다.
+
 ### `GET /company-projects/:company_project_id/gantt`
 
-간트 조회. 서버가 프로젝트 규모와 요청 옵션에 따라 `full` 또는 `summary` 응답을 결정합니다.
+간트 조회. 서버가 필터 후 업무 수와 계획기간으로 정책을 표시합니다. 실제 행 필터는 max_depth/phase/기간 조건이며 mode만으로 추가 축약하지 않습니다.
 
 Query params:
 
@@ -1740,7 +1828,6 @@ Query params:
 
 Response data:
 
-- `project`
 - `gantt_policy`
 - `phases`
 - `items`
@@ -1766,13 +1853,15 @@ Response data:
 | `title` | string | 업무명 |
 | `status` | `todo` \| `in_progress` \| `done` \| `postponed` \| `cancelled` | 상태 |
 | `priority` | `low` \| `medium` \| `high` \| `urgent` | 우선순위 |
-| `planned_start_date` | `YYYY-MM-DD` \| null | 간트 bar 시작일 |
-| `planned_end_date` | `YYYY-MM-DD` \| null | 간트 bar 종료일 |
+| `planned_start_date` | datetime string \| null | 간트 bar 시작일 |
+| `planned_end_date` | datetime string \| null | 간트 bar 종료일 |
 | `progress_percent` | number | 진행률 |
 | `progress_override_percent` | number \| null | 수동 override 진행률 |
 | `sort_order` | number | 정렬 순서 |
 | `wbs_code` | string \| null | WBS 코드 |
 | `rollup` | object \| null | child/descendant/done/delayed count와 rollup progress |
+
+현행 응답에는 project/summary/departments/assignments가 없습니다. mode=full이어도 max_depth 기본2가 적용되므로 전체 깊이를 조회하려면 max_depth=5를 명시합니다. auto+small은 응답 mode도 auto이며, 다른 규모에서는 summary입니다. full_load_allowed는 small 또는 요청 mode=full에서 true입니다. 날짜 응답은 ISO datetime입니다. rollup done/delayed는 직계 자식 기준이고 전체 프로젝트 집계가 아닙니다.
 
 `dependencies[]`:
 
@@ -1791,6 +1880,8 @@ Response data:
 Query params:
 
 - `depth`: 1-5, 기본 1
+
+Response data: `{parent,items,departments,assignments,dependencies}`. parent는 기준 업무이고 items에는 포함되지 않습니다. depth는 기준 업무 아래의 상대 단계 수입니다. items는 cancelled도 포함한 평면 배열이며 각 행에 rollup(object/null)을 붙입니다. 관련 의존성은 선행/후행 중 한쪽만 items에 있어도 포함됩니다. cursor/has_more/total/summary는 없으며 여러 확장 응답은 ID로 중복 제거합니다. 상세 관계/rollup 계산은 [공통 계약](../../devdocs/api-reference/company-projects.md)을 따릅니다.
 
 ### `GET /company-projects/my-work-items`
 
@@ -1811,7 +1902,7 @@ Request body:
 {
   "status": "done",
   "progress_percent": 100,
-  "completed_at": "2026-07-31T09:00:00+09:00"
+  "completed_at": "2026-07-31T00:00:00Z"
 }
 ```
 
@@ -1821,6 +1912,8 @@ Request body:
 - `completed_at`을 보내면 서버 자동 시각 대신 요청값을 저장합니다.
 - `status != done`에서 `completed_at`을 non-null로 보내면 `INVALID_PROJECT_ASSIGNMENT_STATE` 에러가 발생합니다.
 - `completed_at`은 현장 입력 지연 보정을 위해 수정 가능하며 audit log에 기록됩니다.
+
+- 본인 배정 PATCH는 status/progress_percent/completed_at만 받습니다. 담당자 교체는 관리용 PATCH를 사용합니다. status/completed_at을 모두 생략하면 기존 완료시각을 유지하고, status:done을 반복 보내면 요청시각으로 다시 설정될 수 있습니다. 프로젝트 배정 datetime은 현재 UTC Z 형식만 허용합니다.
 
 ### `GET /company-projects/my-calendar-items`
 
@@ -2806,6 +2899,8 @@ Response data:
 
 리마인더 생성.
 
+일정 대상은 소유 일정 행 잠금 안에서 대상 검증·리마인더·활동로그를 함께 저장합니다. 생성이 먼저 완료되면 뒤따르는 일정 삭제가 리마인더를 정리하고, 삭제가 먼저 완료되면 생성은 `404 SCHEDULE_NOT_FOUND`로 실패합니다.
+
 Request body:
 
 | 필드 | 타입 | 필수 | 기본값 | 제약 |
@@ -2860,6 +2955,7 @@ Request body:
 - `is_sent`를 true로 바꾸고 `sent_at`을 생략하면 기존 `sent_at`이 있으면 유지하고, 없으면 현재 시각을 설정합니다.
 - `is_sent`가 false이면 `sent_at`은 null이 됩니다.
 - `is_sent`를 false로 변경하거나 `remind_at`, `reminder_type`을 변경하면 푸시 발송 시도/오류 정보가 초기화됩니다.
+- 수정과 활동로그는 하나의 트랜잭션입니다. 일정 대상 변경은 관련 일정들을 ID 순으로 잠근 뒤 최신 리마인더 값을 병합합니다. 일정 삭제와 경쟁해 대상이 사라지면 `404`입니다. 동시 대상 변경으로 필요한 잠금이 달라지면 내부 재시도하며, 3회 처리에 실패하면 `409 REMINDER_CHANGED`입니다. 이 경우 상세를 다시 조회한 뒤 수정합니다.
 
 Response data:
 
@@ -2872,6 +2968,7 @@ Response data:
 - `404 TASK_NOT_FOUND`
 - `404 PROJECT_WORK_ITEM_NOT_FOUND`
 - `404 PROJECT_WORK_ASSIGNMENT_NOT_FOUND`
+- `409 REMINDER_CHANGED`
 
 ### `DELETE /reminders/:reminder_id`
 
@@ -2947,6 +3044,8 @@ Response data:
 
 알림센터용 인앱 알림 조회/읽음 처리 API입니다. 푸시 알림은 놓칠 수 있으므로, 앱/웹은 이 API로 사용자의 알림 목록과 unread count를 다시 조회합니다.
 
+서버 알림 삭제/숨김 API와 deleted_at/hidden_at/dismissed_at은 없습니다. 읽음은 서버에 저장되어 다른 기기에도 반영되지만 기본 목록에는 읽은 항목도 남습니다. 브라우저에서 숨긴 항목은 서버 동기화되지 않으며 unread_only=true를 영구 삭제 대신 사용할 수 없습니다.
+
 ### `GET /notifications`
 
 로그인한 사용자의 알림 목록 조회.
@@ -2973,7 +3072,7 @@ Response data:
   - `push_sent_at`
   - `push_status`
   - `created_at`
-- `meta`
+- `meta`: `{page,page_size,total,total_pages}`.0건이면 total_pages=0
 
 ### `GET /notifications/unread-count`
 
@@ -2986,6 +3085,8 @@ Response data:
 ### `PATCH /notifications/:notification_recipient_id/read`
 
 알림 1건을 읽음 처리합니다.
+
+notification_id가 아닌 notification_recipient_id를 사용합니다. 본인 recipient만 가능하며 이미 읽은 항목은 기존 read_at을 유지합니다. data.notification은 목록 item과 달리 recipient 행에 중첩 notification을 포함합니다.
 
 Response data:
 
@@ -3222,7 +3323,7 @@ Response data:
 | 개인 일정 생성/수정 | schedules → category 소유권 → 날짜/반복 검사 → 저장 | ID 타입, timezone, 종료 범위, nullable, category 용도 |
 | 할 일과 일정 연결 | tasks → 본인 schedule/category 확인 | schedule_id가 개인 일정 ID인지, 다른 사용자 일정인지 |
 | 메모가 처리 중에 머묾 | memos → 비동기 AI parse → parse result | auto_parse, processing 시간, 서버 재시작, parse_error_message |
-| AI 제안 적용 400 | ai-chat/memos → 저장된 action → 실제 생성 | [AI 디버깅](api_ai.md#ai-개발자-디버깅-계약), 원본 action 및 index |
+| AI 제안 적용 400 | ai-chat/memos → 저장된 action → 실제 생성 | [AI 디버깅](./api_ai.md#ai-개발자-디버깅-계약), 원본 action 및 index |
 | 회사 일정이 안 보임 | 활성 membership → 회사/부서 대상 → 일정 상태 | 사용자 소속/부서, target, approval 상태, 목록 필터 |
 | 승인 버튼 실패 | approval ID → 현재 pending → 승인자/대행자 권한 | 일정 ID와 approval ID 혼동, 다른 부서, 이미 결정됨 |
 | 공유 일정 편집 불가 | share 접근 권한 → 소유자/편집 권한 검사 | 조회 권한과 편집 권한 구분, 원본 소유자, share 상태 |
@@ -3248,7 +3349,7 @@ Response data:
 
 개인 반복 일정은 `GET/PATCH/DELETE /schedules/:schedule_id/series`로 그룹 조회와 single/following/all 범위 관리를 제공합니다. 연결 데이터 확인·예외 보존·규칙 교체 계약은 [수명주기 명세 F06](../../devdocs/api-reference/feature-lifecycle.md#f06-개인-반복-일정-관리)을 따릅니다. 기존 개별 PATCH는 한 일정만 바꾸고 예외로 표시합니다.
 
-회사 일정의 사용자 create/update body는 현재 `.datetime()` 검증이므로 Z 시각을 사용합니다. 개인 일정의 `+09:00` 예제를 모든 회사 API에 그대로 복사하면 안 됩니다. 날짜 제약은 [company-schedules DTO](../src/modules/company-schedules/company-schedules.dto.ts)를 확인합니다.
+회사 일정의 사용자 create/update body는 현재 `.datetime()` 검증이므로 Z 시각을 사용합니다. 개인 일정의 `+09:00` 예제를 모든 회사 API에 그대로 복사하면 안 됩니다. 날짜 제약은 company-schedules DTO (백엔드 원본: `src/modules/company-schedules/company-schedules.dto.ts`)를 확인합니다.
 
 ### 4. 협업 일정·승인 상태
 
@@ -3263,7 +3364,7 @@ Response data:
 
 작성자는 `POST /company-schedule-approvals/:approval_id/withdraw`로 아직 결정되지 않은 생성/변경 요청을 철회할 수 있습니다. [철회 조건](../../devdocs/api-reference/feature-lifecycle.md#f02-승인-요청-철회)을 확인합니다. 생성·변경 요청·승인·대상 부서는 각각 다른 레코드/상태입니다.
 
-근거: [회사 일정 service](../src/modules/company-schedules/company-schedules.service.ts), [승인 controller](../src/modules/company-schedule-approvals/company-schedule-approvals.controller.ts).
+근거: 회사 일정 service (백엔드 원본: `src/modules/company-schedules/company-schedules.service.ts`), 승인 controller (백엔드 원본: `src/modules/company-schedule-approvals/company-schedule-approvals.controller.ts`).
 
 ### 5. 공유·친구·초대
 

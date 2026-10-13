@@ -3,6 +3,17 @@ import { test, expect } from '@playwright/test';
 import { installMockApi, seedAuth, QA_NOW } from './fixtures';
 import type { NotificationRecipient } from '../../src/types';
 
+// The read endpoint returns a recipient row with the notification nested inside.
+function readResponse(item: NotificationRecipient) {
+  const { type, title, body, data, ...recipient } = item;
+  return {
+    notification: {
+      ...recipient,
+      notification: { notification_id: item.notification_id, type, title, body, data, created_at: item.created_at },
+    },
+  };
+}
+
 async function clickInboxAction(page: import('@playwright/test').Page, name: string) {
   await page.getByRole('button', { name: '알림 더보기' }).click();
   await page.getByRole('menuitem', { name, exact: true }).click();
@@ -33,7 +44,7 @@ for (const trigger of ['background push', 'window focus', 'reopen inbox'] as con
         const id = Number(path.split('/').at(-2));
         const notification = notifications.find((item) => item.notification_recipient_id === id)!;
         notification.read_at = QA_NOW;
-        data = { notification };
+        data = readResponse(notification);
       } else {
         data = { notifications };
       }
@@ -182,7 +193,7 @@ test('a delayed server copy replaces a read receipt without resetting it to unre
     } else if (path.endsWith('/read')) {
       readRequests += 1;
       notifications[0].read_at = QA_NOW;
-      data = { notification: notifications[0] };
+      data = readResponse(notifications[0]);
     } else {
       data = { notifications };
     }

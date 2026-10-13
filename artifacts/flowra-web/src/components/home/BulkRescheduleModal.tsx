@@ -14,6 +14,7 @@ import { FloatingPanelPortalProvider } from "@/components/ui/FloatingPanelPortal
 import { getErrorMessage } from "@/lib/error";
 import { taskDueLabel } from "@/lib/homeTasks";
 import type { Schedule, Task } from "@/types";
+import type { RescheduleRecoveryChoice, ScheduleCreationRecovery } from "@/hooks/useTaskReschedule";
 import {
   createRescheduleDraft,
   getRescheduleStart,
@@ -22,6 +23,7 @@ import {
   isRescheduleStartPast,
   rescheduleDraftSummary,
   RescheduleFields,
+  RescheduleCreationNotice,
   RescheduleRecoveryNotice,
   type RescheduleDraft,
 } from "./RescheduleFields";
@@ -32,6 +34,7 @@ export default function BulkRescheduleModal({
   timezone,
   pending,
   unlinked,
+  creationRecovery,
   onClose,
   onSave,
   onRestoreFocus,
@@ -41,11 +44,13 @@ export default function BulkRescheduleModal({
   timezone: string;
   pending: boolean;
   unlinked: Readonly<Record<number, Schedule>>;
+  creationRecovery: Readonly<Record<number, ScheduleCreationRecovery>>;
   onClose: () => void;
   onSave: (
     task: Task,
     start: Date,
     duration: number,
+    choice?: RescheduleRecoveryChoice,
   ) => Promise<Schedule | null>;
   onRestoreFocus: () => void;
 }) {
@@ -182,6 +187,30 @@ export default function BulkRescheduleModal({
         }
       }
       onClose();
+    } finally {
+      submitting.current = false;
+      setSaving(false);
+    }
+  }
+
+  async function recover(task: Task, choice?: RescheduleRecoveryChoice) {
+    if (submitting.current || busy) return;
+    const draft = drafts[task.task_id];
+    const start = getRescheduleStart(draft);
+    if (choice && "createNew" in choice && (!isRescheduleDraftValid(draft, today) || isRescheduleStartPast(start))) {
+      showError(task.task_id, "현재 이후의 시작 시간을 선택해 주세요.");
+      return;
+    }
+    submitting.current = true;
+    setSaving(true);
+    try {
+      const schedule = await onSave(task, start, draft.duration, choice);
+      if (!schedule) return;
+      savedIds.current.add(task.task_id);
+      setSaved(new Set(savedIds.current));
+      setError(null);
+    } catch (cause) {
+      showError(task.task_id, getErrorMessage(cause, "생성 결과를 확인하지 못했어요."));
     } finally {
       submitting.current = false;
       setSaving(false);
@@ -426,6 +455,9 @@ export default function BulkRescheduleModal({
                             <div className="space-y-4 border-t border-slate-100 p-4">
                               {existing && (
                                 <RescheduleRecoveryNotice existing={existing} />
+                              )}
+                              {creationRecovery[task.task_id] && (
+                                <RescheduleCreationNotice recovery={creationRecovery[task.task_id]} pending={busy} onChoose={(choice) => void recover(task, choice)} />
                               )}
                               <RescheduleFields
                                 value={draft}

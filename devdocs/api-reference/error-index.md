@@ -216,16 +216,16 @@
 | 403 / ApiError | "Department scoped admins cannot create company-wide schedule targets" | [src/company-admin/modules/schedules/schedules.controller.ts:66](../../src/company-admin/modules/schedules/schedules.controller.ts#L66) |
 | 403 / ApiError | "This company admin can only access assigned departments" | [src/company-admin/modules/schedules/schedules.controller.ts:164](../../src/company-admin/modules/schedules/schedules.controller.ts#L164) |
 | 403 / ApiError | "Department is outside admin scope" | [src/modules/company-projects/company-project-presets.service.ts:74](../../src/modules/company-projects/company-project-presets.service.ts#L74) |
-| 403 / ApiError | "All project departments must be within admin scope for this mutation" | [src/modules/company-projects/company-project-write-access.ts:11](../../src/modules/company-projects/company-project-write-access.ts#L11) |
-| 403 / ApiError | "No active departments are assigned" | [src/modules/company-projects/company-projects.service.ts:228](../../src/modules/company-projects/company-projects.service.ts#L228) |
-| 403 / ApiError | "Project is outside admin scope" | [src/modules/company-projects/company-projects.service.ts:258](../../src/modules/company-projects/company-projects.service.ts#L258) |
-| 403 / ApiError | "A department is required for scoped writes" | [src/modules/company-projects/company-projects.service.ts:279](../../src/modules/company-projects/company-projects.service.ts#L279) |
-| 403 / ApiError | "Department is outside admin scope" | [src/modules/company-projects/company-projects.service.ts:284](../../src/modules/company-projects/company-projects.service.ts#L284) |
-| 403 / ApiError | "Member is outside admin scope" | [src/modules/company-projects/company-projects.service.ts:387](../../src/modules/company-projects/company-projects.service.ts#L387) |
-| 403 / ApiError | "Scoped projects require an origin department" | [src/modules/company-projects/company-projects.service.ts:1396](../../src/modules/company-projects/company-projects.service.ts#L1396) |
-| 403 / ApiError | "Assignee is outside admin scope" | [src/modules/company-projects/company-projects.service.ts:2173](../../src/modules/company-projects/company-projects.service.ts#L2173) |
-| 403 / ApiError | "Assignee is outside admin scope" | [src/modules/company-projects/company-projects.service.ts:2280](../../src/modules/company-projects/company-projects.service.ts#L2280) |
-| 403 / ApiError | "Full project audit history requires company scope" | [src/modules/company-projects/company-projects.service.ts:2659](../../src/modules/company-projects/company-projects.service.ts#L2659) |
+| 403 / ApiError | "All project departments must be within admin scope for this mutation" | [src/modules/company-projects/company-project-write-access.ts:14](../../src/modules/company-projects/company-project-write-access.ts#L14) |
+| 403 / ApiError | "No active departments are assigned" | [src/modules/company-projects/company-projects.service.ts:219](../../src/modules/company-projects/company-projects.service.ts#L219) |
+| 403 / ApiError | "Project is outside admin scope" | [src/modules/company-projects/company-projects.service.ts:249](../../src/modules/company-projects/company-projects.service.ts#L249) |
+| 403 / ApiError | "A department is required for scoped writes" | [src/modules/company-projects/company-projects.service.ts:270](../../src/modules/company-projects/company-projects.service.ts#L270) |
+| 403 / ApiError | "Department is outside admin scope" | [src/modules/company-projects/company-projects.service.ts:275](../../src/modules/company-projects/company-projects.service.ts#L275) |
+| 403 / ApiError | "Member is outside admin scope" | [src/modules/company-projects/company-projects.service.ts:378](../../src/modules/company-projects/company-projects.service.ts#L378) |
+| 403 / ApiError | "Scoped projects require an origin department" | [src/modules/company-projects/company-projects.service.ts:1388](../../src/modules/company-projects/company-projects.service.ts#L1388) |
+| 403 / ApiError | "Assignee is outside admin scope" | [src/modules/company-projects/company-projects.service.ts:2211](../../src/modules/company-projects/company-projects.service.ts#L2211) |
+| 403 / ApiError | "Assignee is outside admin scope" | [src/modules/company-projects/company-projects.service.ts:2318](../../src/modules/company-projects/company-projects.service.ts#L2318) |
+| 403 / ApiError | "Full project audit history requires company scope" | [src/modules/company-projects/company-projects.service.ts:2701](../../src/modules/company-projects/company-projects.service.ts#L2701) |
 
 ## COMPANY_ADMIN_UNAUTHORIZED
 
@@ -324,7 +324,7 @@
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 400 / ApiError | "Company member must belong to a department" | [src/modules/company-projects/company-projects.service.ts:951](../../src/modules/company-projects/company-projects.service.ts#L951) |
+| 400 / ApiError | "Company member must belong to a department" | [src/modules/company-projects/company-projects.service.ts:943](../../src/modules/company-projects/company-projects.service.ts#L943) |
 | 400 / ApiError | "Company member must belong to a department" | [src/modules/company-schedules/company-schedules.service.ts:216](../../src/modules/company-schedules/company-schedules.service.ts#L216) |
 
 ## COMPANY_MEMBER_IDENTITY_CONFLICT
@@ -340,7 +340,7 @@
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 409 / AdminApiError | "A membership identity cannot be transferred to another account; use a new membership" | [src/admin/common/admin-error-middleware.ts:23](../../src/admin/common/admin-error-middleware.ts#L23) |
+| 409 / AdminApiError | "A membership identity cannot be transferred to another account; use a new membership" | [src/admin/common/admin-error-middleware.ts:27](../../src/admin/common/admin-error-middleware.ts#L27) |
 | 409 / ApiError | "A membership identity cannot be transferred to another account; use a new membership" | [src/common/http/error-middleware.ts:30](../../src/common/http/error-middleware.ts#L30) |
 | 409 / ApiError | "Unlink the existing account and send a new invitation before changing identity" | [src/company-admin/modules/members/members.controller.ts:460](../../src/company-admin/modules/members/members.controller.ts#L460) |
 | 409 / ApiError | "Linked member email cannot be changed by organization synchronization" | [src/modules/companies/companies.service.ts:1433](../../src/modules/companies/companies.service.ts#L1433) |
@@ -369,7 +369,7 @@
 | 404 / ApiError | "Company member not found" | [src/company-admin/modules/schedules/schedules.controller.ts:118](../../src/company-admin/modules/schedules/schedules.controller.ts#L118) |
 | 404 / ApiError | "Company member not found" | [src/modules/companies/companies.service.ts:223](../../src/modules/companies/companies.service.ts#L223) |
 | 404 / ApiError | "Company member not found" | [src/modules/company-memberships/company-memberships.controller.ts:169](../../src/modules/company-memberships/company-memberships.controller.ts#L169) |
-| 404 / ApiError | "Company member not found" | [src/modules/company-projects/company-projects.service.ts:329](../../src/modules/company-projects/company-projects.service.ts#L329) |
+| 404 / ApiError | "Company member not found" | [src/modules/company-projects/company-projects.service.ts:320](../../src/modules/company-projects/company-projects.service.ts#L320) |
 
 ## COMPANY_MEMBER_USER_CONFLICT
 
@@ -388,7 +388,7 @@
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
 | 403 / ApiError | "Active company membership is required" | [src/modules/companies/companies.controller.ts:56](../../src/modules/companies/companies.controller.ts#L56) |
-| 403 / ApiError | "Active company membership is required" | [src/modules/company-projects/company-projects.service.ts:94](../../src/modules/company-projects/company-projects.service.ts#L94) |
+| 403 / ApiError | "Active company membership is required" | [src/modules/company-projects/company-projects.service.ts:85](../../src/modules/company-projects/company-projects.service.ts#L85) |
 | 403 / ApiError | "Active company membership is required" | [src/modules/company-schedules/company-schedules.service.ts:208](../../src/modules/company-schedules/company-schedules.service.ts#L208) |
 
 ## COMPANY_NOT_FOUND
@@ -407,7 +407,7 @@
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 409 / AdminApiError | "At least one active company owner must remain" | [src/admin/common/admin-error-middleware.ts:20](../../src/admin/common/admin-error-middleware.ts#L20) |
+| 409 / AdminApiError | "At least one active company owner must remain" | [src/admin/common/admin-error-middleware.ts:24](../../src/admin/common/admin-error-middleware.ts#L24) |
 | 409 / ApiError | "At least one active company owner must remain" | [src/common/http/error-middleware.ts:27](../../src/common/http/error-middleware.ts#L27) |
 | 403 / ApiError | "Only company owners may delegate administrative authority" | [src/company-admin/common/require-company-admin-permission.ts:29](../../src/company-admin/common/require-company-admin-permission.ts#L29) |
 | 400 / ApiError | "At least one active owner must remain assigned to the company" | [src/company-admin/modules/admins/admins.controller.ts:423](../../src/company-admin/modules/admins/admins.controller.ts#L423) |
@@ -423,26 +423,27 @@
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 403 / ApiError | "Project creation is disabled for this department" | [src/modules/company-projects/company-projects.service.ts:985](../../src/modules/company-projects/company-projects.service.ts#L985) |
+| 403 / ApiError | "Project creation is disabled for this department" | [src/modules/company-projects/company-projects.service.ts:977](../../src/modules/company-projects/company-projects.service.ts#L977) |
 
 ## COMPANY_PROJECT_CREATE_FORBIDDEN
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 403 / ApiError | "Only the department leader can create projects for this department" | [src/modules/company-projects/company-projects.service.ts:995](../../src/modules/company-projects/company-projects.service.ts#L995) |
+| 403 / ApiError | "Only the department leader can create projects for this department" | [src/modules/company-projects/company-projects.service.ts:987](../../src/modules/company-projects/company-projects.service.ts#L987) |
 
 ## COMPANY_PROJECT_FORBIDDEN
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 403 / ApiError | "Project is not visible to this user" | [src/modules/company-projects/company-projects.service.ts:190](../../src/modules/company-projects/company-projects.service.ts#L190) |
+| 403 / ApiError | "Project is not visible to this user" | [src/modules/company-projects/company-projects.service.ts:181](../../src/modules/company-projects/company-projects.service.ts#L181) |
 
 ## COMPANY_PROJECT_NOT_FOUND
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 404 / ApiError | "Company project not found" | [src/modules/company-projects/company-projects.service.ts:108](../../src/modules/company-projects/company-projects.service.ts#L108) |
-| 404 / ApiError | "Company project not found" | [src/modules/company-projects/company-projects.service.ts:222](../../src/modules/company-projects/company-projects.service.ts#L222) |
+| 404 / ApiError | "Company project not found" | [src/modules/company-projects/company-projects.service.ts:99](../../src/modules/company-projects/company-projects.service.ts#L99) |
+| 404 / ApiError | "Company project not found" | [src/modules/company-projects/company-projects.service.ts:213](../../src/modules/company-projects/company-projects.service.ts#L213) |
+| 404 / ApiError | "Company project not found" | [src/modules/company-projects/project-mutation-lock.ts:17](../../src/modules/company-projects/project-mutation-lock.ts#L17) |
 
 ## COMPANY_ROLE_IN_USE
 
@@ -571,7 +572,7 @@
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 409 / AdminApiError | "Resource conflict." | [src/admin/common/admin-error-middleware.ts:12](../../src/admin/common/admin-error-middleware.ts#L12) |
+| 409 / AdminApiError | "Resource conflict." | [src/admin/common/admin-error-middleware.ts:13](../../src/admin/common/admin-error-middleware.ts#L13) |
 | 409 / AdminApiError | "User is already linked to another company member." | [src/admin/modules/companies/companies.controller.ts:133](../../src/admin/modules/companies/companies.controller.ts#L133) |
 | 409 / AdminApiError | "Company member email is already linked to another user." | [src/admin/modules/companies/companies.controller.ts:653](../../src/admin/modules/companies/companies.controller.ts#L653) |
 | 409 / AdminApiError | "Company member email is already linked to another user." | [src/admin/modules/companies/companies.controller.ts:1384](../../src/admin/modules/companies/companies.controller.ts#L1384) |
@@ -617,7 +618,7 @@
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
 | 403 / ApiError | "Invitation department is inactive" | [src/modules/companies/company-admin-invite.service.ts:36](../../src/modules/companies/company-admin-invite.service.ts#L36) |
-| 403 / ApiError | "Member department is inactive" | [src/modules/company-projects/company-projects.service.ts:982](../../src/modules/company-projects/company-projects.service.ts#L982) |
+| 403 / ApiError | "Member department is inactive" | [src/modules/company-projects/company-projects.service.ts:974](../../src/modules/company-projects/company-projects.service.ts#L974) |
 | 403 / ApiError | "Member department is inactive" | [src/modules/company-schedules/company-schedules.service.ts:224](../../src/modules/company-schedules/company-schedules.service.ts#L224) |
 
 ## DEPARTMENT_LEADER_REQUIRED
@@ -642,8 +643,8 @@
 | 404 / ApiError | "Department not found" | [src/modules/companies/companies.service.ts:807](../../src/modules/companies/companies.service.ts#L807) |
 | 404 / ApiError | "Department not found" | [src/modules/companies/companies.service.ts:975](../../src/modules/companies/companies.service.ts#L975) |
 | 404 / ApiError | "One or more departments were not found" | [src/modules/company-projects/company-project-presets.service.ts:97](../../src/modules/company-projects/company-project-presets.service.ts#L97) |
-| 404 / ApiError | "One or more departments were not found" | [src/modules/company-projects/company-projects.service.ts:307](../../src/modules/company-projects/company-projects.service.ts#L307) |
-| 404 / ApiError | "Department not found" | [src/modules/company-projects/company-projects.service.ts:895](../../src/modules/company-projects/company-projects.service.ts#L895) |
+| 404 / ApiError | "One or more departments were not found" | [src/modules/company-projects/company-projects.service.ts:298](../../src/modules/company-projects/company-projects.service.ts#L298) |
+| 404 / ApiError | "Department not found" | [src/modules/company-projects/company-projects.service.ts:887](../../src/modules/company-projects/company-projects.service.ts#L887) |
 | 404 / ApiError | "One or more departments were not found" | [src/modules/company-schedules/company-schedules.service.ts:289](../../src/modules/company-schedules/company-schedules.service.ts#L289) |
 
 ## DEPARTMENT_REQUIRED
@@ -830,14 +831,14 @@
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
 | 500 / AdminApiError | "Failed to check admin API IP restriction." | [src/admin/common/admin-api-ip-allowlist.ts:28](../../src/admin/common/admin-api-ip-allowlist.ts#L28) |
-| 500 / AdminApiError | "Internal server error." | [src/admin/common/admin-error-middleware.ts:14](../../src/admin/common/admin-error-middleware.ts#L14) |
+| 500 / AdminApiError | "Internal server error." | [src/admin/common/admin-error-middleware.ts:15](../../src/admin/common/admin-error-middleware.ts#L15) |
 
 ## INVALID_ASSIGNMENT_DATE_RANGE
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 400 / ApiError | "ends_at must be after starts_at" | [src/modules/company-projects/company-projects.service.ts:2180](../../src/modules/company-projects/company-projects.service.ts#L2180) |
-| 400 / ApiError | "ends_at must be after starts_at" | [src/modules/company-projects/company-projects.service.ts:2291](../../src/modules/company-projects/company-projects.service.ts#L2291) |
+| 400 / ApiError | "ends_at must be after starts_at" | [src/modules/company-projects/company-projects.service.ts:2218](../../src/modules/company-projects/company-projects.service.ts#L2218) |
+| 400 / ApiError | "ends_at must be after starts_at" | [src/modules/company-projects/company-projects.service.ts:2329](../../src/modules/company-projects/company-projects.service.ts#L2329) |
 
 ## INVALID_CATEGORY_TYPE
 
@@ -949,14 +950,20 @@
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 400 / ApiError | "completed_at can only be set when status is done" | [src/modules/company-projects/company-projects.service.ts:53](../../src/modules/company-projects/company-projects.service.ts#L53) |
+| 400 / ApiError | "completed_at can only be set when status is done" | [src/modules/company-projects/company-projects.service.ts:54](../../src/modules/company-projects/company-projects.service.ts#L54) |
+
+## INVALID_PROJECT_DATE
+
+| 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
+| --- | --- | --- |
+| 400 / ApiError | "Date must be a real calendar date in YYYY-MM-DD format" | [src/modules/company-projects/project-dates.ts:7](../../src/modules/company-projects/project-dates.ts#L7) |
 
 ## INVALID_PROJECT_DEPENDENCY
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 400 / ApiError | "Dependency cannot reference itself" | [src/modules/company-projects/company-projects.service.ts:548](../../src/modules/company-projects/company-projects.service.ts#L548) |
-| 400 / ApiError | "Dependency cannot reference itself" | [src/modules/company-projects/company-projects.service.ts:2403](../../src/modules/company-projects/company-projects.service.ts#L2403) |
+| 400 / ApiError | "Dependency cannot reference itself" | [src/modules/company-projects/company-projects.service.ts:540](../../src/modules/company-projects/company-projects.service.ts#L540) |
+| 400 / ApiError | "Dependency cannot reference itself" | [src/modules/company-projects/company-projects.service.ts:2441](../../src/modules/company-projects/company-projects.service.ts#L2441) |
 
 ## INVALID_PROJECT_LIST_DATE_RANGE
 
@@ -968,8 +975,10 @@
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 400 / ApiError | "Work item cannot be its own parent" | [src/modules/company-projects/company-projects.service.ts:1813](../../src/modules/company-projects/company-projects.service.ts#L1813) |
-| 400 / ApiError | "Work item cannot be moved under its descendant" | [src/modules/company-projects/company-projects.service.ts:1818](../../src/modules/company-projects/company-projects.service.ts#L1818) |
+| 400 / ApiError | "Work item cannot be its own parent" | [src/modules/company-projects/company-projects.service.ts:1848](../../src/modules/company-projects/company-projects.service.ts#L1848) |
+| 400 / ApiError | "Work item cannot be moved under its descendant" | [src/modules/company-projects/company-projects.service.ts:1853](../../src/modules/company-projects/company-projects.service.ts#L1853) |
+| 400 / ApiError | "Work item cannot be its own parent" | [src/modules/company-projects/company-projects.service.ts:4020](../../src/modules/company-projects/company-projects.service.ts#L4020) |
+| 400 / ApiError | "Work item cannot be moved under itself or its descendant" | [src/modules/company-projects/project-work-tree.ts:22](../../src/modules/company-projects/project-work-tree.ts#L22) |
 
 ## INVALID_RECURRENCE_EXCEPTION
 
@@ -1019,8 +1028,8 @@
 | 400 / ApiError | "end_datetime must be after start_datetime" | [src/modules/ai-chat/ai-chat.service.ts:408](../../src/modules/ai-chat/ai-chat.service.ts#L408) |
 | 400 / ApiError | "end_datetime must be after start_datetime" | [src/modules/companies/companies.service.ts:473](../../src/modules/companies/companies.service.ts#L473) |
 | 400 / ApiError | "end_datetime must be after start_datetime" | [src/modules/company-schedules/company-schedules.service.ts:156](../../src/modules/company-schedules/company-schedules.service.ts#L156) |
+| 400 / ApiError | "end_datetime must be after start_datetime" | [src/modules/schedules/schedule-mutations.ts:29](../../src/modules/schedules/schedule-mutations.ts#L29) |
 | 400 / ApiError | "End must not precede start" | [src/modules/schedules/schedule-series.service.ts:81](../../src/modules/schedules/schedule-series.service.ts#L81) |
-| 400 / ApiError | "end_datetime must be after start_datetime" | [src/modules/schedules/schedules.service.ts:15](../../src/modules/schedules/schedules.service.ts#L15) |
 
 ## INVALID_TASK_STATE
 
@@ -1090,7 +1099,7 @@
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 404 / AdminApiError | "Resource not found." | [src/admin/common/admin-error-middleware.ts:10](../../src/admin/common/admin-error-middleware.ts#L10) |
+| 404 / AdminApiError | "Resource not found." | [src/admin/common/admin-error-middleware.ts:11](../../src/admin/common/admin-error-middleware.ts#L11) |
 | 404 / AdminApiError | "Admin permission group not found." | [src/admin/modules/admin-permission-groups/admin-permission-groups.controller.ts:161](../../src/admin/modules/admin-permission-groups/admin-permission-groups.controller.ts#L161) |
 | 404 / AdminApiError | "Admin permission group not found." | [src/admin/modules/admin-permission-groups/admin-permission-groups.controller.ts:252](../../src/admin/modules/admin-permission-groups/admin-permission-groups.controller.ts#L252) |
 | 404 / AdminApiError | "Admin user not found." | [src/admin/modules/admin-users/admin-users.controller.ts:136](../../src/admin/modules/admin-users/admin-users.controller.ts#L136) |
@@ -1237,43 +1246,43 @@
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 400 / ApiError | `Department not found: ${key}` | [src/modules/company-projects/company-projects.service.ts:3736](../../src/modules/company-projects/company-projects.service.ts#L3736) |
+| 400 / ApiError | `Department not found: ${key}` | [src/modules/company-projects/company-projects.service.ts:3786](../../src/modules/company-projects/company-projects.service.ts#L3786) |
 
 ## ORG_PROJECT_DEPENDENCY_WORK_ITEM_NOT_FOUND
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 400 / ApiError | "Dependency work item not found" | [src/modules/company-projects/company-projects.service.ts:4143](../../src/modules/company-projects/company-projects.service.ts#L4143) |
+| 400 / ApiError | "Dependency work item not found" | [src/modules/company-projects/company-projects.service.ts:4199](../../src/modules/company-projects/company-projects.service.ts#L4199) |
 
 ## ORG_PROJECT_MEMBER_NOT_FOUND
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 400 / ApiError | `Member not found: ${key}` | [src/modules/company-projects/company-projects.service.ts:3757](../../src/modules/company-projects/company-projects.service.ts#L3757) |
+| 400 / ApiError | `Member not found: ${key}` | [src/modules/company-projects/company-projects.service.ts:3807](../../src/modules/company-projects/company-projects.service.ts#L3807) |
 
 ## ORG_PROJECT_ORIGIN_DEPARTMENT_NOT_FOUND
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 400 / ApiError | "Origin department not found" | [src/modules/company-projects/company-projects.service.ts:3716](../../src/modules/company-projects/company-projects.service.ts#L3716) |
+| 400 / ApiError | "Origin department not found" | [src/modules/company-projects/company-projects.service.ts:3766](../../src/modules/company-projects/company-projects.service.ts#L3766) |
 
 ## ORG_PROJECT_PARENT_WORK_ITEM_NOT_FOUND
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 400 / ApiError | "One or more parent work items could not be resolved" | [src/modules/company-projects/company-projects.service.ts:4127](../../src/modules/company-projects/company-projects.service.ts#L4127) |
+| 400 / ApiError | "One or more parent work items could not be resolved" | [src/modules/company-projects/company-projects.service.ts:4181](../../src/modules/company-projects/company-projects.service.ts#L4181) |
 
 ## ORG_PROJECT_PHASE_NOT_FOUND
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 400 / ApiError | `Phase not found: ${item_input.external_phase_id.trim()}` | [src/modules/company-projects/company-projects.service.ts:3968](../../src/modules/company-projects/company-projects.service.ts#L3968) |
+| 400 / ApiError | `Phase not found: ${item_input.external_phase_id.trim()}` | [src/modules/company-projects/company-projects.service.ts:4012](../../src/modules/company-projects/company-projects.service.ts#L4012) |
 
 ## ORG_PROJECT_PHASELESS_WITH_PHASES
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 400 / ApiError | "Phase-less projects cannot include phases or phase references" | [src/modules/company-projects/company-projects.service.ts:3699](../../src/modules/company-projects/company-projects.service.ts#L3699) |
+| 400 / ApiError | "Phase-less projects cannot include phases or phase references" | [src/modules/company-projects/company-projects.service.ts:3749](../../src/modules/company-projects/company-projects.service.ts#L3749) |
 
 ## ORIGIN_DEPARTMENT_REQUIRED
 
@@ -1285,41 +1294,42 @@
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 404 / ApiError | "Parent work item not found" | [src/modules/company-projects/company-projects.service.ts:464](../../src/modules/company-projects/company-projects.service.ts#L464) |
+| 404 / ApiError | "Parent work item not found" | [src/modules/company-projects/company-projects.service.ts:456](../../src/modules/company-projects/company-projects.service.ts#L456) |
+| 404 / ApiError | "Parent work item not found in project" | [src/modules/company-projects/project-work-tree.ts:26](../../src/modules/company-projects/project-work-tree.ts#L26) |
 
 ## PROJECT_ASSIGNMENT_FORBIDDEN
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 403 / ApiError | "Only the assignee can update this assignment" | [src/modules/company-projects/company-projects.service.ts:3336](../../src/modules/company-projects/company-projects.service.ts#L3336) |
-| 403 / ApiError | "Only the assignee can create reminders" | [src/modules/company-projects/company-projects.service.ts:3429](../../src/modules/company-projects/company-projects.service.ts#L3429) |
+| 403 / ApiError | "Only the assignee can update this assignment" | [src/modules/company-projects/company-projects.service.ts:3378](../../src/modules/company-projects/company-projects.service.ts#L3378) |
+| 403 / ApiError | "Only the assignee can create reminders" | [src/modules/company-projects/company-projects.service.ts:3471](../../src/modules/company-projects/company-projects.service.ts#L3471) |
 
 ## PROJECT_ASSIGNMENT_NOT_FOUND
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 404 / ApiError | "Project assignment not found" | [src/modules/company-projects/company-projects.service.ts:2252](../../src/modules/company-projects/company-projects.service.ts#L2252) |
-| 404 / ApiError | "Project assignment not found" | [src/modules/company-projects/company-projects.service.ts:3325](../../src/modules/company-projects/company-projects.service.ts#L3325) |
-| 404 / ApiError | "Project assignment not found" | [src/modules/company-projects/company-projects.service.ts:3415](../../src/modules/company-projects/company-projects.service.ts#L3415) |
+| 404 / ApiError | "Project assignment not found" | [src/modules/company-projects/company-projects.service.ts:2290](../../src/modules/company-projects/company-projects.service.ts#L2290) |
+| 404 / ApiError | "Project assignment not found" | [src/modules/company-projects/company-projects.service.ts:3367](../../src/modules/company-projects/company-projects.service.ts#L3367) |
+| 404 / ApiError | "Project assignment not found" | [src/modules/company-projects/company-projects.service.ts:3457](../../src/modules/company-projects/company-projects.service.ts#L3457) |
 
 ## PROJECT_DEPENDENCY_CYCLE
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 400 / ApiError | "Project dependency creates a cycle" | [src/modules/company-projects/company-projects.service.ts:560](../../src/modules/company-projects/company-projects.service.ts#L560) |
-| 400 / ApiError | "Project dependency creates a cycle" | [src/modules/company-projects/company-projects.service.ts:2446](../../src/modules/company-projects/company-projects.service.ts#L2446) |
+| 400 / ApiError | "Project dependency creates a cycle" | [src/modules/company-projects/company-projects.service.ts:552](../../src/modules/company-projects/company-projects.service.ts#L552) |
+| 400 / ApiError | "Project dependency creates a cycle" | [src/modules/company-projects/company-projects.service.ts:2487](../../src/modules/company-projects/company-projects.service.ts#L2487) |
 
 ## PROJECT_DEPENDENCY_EXISTS
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 409 / ApiError | "Project dependency already exists" | [src/modules/company-projects/company-projects.service.ts:2420](../../src/modules/company-projects/company-projects.service.ts#L2420) |
+| 409 / ApiError | "Project dependency already exists" | [src/modules/company-projects/company-projects.service.ts:2461](../../src/modules/company-projects/company-projects.service.ts#L2461) |
 
 ## PROJECT_DEPENDENCY_NOT_FOUND
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 404 / ApiError | "Project dependency not found" | [src/modules/company-projects/company-projects.service.ts:2504](../../src/modules/company-projects/company-projects.service.ts#L2504) |
+| 404 / ApiError | "Project dependency not found" | [src/modules/company-projects/company-projects.service.ts:2547](../../src/modules/company-projects/company-projects.service.ts#L2547) |
 
 ## PROJECT_LAST_OWNER_REQUIRED
 
@@ -1338,8 +1348,8 @@
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 404 / ApiError | "Project member not found" | [src/modules/company-projects/company-projects.service.ts:1288](../../src/modules/company-projects/company-projects.service.ts#L1288) |
-| 404 / ApiError | "Project member not found" | [src/modules/company-projects/company-projects.service.ts:1351](../../src/modules/company-projects/company-projects.service.ts#L1351) |
+| 404 / ApiError | "Project member not found" | [src/modules/company-projects/company-projects.service.ts:1280](../../src/modules/company-projects/company-projects.service.ts#L1280) |
+| 404 / ApiError | "Project member not found" | [src/modules/company-projects/company-projects.service.ts:1343](../../src/modules/company-projects/company-projects.service.ts#L1343) |
 
 ## PROJECT_NOT_FOUND
 
@@ -1351,24 +1361,24 @@
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 403 / ApiError | "Users can create projects only for their own department" | [src/modules/company-projects/company-projects.service.ts:962](../../src/modules/company-projects/company-projects.service.ts#L962) |
+| 403 / ApiError | "Users can create projects only for their own department" | [src/modules/company-projects/company-projects.service.ts:954](../../src/modules/company-projects/company-projects.service.ts#L954) |
 
 ## PROJECT_PHASE_NOT_FOUND
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 404 / ApiError | "Project phase not found" | [src/modules/company-projects/company-projects.service.ts:1521](../../src/modules/company-projects/company-projects.service.ts#L1521) |
-| 404 / ApiError | "Project phase not found" | [src/modules/company-projects/company-projects.service.ts:1604](../../src/modules/company-projects/company-projects.service.ts#L1604) |
-| 404 / ApiError | "Project phase not found" | [src/modules/company-projects/company-projects.service.ts:1675](../../src/modules/company-projects/company-projects.service.ts#L1675) |
-| 404 / ApiError | "Project phase not found" | [src/modules/company-projects/company-projects.service.ts:1776](../../src/modules/company-projects/company-projects.service.ts#L1776) |
+| 404 / ApiError | "Project phase not found" | [src/modules/company-projects/company-projects.service.ts:1543](../../src/modules/company-projects/company-projects.service.ts#L1543) |
+| 404 / ApiError | "Project phase not found" | [src/modules/company-projects/company-projects.service.ts:1628](../../src/modules/company-projects/company-projects.service.ts#L1628) |
+| 404 / ApiError | "Project phase not found" | [src/modules/company-projects/company-projects.service.ts:1716](../../src/modules/company-projects/company-projects.service.ts#L1716) |
+| 404 / ApiError | "Project phase not found" | [src/modules/company-projects/company-projects.service.ts:1823](../../src/modules/company-projects/company-projects.service.ts#L1823) |
 
 ## PROJECT_PHASELESS
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 400 / ApiError | "Phase-less projects cannot add phases" | [src/modules/company-projects/company-projects.service.ts:1480](../../src/modules/company-projects/company-projects.service.ts#L1480) |
-| 400 / ApiError | "Phase-less project work items cannot use phase" | [src/modules/company-projects/company-projects.service.ts:1667](../../src/modules/company-projects/company-projects.service.ts#L1667) |
-| 400 / ApiError | "Phase-less project work items cannot use phase" | [src/modules/company-projects/company-projects.service.ts:1765](../../src/modules/company-projects/company-projects.service.ts#L1765) |
+| 400 / ApiError | "Phase-less projects cannot add phases" | [src/modules/company-projects/company-projects.service.ts:1498](../../src/modules/company-projects/company-projects.service.ts#L1498) |
+| 400 / ApiError | "Phase-less project work items cannot use phase" | [src/modules/company-projects/company-projects.service.ts:1708](../../src/modules/company-projects/company-projects.service.ts#L1708) |
+| 400 / ApiError | "Phase-less project work items cannot use phase" | [src/modules/company-projects/company-projects.service.ts:1812](../../src/modules/company-projects/company-projects.service.ts#L1812) |
 
 ## PROJECT_PRESET_COPY_PARENT_WORK_ITEM_NOT_FOUND
 
@@ -1452,34 +1462,35 @@
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 404 / ApiError | "Project work assignment not found" | [src/modules/reminders/reminders.service.ts:52](../../src/modules/reminders/reminders.service.ts#L52) |
+| 404 / ApiError | "Project work assignment not found" | [src/modules/reminders/reminder-mutations.ts:54](../../src/modules/reminders/reminder-mutations.ts#L54) |
 
 ## PROJECT_WORK_ITEM_DEPTH_EXCEEDED
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 400 / ApiError | "Work item depth cannot exceed 5" | [src/modules/company-projects/company-projects.service.ts:468](../../src/modules/company-projects/company-projects.service.ts#L468) |
-| 400 / ApiError | "Work item depth cannot exceed 5" | [src/modules/company-projects/company-projects.service.ts:504](../../src/modules/company-projects/company-projects.service.ts#L504) |
+| 400 / ApiError | "Work item depth cannot exceed 5" | [src/modules/company-projects/company-projects.service.ts:460](../../src/modules/company-projects/company-projects.service.ts#L460) |
+| 400 / ApiError | "Work item depth cannot exceed 5" | [src/modules/company-projects/company-projects.service.ts:496](../../src/modules/company-projects/company-projects.service.ts#L496) |
+| 400 / ApiError | "Work item depth cannot exceed 5" | [src/modules/company-projects/project-work-tree.ts:36](../../src/modules/company-projects/project-work-tree.ts#L36) |
 
 ## PROJECT_WORK_ITEM_NOT_FOUND
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 404 / ApiError | "Project work item not found" | [src/modules/company-projects/company-projects.service.ts:404](../../src/modules/company-projects/company-projects.service.ts#L404) |
-| 404 / ApiError | "Project work item not found" | [src/modules/company-projects/company-projects.service.ts:3440](../../src/modules/company-projects/company-projects.service.ts#L3440) |
-| 404 / ApiError | "Project work item not found" | [src/modules/reminders/reminders.service.ts:67](../../src/modules/reminders/reminders.service.ts#L67) |
+| 404 / ApiError | "Project work item not found" | [src/modules/company-projects/company-projects.service.ts:396](../../src/modules/company-projects/company-projects.service.ts#L396) |
+| 404 / ApiError | "Project work item not found" | [src/modules/company-projects/company-projects.service.ts:3482](../../src/modules/company-projects/company-projects.service.ts#L3482) |
+| 404 / ApiError | "Project work item not found" | [src/modules/reminders/reminder-mutations.ts:69](../../src/modules/reminders/reminder-mutations.ts#L69) |
 
 ## PROJECT_WORK_REMINDER_NOT_FOUND
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 404 / ApiError | "Project work reminder not found" | [src/modules/company-projects/company-projects.service.ts:3542](../../src/modules/company-projects/company-projects.service.ts#L3542) |
+| 404 / ApiError | "Project work reminder not found" | [src/modules/company-projects/company-projects.service.ts:3584](../../src/modules/company-projects/company-projects.service.ts#L3584) |
 
 ## PROJECT_WORK_REMINDER_TARGET_NOT_FOUND
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 404 / ApiError | "Project reminder target not found" | [src/modules/reminders/reminders.service.ts:37](../../src/modules/reminders/reminders.service.ts#L37) |
+| 404 / ApiError | "Project reminder target not found" | [src/modules/reminders/reminder-mutations.ts:39](../../src/modules/reminders/reminder-mutations.ts#L39) |
 
 ## PUBLIC_UID_GENERATION_FAILED
 
@@ -1508,13 +1519,20 @@
 | 400 / ApiError | "Recurring schedule must create at least one occurrence" | [src/common/utils/recurrence.ts:276](../../src/common/utils/recurrence.ts#L276) |
 | 400 / ApiError | "Recurrence must produce at least one occurrence" | [src/modules/schedules/schedule-series.service.ts:60](../../src/modules/schedules/schedule-series.service.ts#L60) |
 
+## REMINDER_CHANGED
+
+| 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
+| --- | --- | --- |
+| 409 / ApiError | "Reminder target changed concurrently; refresh and retry" | [src/modules/reminders/reminder-mutations.ts:214](../../src/modules/reminders/reminder-mutations.ts#L214) |
+
 ## REMINDER_NOT_FOUND
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 404 / ApiError | "Reminder not found" | [src/modules/reminders/reminders.service.ts:238](../../src/modules/reminders/reminders.service.ts#L238) |
-| 404 / ApiError | "Reminder not found" | [src/modules/reminders/reminders.service.ts:305](../../src/modules/reminders/reminders.service.ts#L305) |
-| 404 / ApiError | "Reminder not found" | [src/modules/reminders/reminders.service.ts:376](../../src/modules/reminders/reminders.service.ts#L376) |
+| 404 / ApiError | "Reminder not found" | [src/modules/reminders/reminder-mutations.ts:138](../../src/modules/reminders/reminder-mutations.ts#L138) |
+| 404 / ApiError | "Reminder not found" | [src/modules/reminders/reminder-mutations.ts:149](../../src/modules/reminders/reminder-mutations.ts#L149) |
+| 404 / ApiError | "Reminder not found" | [src/modules/reminders/reminders.service.ts:176](../../src/modules/reminders/reminders.service.ts#L176) |
+| 404 / ApiError | "Reminder not found" | [src/modules/reminders/reminders.service.ts:199](../../src/modules/reminders/reminders.service.ts#L199) |
 
 ## RESOURCE_CONFLICT
 
@@ -1538,13 +1556,17 @@
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
+| 404 / ApiError | "Schedule not found" | [src/modules/reminders/reminder-mutations.ts:19](../../src/modules/reminders/reminder-mutations.ts#L19) |
+| 404 / ApiError | "Schedule not found" | [src/modules/reminders/reminder-mutations.ts:86](../../src/modules/reminders/reminder-mutations.ts#L86) |
+| 404 / ApiError | "Schedule not found" | [src/modules/reminders/reminder-mutations.ts:158](../../src/modules/reminders/reminder-mutations.ts#L158) |
 | 404 / ApiError | "Schedule not found" | [src/modules/schedule-sharing/schedule-sharing.service.ts:58](../../src/modules/schedule-sharing/schedule-sharing.service.ts#L58) |
+| 404 / ApiError | "Schedule not found" | [src/modules/schedules/schedule-mutations.ts:94](../../src/modules/schedules/schedule-mutations.ts#L94) |
+| 404 / ApiError | "Schedule not found" | [src/modules/schedules/schedule-mutations.ts:104](../../src/modules/schedules/schedule-mutations.ts#L104) |
+| 404 / ApiError | "Schedule not found" | [src/modules/schedules/schedule-mutations.ts:177](../../src/modules/schedules/schedule-mutations.ts#L177) |
 | 404 / ApiError | "Owned schedule not found" | [src/modules/schedules/schedule-series.service.ts:12](../../src/modules/schedules/schedule-series.service.ts#L12) |
-| 404 / ApiError | "Schedule not found" | [src/modules/schedules/schedules.service.ts:65](../../src/modules/schedules/schedules.service.ts#L65) |
-| 404 / ApiError | "Schedule not found" | [src/modules/schedules/schedules.service.ts:125](../../src/modules/schedules/schedules.service.ts#L125) |
-| 404 / ApiError | "Schedule not found" | [src/modules/schedules/schedules.service.ts:150](../../src/modules/schedules/schedules.service.ts#L150) |
-| 404 / ApiError | "Schedule not found" | [src/modules/schedules/schedules.service.ts:321](../../src/modules/schedules/schedules.service.ts#L321) |
-| 404 / ApiError | "Schedule not found" | [src/modules/schedules/schedules.service.ts:340](../../src/modules/schedules/schedules.service.ts#L340) |
+| 404 / ApiError | "Schedule not found" | [src/modules/schedules/schedules.service.ts:42](../../src/modules/schedules/schedules.service.ts#L42) |
+| 404 / ApiError | "Schedule not found" | [src/modules/schedules/schedules.service.ts:102](../../src/modules/schedules/schedules.service.ts#L102) |
+| 404 / ApiError | "Schedule not found" | [src/modules/schedules/schedules.service.ts:127](../../src/modules/schedules/schedules.service.ts#L127) |
 | 404 / ApiError | "Schedule not found" | [src/modules/tasks/task-ordering.ts:29](../../src/modules/tasks/task-ordering.ts#L29) |
 
 ## SCHEDULE_NOT_RECURRING
@@ -1557,7 +1579,7 @@
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 403 / ApiError | "Only the owner can change category or visibility" | [src/modules/schedules/schedules.service.ts:345](../../src/modules/schedules/schedules.service.ts#L345) |
+| 403 / ApiError | "Only the owner can change category or visibility" | [src/modules/schedules/schedule-mutations.ts:109](../../src/modules/schedules/schedule-mutations.ts#L109) |
 
 ## SCHEDULE_SERIES_CHANGED
 
@@ -1652,6 +1674,7 @@
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
+| 404 / ApiError | "Task not found" | [src/modules/reminders/reminder-mutations.ts:25](../../src/modules/reminders/reminder-mutations.ts#L25) |
 | 404 / ApiError | "Task not found" | [src/modules/tasks/task-ordering.ts:38](../../src/modules/tasks/task-ordering.ts#L38) |
 | 404 / ApiError | "Task not found" | [src/modules/tasks/tasks.service.ts:37](../../src/modules/tasks/tasks.service.ts#L37) |
 | 404 / ApiError | "Task not found" | [src/modules/tasks/tasks.service.ts:106](../../src/modules/tasks/tasks.service.ts#L106) |
@@ -1695,7 +1718,7 @@
 | 404 / ApiError | "User not found" | [src/modules/companies/member-invite-acceptance.ts:9](../../src/modules/companies/member-invite-acceptance.ts#L9) |
 | 404 / ApiError | "User not found" | [src/modules/friends/friends.service.ts:257](../../src/modules/friends/friends.service.ts#L257) |
 | 404 / ApiError | "User not found" | [src/modules/home/home.service.ts:553](../../src/modules/home/home.service.ts#L553) |
-| 404 / ApiError | "User not found" | [src/modules/schedules/schedules.service.ts:217](../../src/modules/schedules/schedules.service.ts#L217) |
+| 404 / ApiError | "User not found" | [src/modules/schedules/schedules.service.ts:150](../../src/modules/schedules/schedules.service.ts#L150) |
 | 404 / ApiError | "User not found" | [src/modules/users/users.service.ts:14](../../src/modules/users/users.service.ts#L14) |
 | 404 / ApiError | "User not found" | [src/modules/users/users.service.ts:61](../../src/modules/users/users.service.ts#L61) |
 
@@ -1739,7 +1762,13 @@
 
 | 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
 | --- | --- | --- |
-| 400 / ApiError | "end date must be after start date" | [src/modules/company-projects/company-projects.service.ts:74](../../src/modules/company-projects/company-projects.service.ts#L74) |
+| 400 / ApiError | "end date must be on or after start date" | [src/modules/company-projects/project-dates.ts:18](../../src/modules/company-projects/project-dates.ts#L18) |
+
+## 式: error.code
+
+| 생성 status / 종류 | 메시지 또는 식 | 발생 지점 |
+| --- | --- | --- |
+| error.status_code / AdminApiError | error.message | [src/admin/common/admin-error-middleware.ts:21](../../src/admin/common/admin-error-middleware.ts#L21) |
 
 ## 式: exists ? "MEMO_PARSE_IN_PROGRESS" : "MEMO_NOT_FOUND"
 

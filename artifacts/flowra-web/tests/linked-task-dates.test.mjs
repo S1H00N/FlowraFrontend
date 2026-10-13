@@ -131,6 +131,8 @@ function loadScheduleHooks(queryClient, { api = {}, sync = async () => {}, error
     "@/api/schedules": api,
     "@/hooks/useTodayHome": { TODAY_HOME_QUERY_KEY: ["home", "today"] },
     "@/hooks/useTasks": { TASKS_QUERY_KEY: ["tasks"] },
+    "@/hooks/useReminders": { REMINDERS_QUERY_KEY: ["reminders"] },
+    "@/hooks/useTodayBriefing": { TODAY_BRIEFING_QUERY_KEY: ["briefings", "today"] },
     "@/lib/syncLinkedTaskDates": { syncLinkedTaskDates: sync },
     "@/lib/toast": { toast: { error: (message) => errors.push(message) } },
     "@/utils/dateUtils": dateUtils,

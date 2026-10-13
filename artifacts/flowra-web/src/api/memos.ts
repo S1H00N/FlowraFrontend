@@ -14,7 +14,7 @@ import type {
 } from "@/types";
 
 interface RawMemoParseResult {
-  memo?: Memo;
+  memo?: Memo | null;
   memo_id?: number;
   parse_status?: Memo["parse_status"];
   result?: AiParseResult | null;
@@ -107,7 +107,9 @@ export async function getMemoParseResult(memoId: number) {
   const res = await apiClient.get<ApiResponse<RawMemoParseResult>>(
     `/memos/${memoId}/parse-result`,
   );
-  const result = res.data.data.latest_result ?? res.data.data.result ?? null;
+  const result = res.data.data.latest_result === undefined
+    ? res.data.data.result ?? null
+    : res.data.data.latest_result;
   const memo: Memo = res.data.data.memo ?? {
     memo_id: res.data.data.memo_id ?? memoId,
     raw_text: "",
@@ -130,7 +132,8 @@ export async function applyMemo(memoId: number, payload: ApplyMemoRequest) {
   const res = await apiClient.post<ApiResponse<ApplyMemoResponse>>(
     `/memos/${memoId}/apply`,
     compactParams({
-      ...payload,
+      apply_type: payload.apply_type,
+      action_index: payload.action_index,
       ai_result_id: toOptionalString(payload.ai_result_id),
       category_id: toOptionalString(payload.category_id),
       schedule_id: toOptionalString(payload.schedule_id),

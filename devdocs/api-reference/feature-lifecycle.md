@@ -1,12 +1,12 @@
 # 생성 이후 관리 API — 개발·디버깅 계약
 
-> 백엔드 저장소에서 가져온 2026-09-16 기준 참고 자료입니다. 아래 `src/...` 경로·줄 번호·생성/검증 명령은 원본 백엔드 기준이며, 이 프런트엔드 저장소에는 해당 소스와 도구가 없습니다. 현재 웹 반영 범위는 [문서 안내](../../docs/README.md)를 참고하세요.
-
-기준: 2026-09-16. 백엔드의 생성 이후 관리 기능 12개 구현 결과다. 아래 사용자 API는 `/api/v1`, 기업 관리자 API는 `/company-admin/api/v1`를 앞에 붙인다. 정상 응답은 `{success:true,message,data}`이며 ID는 응답 값을 그대로 보존한다. 사용자 앱 연결 범위는 [웹 반영 기록](../../docs/qa/spec-alignment.md)에서 확인한다.
+기준: 2026-09-16. 최초 12개 점검 (백엔드 원본: `devdocs/reviews/feature-lifecycle-gaps.md`)의 구현 결과다. 아래 사용자 API는 `/api/v1`, 기업 관리자 API는 `/company-admin/api/v1`를 앞에 붙인다. 정상 응답은 `{success:true,message,data}`이며 ID는 응답 값을 그대로 보존한다. 사용자 앱 구현은 별도다.
 
 ## F01 프로젝트 관리
 
 활성 회사의 활성 구성원이면서 **해당 프로젝트의 활성 owner 또는 manager**여야 한다. 기업 관리자 토큰/권한을 부여하지 않는다. 프로젝트 멤버 추가·역할 변경·제거는 owner만 가능하다. 멤버는 같은 회사의 활성 구성원이어야 한다. 마지막 owner를 내리거나 제거하면 `409 PROJECT_LAST_OWNER_REQUIRED`다. 다른 owner를 먼저 추가한다. 관리 권한이 없으면 `403 PROJECT_MANAGEMENT_FORBIDDEN`이다.
+
+2026-10-12 공통 계약 보강: [프로젝트 DTO·계층·취소·집계·현행 DB 제한](./company-projects.md)에 Phase/업무/배정의 모든 필드와 기본값/null, 상대 children 깊이, summary/detail_policy/rollup 의미를 기술한다. Phase DELETE는 Phase만, 업무 DELETE는 subtree/배정/예약 reminder 취소와 의존성 삭제이며 업무 PATCH cancelled는 해당 업무만 변경한다. 2026-10-12 CHECK 확장과 role/달력/숫자 입력검증, project 잠금으로 진행률 저장·기준선·알림 실패 기록과 동시 계층/의존성 변경을 보완했다. 현행 보장은 이 공통 계약을 따른다.
 
 | Method | 사용자 경로 | data 필드 |
 | --- | --- | --- |
@@ -25,7 +25,7 @@
 | GET / POST | `/company-projects/:company_project_id/baselines` | baselines / baseline,item_count |
 | GET | `/company-projects/:company_project_id/audit-logs` | audit_logs |
 
-요청 body/query는 동일한 기업 프로젝트 API의 DTO: `src/modules/company-projects/company-projects.dto.ts`를 재사용한다. `members` POST는 `{company_member_id,role?}`, PATCH는 `{role?,status?}`. 프로젝트 PATCH `{name?,description?,status?,visibility?,origin_department_id?,planned_start_date?,planned_end_date?,actual_start_date?,actual_end_date?,completed_at?}`. 날짜는 YYYY-MM-DD, completed_at은 ISO datetime이다. 프로젝트 보관은 `{status:"archived"}`. phase/work item DELETE는 기존 로직대로 취소 상태 변경이며 물리 삭제로 표시하지 않는다. 기존 사용자 자신의 배정 수정 API도 유지한다. 기록되는 관리 actor는 `company_member`이고 관리자 ID를 대입하지 않는다.
+요청 body/query는 동일한 기업 프로젝트 API의 DTO (백엔드 원본: `src/modules/company-projects/company-projects.dto.ts`)를 재사용한다. `members` POST는 `{company_member_id,role?}`, PATCH는 `{role?,status?}`. 프로젝트 PATCH `{name?,description?,status?,visibility?,origin_department_id?,planned_start_date?,planned_end_date?,actual_start_date?,actual_end_date?,completed_at?}`. 날짜는 YYYY-MM-DD, completed_at은 ISO datetime이다. 프로젝트 보관은 `{status:"archived"}`. phase/work item DELETE는 기존 로직대로 취소 상태 변경이며 물리 삭제로 표시하지 않는다. 기존 사용자 자신의 배정 수정 API도 유지한다. 기록되는 관리 actor는 `company_member`이고 관리자 ID를 대입하지 않는다.
 
 ## F02 승인 요청 철회
 

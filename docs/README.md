@@ -14,12 +14,17 @@
 | [조직 연동 라우트](../devdocs/api-reference/routes-org.md) | 서버 간 조직 API key 연동 |
 | [오류 색인](../devdocs/api-reference/error-index.md) | 오류 코드별 백엔드 발생 위치 |
 | [생성 이후 관리 API](../devdocs/api-reference/feature-lifecycle.md) | F01~F12의 상태 전이, 페이지 조회, 반복 일정, 메모 복구 |
+| [기업 프로젝트 공통 계약](../devdocs/api-reference/company-projects.md) | 프로젝트·단계·업무·배정의 생성/수정 DTO, 깊이·취소·부분 조회·진행률 규칙 |
+| [2026-10-13 API 변경 반영](qa/api-contract-update.md) | 최신 명세 대조 결과, 웹 변경 및 검증 범위 |
 | [웹 반영 및 검증 기록](qa/spec-alignment.md) | 이번 구현 변경, 실제 검증 결과, 미포함 영역 |
+| [프로젝트 관리 2차 구현 기록](qa/project-management-phase-two.md) | 업무 트리·상세 패널·취소, 검증 및 생성·수정 계약 확인 사항 |
+| [프로젝트 관리 2차 계약 재검토](qa/project-phase-two-contract-audit.md) | 생성·수정 DTO 원본 검색 결과, 확인한 조회 계약과 미확인 쓰기·깊이 정책 |
+| [프로젝트 관리 2차 보완 결과](qa/project-management-phase-two-supplement.md) | 상세 패널 재조회·재시도 오류 수정, 최종 검증과 백엔드 요청·3차 인수인계 |
 | [브라우저 QA](qa/README.md) | 모의 API 테스트 및 실행 방법 |
 | [프로젝트 정리 검토](cleanup-review.md) | 불필요 파일·의존성 삭제 근거와 검증 결과 |
 | [할 일 드래그·날짜 동작](design/task-board-drag-and-dates.md) | 독립/일정 목록 드래그, 순서 저장, 날짜 입력 UX |
 
-`backend-specs`와 `devdocs`에는 기존 자료와 새로 추가·업데이트된 백엔드 자료가 함께 있습니다. 일반 사용자 API의 할 일 순번 계약과 Google 로그인 문서를 우선 확인하고, 문서에 명시된 기준 시점과 실제 배포 버전을 맞춥니다. 원본 백엔드의 `src/...` 경로·줄 번호·생성 명령은 서버 저장소를 가리킵니다. 원본 서버 소스·DTO·DB migration·색인 생성 도구는 이 저장소에 없으므로 백엔드 검증 명령은 해당 서버 저장소에서 실행해야 합니다.
+`backend-specs`와 `devdocs`에는 기존 자료와 새로 추가·업데이트된 백엔드 자료가 함께 있습니다. 2026-10-12 보강된 기업 프로젝트 공통 계약과 일반·AI 명세를 우선 확인하고, 문서에 명시된 기준 시점과 실제 배포 버전을 맞춥니다. 이전 QA 기록의 DTO 미확인·준비 중 상태는 당시 결과이며 최신 반영 범위는 2026-10-13 기록을 따릅니다. 원본 백엔드의 `src/...` 경로·줄 번호·생성 명령은 서버 저장소를 가리킵니다. 원본 서버 소스·DTO·DB migration·색인 생성 도구는 이 저장소에 없으므로 백엔드 검증 명령은 해당 서버 저장소에서 실행해야 합니다. 본문에서 없는 서버 파일은 `백엔드 원본`으로 표시하며 자동 생성 라우트·오류 색인의 소스 링크는 원본 참조를 보존합니다.
 
 할 일 순서는 공식 계약의 `PATCH /tasks/:task_id/order`, `PATCH /schedules/:schedule_id/tasks/reorder`와 기존 `PATCH /tasks/:task_id`의 `schedule_id`·`sort_order`를 사용합니다. 순번은 일정 전체 기준이며 미연결 할 일의 `sort_order`는 `null`입니다.
 

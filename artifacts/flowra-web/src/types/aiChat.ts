@@ -32,7 +32,7 @@ export interface AiChatSession {
 export interface AiChatAppliedAction {
   action_index?: number;
   resource_type?: string;
-  resource_id?: number;
+  resource_id?: number | string;
   created_at?: string;
 }
 
@@ -52,6 +52,7 @@ export interface AiChatMessage {
   skipped_action_indexes?: number[];
   action_states?: AiActionApplyState["action_states"];
   applied_actions?: AiChatAppliedAction[];
+  applications?: AiChatAppliedAction[];
   created_at?: string;
   updated_at?: string | null;
 }

@@ -197,10 +197,11 @@ export default function OverdueTasks({
           timezone={timezone}
           pending={reschedule.pending}
           unlinked={reschedule.unlinked}
+          creationRecovery={reschedule.creationRecovery}
           onClose={() => onBulkChange(false)}
           onRestoreFocus={restoreFocus}
-          onSave={(task, start, duration) =>
-            reschedule.save(task, start, duration)
+          onSave={(task, start, duration, choice) =>
+            reschedule.save(task, start, duration, choice)
           }
         />
       )}
@@ -212,10 +213,11 @@ export default function OverdueTasks({
           timezone={timezone}
           pending={reschedule.pending}
           existing={reschedule.unlinked[plan.task_id]}
+          creationRecovery={reschedule.creationRecovery[plan.task_id]}
           onClose={() => setPlan(null)}
           onRestoreFocus={restoreFocus}
-          onSave={async (start, duration) => {
-            const schedule = await reschedule.save(plan, start, duration);
+          onSave={async (start, duration, choice) => {
+            const schedule = await reschedule.save(plan, start, duration, choice);
             if (!schedule) return;
             setPlan(null);
           }}

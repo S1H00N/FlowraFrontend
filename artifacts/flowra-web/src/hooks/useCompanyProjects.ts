@@ -1,6 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  cancelCompanyProjectPhase,
+  cancelCompanyProjectWorkItem,
   createCompanyProject,
+  createCompanyProjectPhase,
+  updateCompanyProjectPhase,
+  createCompanyProjectWorkItem,
+  updateCompanyProjectWorkItem,
   createCompanyProjectWorkReminder,
   deleteCompanyProjectWorkReminder,
   getCompanyProject,
@@ -20,6 +26,8 @@ import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
 import type {
   CompanyProject,
   CompanyProjectMember,
+  CompanyProjectPhase,
+  CompanyProjectWorkItem,
   CompanyProjectCalendarItemsData,
   CompanyProjectCalendarItemsQuery,
   CompanyProjectDetailData,
@@ -32,6 +40,10 @@ import type {
   CompanyProjectWorkRemindersQuery,
   CompanyProjectsQuery,
   CreateCompanyProjectRequest,
+  CreateCompanyProjectPhaseRequest,
+  UpdateCompanyProjectPhaseRequest,
+  CreateCompanyProjectWorkItemRequest,
+  UpdateCompanyProjectWorkItemRequest,
   CreateCompanyProjectWorkReminderRequest,
   MyCompanyProjectWorkItemsData,
   MyCompanyProjectWorkItemsQuery,
@@ -155,8 +167,8 @@ export function useCompanyProject(
   return useQuery<CompanyProjectDetailData>({
     queryKey: companyProjectDetailKey(companyProjectId),
     enabled: companyProjectId !== null && (options.enabled ?? true),
-    queryFn: async () => {
-      const res = await getCompanyProject(companyProjectId as number);
+    queryFn: async ({ signal }) => {
+      const res = await getCompanyProject(companyProjectId as number, { signal });
       if (!res.success) {
         throw new Error(res.message || "회사 프로젝트를 불러오지 못했습니다.");
       }
@@ -200,11 +212,12 @@ export function useCompanyProjectWorkItemChildren(
       companyProjectId !== null &&
       workItemId !== null &&
       (options.enabled ?? true),
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const res = await listCompanyProjectWorkItemChildren(
         companyProjectId as number,
         workItemId as number,
         query,
+        { signal },
       );
       if (!res.success) {
         throw new Error(res.message || "하위 업무를 불러오지 못했습니다.");
@@ -312,6 +325,90 @@ export function useUpdateCompanyProject() {
   });
 }
 
+export function useCancelCompanyProjectPhase() {
+  const invalidate = useInvalidateCompanyProjectSurfaces();
+  return useMutation<CompanyProjectPhase, Error, { companyProjectId: number; phaseId: number }>({
+    mutationFn: async ({ companyProjectId, phaseId }) => {
+      const res = await cancelCompanyProjectPhase(companyProjectId, phaseId);
+      if (!res.success) throw new Error(res.message || "단계를 취소하지 못했습니다.");
+      return res.data.phase;
+    },
+    onSettled: invalidate,
+    meta: {
+      successMessage: "단계를 취소했습니다.",
+      errorMessage: "단계를 취소하지 못했습니다.",
+    },
+  });
+}
+
+export function useCreateCompanyProjectPhase() {
+  const invalidate = useInvalidateCompanyProjectSurfaces();
+  return useMutation({
+    mutationFn: async ({ companyProjectId, payload }: { companyProjectId: number; payload: CreateCompanyProjectPhaseRequest }) => {
+      const res = await createCompanyProjectPhase(companyProjectId, payload);
+      if (!res.success) throw new Error(res.message || "단계를 추가하지 못했습니다.");
+      return res.data.phase;
+    },
+    onSettled: invalidate,
+    meta: { successMessage: "단계를 추가했습니다.", errorMessage: "단계를 추가하지 못했습니다." },
+  });
+}
+
+export function useUpdateCompanyProjectPhase() {
+  const invalidate = useInvalidateCompanyProjectSurfaces();
+  return useMutation({
+    mutationFn: async ({ companyProjectId, phaseId, payload }: { companyProjectId: number; phaseId: number; payload: UpdateCompanyProjectPhaseRequest }) => {
+      const res = await updateCompanyProjectPhase(companyProjectId, phaseId, payload);
+      if (!res.success) throw new Error(res.message || "단계를 수정하지 못했습니다.");
+      return res.data.phase;
+    },
+    onSettled: invalidate,
+    meta: { successMessage: "단계를 수정했습니다.", errorMessage: "단계를 수정하지 못했습니다." },
+  });
+}
+
+export function useCreateCompanyProjectWorkItem() {
+  const invalidate = useInvalidateCompanyProjectSurfaces();
+  return useMutation({
+    mutationFn: async ({ companyProjectId, payload }: { companyProjectId: number; payload: CreateCompanyProjectWorkItemRequest }) => {
+      const res = await createCompanyProjectWorkItem(companyProjectId, payload);
+      if (!res.success) throw new Error(res.message || "업무를 추가하지 못했습니다.");
+      return res.data.work_item;
+    },
+    onSettled: invalidate,
+    meta: { successMessage: "업무를 추가했습니다.", errorMessage: "업무를 추가하지 못했습니다." },
+  });
+}
+
+export function useUpdateCompanyProjectWorkItem() {
+  const invalidate = useInvalidateCompanyProjectSurfaces();
+  return useMutation({
+    mutationFn: async ({ companyProjectId, workItemId, payload }: { companyProjectId: number; workItemId: number; payload: UpdateCompanyProjectWorkItemRequest }) => {
+      const res = await updateCompanyProjectWorkItem(companyProjectId, workItemId, payload);
+      if (!res.success) throw new Error(res.message || "업무를 수정하지 못했습니다.");
+      return res.data.work_item;
+    },
+    onSettled: invalidate,
+    meta: { successMessage: "업무를 수정했습니다.", errorMessage: "업무를 수정하지 못했습니다." },
+  });
+}
+
+export function useCancelCompanyProjectWorkItem() {
+  const invalidate = useInvalidateCompanyProjectSurfaces();
+  return useMutation<CompanyProjectWorkItem, Error, { companyProjectId: number; workItemId: number }>({
+    mutationFn: async ({ companyProjectId, workItemId }) => {
+      const res = await cancelCompanyProjectWorkItem(companyProjectId, workItemId);
+      if (!res.success) throw new Error(res.message || "업무를 취소하지 못했습니다.");
+      return res.data.work_item;
+    },
+    onSettled: invalidate,
+    meta: {
+      successMessage: "업무를 취소했습니다.",
+      errorMessage: "업무를 취소하지 못했습니다.",
+    },
+  });
+}
+
 export function useUpdateCompanyProjectWorkAssignment() {
   const invalidate = useInvalidateCompanyProjectSurfaces();
   return useMutation<
@@ -332,7 +429,7 @@ export function useUpdateCompanyProjectWorkAssignment() {
       }
       return res.data.assignment;
     },
-    onSuccess: () => invalidate(),
+    onSettled: invalidate,
     meta: {
       successMessage: "프로젝트 업무 상태를 변경했습니다.",
       errorMessage: "프로젝트 업무 상태 변경에 실패했습니다.",
