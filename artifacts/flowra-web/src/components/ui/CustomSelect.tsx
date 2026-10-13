@@ -405,7 +405,14 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
   const moveActiveOption = useCallback(
     (direction: 1 | -1) => {
       if (enabledIndexes.length === 0) return;
-      const currentEnabledPosition = enabledIndexes.indexOf(activeIndex);
+      // A positioned menu can hover under a stationary pointer. Keyboard
+      // navigation must follow focus even when hover changes activeIndex.
+      const focusedIndex = optionRefs.current.findIndex(
+        (option) => option === document.activeElement,
+      );
+      const currentEnabledPosition = enabledIndexes.indexOf(
+        focusedIndex >= 0 ? focusedIndex : activeIndex,
+      );
       const basePosition =
         currentEnabledPosition >= 0
           ? currentEnabledPosition
@@ -462,7 +469,10 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
     }
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      const activeOption = options[activeIndex];
+      const focusedIndex = optionRefs.current.findIndex(
+        (option) => option === document.activeElement,
+      );
+      const activeOption = options[focusedIndex >= 0 ? focusedIndex : activeIndex];
       if (activeOption) commitOption(activeOption);
     }
     if (event.key === "Escape") {

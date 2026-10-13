@@ -221,7 +221,7 @@ test("제목 편집·마감·우선순위·키보드 완료·삭제는 기존 AP
   const dueTime = row.getByRole("textbox", { name: "마감 시간 선택" });
   await dueTime.fill("12:30");
   const timeDropdown = row.getByRole("listbox");
-  await expect(timeDropdown.getByRole("button", { name: "12:30" })).toBeVisible();
+  await expect(timeDropdown.getByRole("option", { name: "12:30" })).toBeVisible();
   const inputBounds = await dueTime.boundingBox();
   const dropdownBounds = await timeDropdown.boundingBox();
   expect(

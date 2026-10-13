@@ -791,6 +791,8 @@ function normalizeTimeInput(value: string) {
   const compactMatch = /^(\d{1,2})(\d{2})$/.exec(trimmed);
   const colonMatch = /^(\d{1,2}):(\d{1,2})$/.exec(trimmed);
   const shortHourMatch = /^(\d{1,2})$/.exec(trimmed);
+  // Placeholders and invalid text must not become midnight via Number("").
+  if (!compactMatch && !colonMatch && !shortHourMatch) return null;
 
   const hourText =
     colonMatch?.[1] ?? compactMatch?.[1] ?? shortHourMatch?.[1] ?? "";
@@ -1256,6 +1258,7 @@ export function CompactTimeInput({
           style={dropdownStyle}
           className="fixed z-[70] overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-900 p-1 shadow-xl"
           role="listbox"
+          aria-label={`${ariaLabel} 선택`}
           onWheel={(event) => event.stopPropagation()}
           onPointerDownCapture={() => {
             selectingOptionRef.current = true;
@@ -1268,6 +1271,7 @@ export function CompactTimeInput({
                 optionRefs.current[index] = node;
               }}
               type="button"
+              role="option"
               tabIndex={-1}
               onPointerDown={(event) => {
                 event.preventDefault();
