@@ -54,16 +54,18 @@ export function formatWorkProgress(value?: number | null) {
   return `${new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 1 }).format(value)}%`;
 }
 
-export function WorkProgress({ item, compact = false }: {
+export function WorkProgress({ item, compact = false, label }: {
   item: CompanyProjectWorkItem;
   compact?: boolean;
+  label?: string;
 }) {
   const value = item.progress_percent;
   const validValue = typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
   const manualOverride = typeof item.progress_override_percent === "number" && Number.isFinite(item.progress_override_percent);
   return (
     <div className={compact ? "min-w-20" : "space-y-2"}>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {label && <span aria-hidden className="mr-auto text-xs text-muted-foreground">{label}</span>}
         <span className={`${compact ? "text-xs" : "text-sm"} tabular-nums`}>{formatWorkProgress(value)}</span>
         {manualOverride && (
           <span

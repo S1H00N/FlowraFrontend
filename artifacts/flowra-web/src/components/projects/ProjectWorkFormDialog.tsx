@@ -1,5 +1,5 @@
-import { useId, useRef, useState, type FormEvent } from "react";
-import { ChevronDown, ChevronRight, Folder, X } from "lucide-react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { ChevronDown, Folder, X } from "lucide-react";
 import {
   CompactDateInput,
   CompactTimeInput,
@@ -9,6 +9,7 @@ import { FloatingPanelPortalProvider } from "@/components/ui/FloatingPanelPortal
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -33,9 +34,9 @@ import ProjectLocationPicker, {
   projectLinkedPhaseLabel,
 } from "./ProjectLocationPicker";
 import { getApiErrorDetails, getErrorMessage } from "@/lib/error";
+import { registerProjectHistoryGuard } from "@/lib/projectNavigationGuard";
 import { getProjectWorkParentError } from "@/lib/projectWorkTree";
 import { applyParentPeriod, isValidProjectDate, parentPeriodOptions, periodWarnings, projectDate } from "@/lib/projectSchedule";
-import { formatProjectDate } from "./ProjectPresentation";
 import { ProjectPeriodWarning } from "./ProjectSchedulePresentation";
 import type {
   CompanyProjectDetailData,
@@ -53,6 +54,7 @@ export type ProjectWorkEditTarget =
       kind: "work";
       item?: CompanyProjectWorkItem;
       parent?: CompanyProjectWorkItem;
+      phase?: CompanyProjectPhase;
     };
 
 const fieldClass =
@@ -94,6 +96,9 @@ export default function ProjectWorkFormDialog({
   canManage,
   onClose,
   onSaved,
+  onCloseAutoFocus,
+  onRetryPermission,
+  permissionRetrying = false,
 }: {
   target: ProjectWorkEditTarget;
   detail: CompanyProjectDetailData;
@@ -101,6 +106,9 @@ export default function ProjectWorkFormDialog({
   canManage: boolean;
   onClose: () => void;
   onSaved: () => void;
+  onCloseAutoFocus?: (event: Event) => void;
+  onRetryPermission?: () => void;
+  permissionRetrying?: boolean;
 }) {
   const id = useId();
   const current = target.kind === "phase" ? target.phase : target.item;
@@ -115,14 +123,21 @@ export default function ProjectWorkFormDialog({
     createWork.isPending ||
     updateWork.isPending;
   const lock = useRef(false);
+  const saved = useRef(false);
+  const discardAction = useRef<(() => void) | null>(null);
+  const discardOpener = useRef<HTMLElement | null>(null);
   const fieldsRef = useRef<HTMLFormElement | null>(null);
+  const formScrollRef = useRef(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLHeadingElement | null>(null);
+  const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
   const [locationOpen, setLocationOpen] = useState(false);
   const locationRef = useRef<HTMLButtonElement>(null);
   const [portal, setPortal] = useState<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [advancedError, setAdvancedError] = useState(false);
   const [uncertain, setUncertain] = useState(false);
+  const [discardOpen, setDiscardOpen] = useState(false);
   const [initial] = useState(() => ({
     name:
       target.kind === "phase"
@@ -139,7 +154,7 @@ export default function ProjectWorkFormDialog({
         ? String(
             (target.item
               ? target.item.company_project_phase_id
-              : target.parent?.company_project_phase_id) ?? "none",
+              : target.parent?.company_project_phase_id ?? target.phase?.company_project_phase_id) ?? "none",
           )
         : "none",
     parentId:
@@ -177,7 +192,9 @@ export default function ProjectWorkFormDialog({
     sortOrder: String(current?.sort_order ?? 0),
     wbs: target.kind === "work" ? (target.item?.wbs_code ?? "") : "",
   }));
+  type DraftField = keyof typeof initial;
   const [draft, setDraft] = useState(initial);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<DraftField, string>>>({});
   const [periodWarning, setPeriodWarning] = useState<string[] | null>(null);
   const [periodSourceKey, setPeriodSourceKey] = useState("");
   const periodOptions = parentPeriodOptions(
@@ -190,6 +207,12 @@ export default function ProjectWorkFormDialog({
     (!draft.plannedStart && projectDate(periodSource.planned_start_date)) ||
     (!draft.plannedEnd && projectDate(periodSource.planned_end_date)),
   );
+  const periodHelp = !periodSource || !(
+    projectDate(periodSource.planned_start_date) || projectDate(periodSource.planned_end_date)
+  ) ? "적용할 상위 기간이 없습니다."
+    : canApplyPeriod ? `${periodSource.label}의 비어 있는 날짜만 채웁니다.`
+      : "채울 수 있는 빈 날짜가 없습니다. 입력한 날짜는 유지됩니다.";
+  const locationLabel = projectLocationLabel(tree, draft);
   const hasAdvancedValues = Boolean(
     draft.description ||
     draft.status !== "todo" ||
@@ -202,9 +225,158 @@ export default function ProjectWorkFormDialog({
     Number(draft.sortOrder) !== 0 ||
     draft.progressMode === "manual",
   );
-  const [advancedOpen, setAdvancedOpen] = useState(
-    editing && hasAdvancedValues,
-  );
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  useLayoutEffect(() => {
+    const description = descriptionRef.current;
+    if (!description || !advancedOpen || locationOpen) return;
+    description.style.height = "auto";
+    description.style.height = `${Math.min(160, Math.max(56, description.scrollHeight + 2))}px`;
+  }, [draft.description, advancedOpen, locationOpen]);
+  function comparableDraft(value: typeof draft) {
+    return {
+      ...value,
+      name: value.name.trim(),
+      description: value.description.trim(),
+      wbs: value.wbs.trim(),
+      sortOrder: value.sortOrder.trim() && Number.isInteger(Number(value.sortOrder))
+        ? String(Number(value.sortOrder)) : value.sortOrder,
+      progress: value.progressMode === "automatic" ? "" : /^\d+$/.test(value.progress)
+        ? String(Number(value.progress)) : value.progress,
+    };
+  }
+  const draftValues = comparableDraft(draft);
+  const initialValues = comparableDraft(initial);
+  const dirty = (Object.keys(initial) as DraftField[]).some((key) => draftValues[key] !== initialValues[key]);
+  const navigationGuard = useRef({ dirty, pending, onClose });
+  navigationGuard.current = { dirty, pending, onClose };
+
+  function requestDiscard(action: () => void) {
+    if (navigationGuard.current.pending || lock.current) return;
+    if (!navigationGuard.current.dirty || saved.current) {
+      action();
+      return;
+    }
+    discardOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    discardAction.current = action;
+    setDiscardOpen(true);
+  }
+
+  useEffect(() => {
+    if (!dirty && !pending) return;
+    function beforeUnload(event: BeforeUnloadEvent) {
+      if (saved.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [dirty, pending]);
+
+  useEffect(() => {
+    function snapshot() {
+      const state: unknown = window.history.state;
+      const index = typeof state === "object" && state !== null && "idx" in state &&
+        typeof state.idx === "number" && Number.isSafeInteger(state.idx) ? state.idx : null;
+      return { href: window.location.href, state, index };
+    }
+    let current = snapshot();
+    let restoring: ReturnType<typeof snapshot> | null = null;
+    let resumeAfterRestore: (() => void) | null = null;
+    function protectLink(event: MouseEvent) {
+      if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!(anchor instanceof HTMLAnchorElement) || anchor.hasAttribute("download") || (anchor.target && anchor.target !== "_self")) return;
+      const destination = new URL(anchor.href, window.location.href);
+      if (destination.origin !== window.location.origin || destination.href === window.location.href || saved.current) return;
+      const guard = navigationGuard.current;
+      if (!guard.dirty && !guard.pending && !lock.current) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      requestDiscard(() => {
+        saved.current = true;
+        anchor.click();
+        guard.onClose();
+      });
+    }
+    function protectHistory(event: PopStateEvent) {
+      const destination = snapshot();
+      if (restoring) {
+        event.stopImmediatePropagation();
+        if (destination.index === restoring.index) {
+          current = restoring;
+          restoring = null;
+          const resume = resumeAfterRestore;
+          resumeAfterRestore = null;
+          resume?.();
+        } else if (destination.index !== null && restoring.index !== null) {
+          window.history.go(restoring.index - destination.index);
+        } else {
+          window.history.pushState(restoring.state, "", restoring.href);
+          current = restoring;
+          restoring = null;
+        }
+        return;
+      }
+      const guard = navigationGuard.current;
+      if (saved.current || (!guard.dirty && !guard.pending && !lock.current)) {
+        current = destination;
+        return;
+      }
+      event.stopImmediatePropagation();
+      const previous = current;
+      if (previous.index !== null && destination.index !== null && previous.index !== destination.index) {
+        restoring = previous;
+        window.history.go(previous.index - destination.index);
+      } else {
+        window.history.pushState(previous.state, "", previous.href);
+      }
+      requestDiscard(() => {
+        const resume = () => {
+          saved.current = true;
+          if (previous.index !== null && destination.index !== null && previous.index !== destination.index)
+            window.history.go(destination.index - previous.index);
+          else window.location.assign(destination.href);
+          guard.onClose();
+        };
+        if (restoring) resumeAfterRestore = resume;
+        else resume();
+      });
+    }
+    document.addEventListener("click", protectLink, true);
+    const unregister = registerProjectHistoryGuard(protectHistory);
+    return () => {
+      document.removeEventListener("click", protectLink, true);
+      unregister();
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (locationOpen) return;
+    const fields = fieldsRef.current?.querySelectorAll<HTMLElement>("[data-project-work-field]");
+    fields?.forEach((wrapper) => {
+      const key = wrapper.dataset.projectWorkField as DraftField;
+      const message = fieldErrors[key];
+      const controls = wrapper.querySelectorAll<HTMLElement>('input, textarea, button[aria-haspopup="listbox"], button[aria-label="소속 위치 선택"]');
+      controls.forEach((control) => {
+        if (message) {
+          control.setAttribute("aria-invalid", "true");
+          control.setAttribute("aria-describedby", `${id}-${key}-error`);
+        } else {
+          control.removeAttribute("aria-invalid");
+          control.removeAttribute("aria-describedby");
+        }
+      });
+    });
+    const wrapper = Array.from(fields ?? []).find((element) => fieldErrors[element.dataset.projectWorkField as DraftField]);
+    if (wrapper) {
+      wrapper.scrollIntoView({ block: "nearest" });
+      wrapper.querySelector<HTMLElement>('input, textarea, button[aria-haspopup="listbox"], button')?.focus({ preventScroll: true });
+    }
+  }, [fieldErrors, advancedOpen, locationOpen, id]);
+
+  function fieldError(key: DraftField) {
+    return fieldErrors[key] && <p role="alert" id={`${id}-${key}-error`} className="text-xs text-destructive">{fieldErrors[key]}</p>;
+  }
   const itemId =
     target.kind === "work"
       ? target.item?.company_project_work_item_id
@@ -218,9 +390,10 @@ export default function ProjectWorkFormDialog({
   const parentUnavailable = !!parentError;
   function closeLocation() {
     setLocationOpen(false);
-    requestAnimationFrame(() => locationRef.current?.focus());
+    requestAnimationFrame(() => locationRef.current?.focus({ preventScroll: true }));
   }
   function openLocation() {
+    formScrollRef.current = fieldsRef.current?.scrollTop ?? 0;
     setLocationOpen(true);
     requestAnimationFrame(() => titleRef.current?.focus());
   }
@@ -229,25 +402,80 @@ export default function ProjectWorkFormDialog({
     key: K,
     value: (typeof draft)[K],
   ) {
+    if (fieldsDisabled || lock.current) return;
     setDraft((previous) => ({ ...previous, [key]: value }));
+    setFieldErrors((previous) => {
+      if (!previous[key]) return previous;
+      const next = { ...previous };
+      delete next[key];
+      return next;
+    });
   }
   function close() {
     if (locationOpen) closeLocation();
-    else if (!pending && !lock.current) onClose();
+    else requestDiscard(onClose);
   }
+  function handleEscape(event: KeyboardEvent) {
+    if (locationOpen) {
+      event.preventDefault();
+      if (!portal?.querySelector('[role="listbox"]')) closeLocation();
+      return;
+    }
+    if (
+      pending ||
+      lock.current ||
+      fieldsRef.current?.querySelector(
+        'button[aria-haspopup="listbox"][aria-expanded="true"], input[aria-expanded="true"]',
+      )
+    )
+      event.preventDefault();
+  }
+  function handleTooltipEscape(event: KeyboardEvent) {
+    handleEscape(event);
+    // A tooltip is the top Radix layer while its trigger has focus. Forward
+    // Escape to the same guarded close action, then let Radix hide the tooltip.
+    if (!event.defaultPrevented) close();
+  }
+  useLayoutEffect(() => {
+    if (!locationOpen && fieldsRef.current) fieldsRef.current.scrollTop = formScrollRef.current;
+  }, [locationOpen]);
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current;
+    if (!locationOpen || !dialog) return;
+    const viewport = window.visualViewport;
+    function update() {
+      const height = viewport?.height ?? window.innerHeight;
+      dialog!.style.setProperty("--project-location-dialog-height", `${height * 0.9}px`);
+      dialog!.style.setProperty("--project-location-dialog-top", `${(viewport?.offsetTop ?? 0) + height * 0.05}px`);
+    }
+    update();
+    window.addEventListener("resize", update);
+    viewport?.addEventListener("resize", update);
+    viewport?.addEventListener("scroll", update);
+    return () => {
+      window.removeEventListener("resize", update);
+      viewport?.removeEventListener("resize", update);
+      viewport?.removeEventListener("scroll", update);
+      dialog.style.removeProperty("--project-location-dialog-height");
+      dialog.style.removeProperty("--project-location-dialog-top");
+      dialog.style.removeProperty("--project-location-content-height");
+    };
+  }, [locationOpen]);
   async function submit(event?: FormEvent, periodConfirmed = false) {
     event?.preventDefault();
     if (locationOpen || lock.current || !canManage || uncertain) return;
     setError(null);
     setAdvancedError(false);
-    function invalid(message: string, advanced = false) {
-      setError(message);
+    setFieldErrors({});
+    function invalid(key: DraftField, message: string, advanced = false) {
+      setFieldErrors({ [key]: message });
       setAdvancedError(advanced);
       if (advanced) setAdvancedOpen(true);
     }
     const name = draft.name.trim();
     if (!name || name.length > (target.kind === "phase" ? 150 : 200)) {
       invalid(
+        "name",
         target.kind === "phase"
           ? "단계명은 1~150자로 입력해 주세요."
           : "업무명은 1~200자로 입력해 주세요.",
@@ -258,7 +486,7 @@ export default function ProjectWorkFormDialog({
       (draft.plannedStart && !isValidProjectDate(draft.plannedStart)) ||
       (draft.plannedEnd && !isValidProjectDate(draft.plannedEnd))
     ) {
-      invalid("계획 날짜를 유효한 날짜로 입력해 주세요.");
+      invalid(draft.plannedStart && !isValidProjectDate(draft.plannedStart) ? "plannedStart" : "plannedEnd", "계획 날짜를 유효한 날짜로 입력해 주세요.");
       return;
     }
     if (
@@ -266,7 +494,12 @@ export default function ProjectWorkFormDialog({
       draft.plannedEnd &&
       draft.plannedEnd < draft.plannedStart
     ) {
-      invalid("계획 종료일은 시작일과 같거나 이후여야 합니다.");
+      invalid("plannedEnd", "계획 종료일은 시작일과 같거나 이후여야 합니다.");
+      return;
+    }
+    if ((draft.actualStart && !isValidProjectDate(draft.actualStart)) ||
+      (draft.actualEnd && !isValidProjectDate(draft.actualEnd))) {
+      invalid(draft.actualStart && !isValidProjectDate(draft.actualStart) ? "actualStart" : "actualEnd", "실적 날짜를 유효한 날짜로 입력해 주세요.", true);
       return;
     }
     if (
@@ -274,14 +507,14 @@ export default function ProjectWorkFormDialog({
       draft.actualEnd &&
       draft.actualEnd < draft.actualStart
     ) {
-      invalid("실적 종료일은 시작일과 같거나 이후여야 합니다.", true);
+      invalid("actualEnd", "실적 종료일은 시작일과 같거나 이후여야 합니다.", true);
       return;
     }
     if (
       !Number.isInteger(Number(draft.sortOrder)) ||
       draft.sortOrder.trim() === ""
     ) {
-      invalid("정렬 순서는 정수로 입력해 주세요.", true);
+      invalid("sortOrder", "정렬 순서는 정수로 입력해 주세요.", true);
       return;
     }
     if (
@@ -289,7 +522,7 @@ export default function ProjectWorkFormDialog({
       draft.progressMode === "manual" &&
       (!/^\d+$/.test(draft.progress) || Number(draft.progress) > 100)
     ) {
-      invalid("진행률은 0~100 사이의 정수로 입력해 주세요.", true);
+      invalid("progress", "진행률은 0~100 사이의 정수로 입력해 주세요.", true);
       return;
     }
     if (
@@ -297,15 +530,20 @@ export default function ProjectWorkFormDialog({
       (draft.dueDate || draft.dueTime) &&
       (!draft.dueDate ||
         !draft.dueTime ||
+        !isValidProjectDate(draft.dueDate) ||
         !Number.isFinite(
           new Date(`${draft.dueDate}T${draft.dueTime}`).getTime(),
         ))
     ) {
-      invalid("마감 날짜와 시간을 모두 입력해 주세요.", true);
+      invalid(!draft.dueDate ? "dueDate" : "dueTime", "마감 날짜와 시간을 모두 입력해 주세요.", true);
       return;
     }
     if (parentError) {
-      invalid(parentError);
+      invalid("parentId", parentError);
+      return;
+    }
+    if (editing && !dirty) {
+      onClose();
       return;
     }
     if (!periodConfirmed) {
@@ -329,7 +567,7 @@ export default function ProjectWorkFormDialog({
     const payload: UpdateCompanyProjectWorkItemRequest &
       UpdateCompanyProjectPhaseRequest = {};
     function changed(key: keyof typeof draft, apiKey: string, value: unknown) {
-      if (!editing || draft[key] !== initial[key])
+      if (!editing || draftValues[key] !== initialValues[key])
         Object.assign(payload, { [apiKey]: value });
     }
     changed("name", target.kind === "phase" ? "name" : "title", name);
@@ -369,7 +607,7 @@ export default function ProjectWorkFormDialog({
         if (
           !editing ||
           initial.progressMode !== "manual" ||
-          draft.progress !== initial.progress
+          draftValues.progress !== initialValues.progress
         ) {
           payload.progress_percent = Number(draft.progress);
         }
@@ -407,22 +645,55 @@ export default function ProjectWorkFormDialog({
           companyProjectId,
           payload: { ...payload, title: name },
         });
+      saved.current = true;
       onSaved();
     } catch (caught) {
       const apiError = getApiErrorDetails(caught);
       const status = apiError?.status;
       const uncertainCreation =
-        !editing && (!status || status >= 500 || status === 408);
+        !editing && (apiError?.code === "NON_JSON_RESPONSE" || !status || status >= 500 || status === 408);
       setUncertain(uncertainCreation);
       setError(
         uncertainCreation
-          ? "서버의 저장 결과를 확인하지 못했습니다. 창을 닫고 목록을 새로고침하여 추가 여부를 확인해 주세요."
+          ? "서버의 저장 결과를 확인하지 못했습니다. 중복 추가를 방지하려면 창을 닫고 목록을 새로고침하여 추가 여부를 확인해 주세요."
           : getErrorMessage(
               caught,
               "저장하지 못했습니다. 입력 내용을 확인해 주세요.",
             ),
       );
       const issues = apiError?.details?.issues;
+      const apiFields: Record<string, DraftField> = {
+        name: "name", title: "name", description: "description", status: "status", priority: "priority",
+        planned_start_date: "plannedStart", planned_end_date: "plannedEnd",
+        actual_start_date: "actualStart", actual_end_date: "actualEnd",
+        due_datetime: "dueDate", progress_percent: "progress", progress_override_percent: "progressMode",
+        wbs_code: "wbs", sort_order: "sortOrder", parent_work_item_id: "parentId", company_project_phase_id: "parentId",
+      };
+      const serverFields: Partial<Record<DraftField, string>> = {};
+      if (Array.isArray(issues)) {
+        for (const issue of issues) {
+          if (typeof issue !== "object" || issue === null || !("path" in issue)) continue;
+          const parts: unknown[] = Array.isArray(issue.path) ? issue.path : [issue.path];
+          const apiField = parts.find((part): part is string => typeof part === "string" && Object.hasOwn(apiFields, part));
+          if (!apiField) continue;
+          const message = "message" in issue && typeof issue.message === "string"
+            ? issue.message : "입력값을 확인해 주세요.";
+          serverFields[apiFields[apiField]] = message;
+        }
+      }
+      const code = apiError?.code;
+      const knownErrorField: DraftField | undefined =
+        code === "INVALID_PROJECT_PHASE_ACTUAL_DATE_RANGE" || code === "INVALID_WORK_ITEM_ACTUAL_DATE_RANGE"
+          ? "actualEnd" : code === "INVALID_PROJECT_PHASE_DATE_RANGE" || code === "INVALID_WORK_ITEM_DATE_RANGE"
+            ? "plannedEnd" : code === "INVALID_PROJECT_WORK_ITEM_PARENT" || code === "PROJECT_WORK_ITEM_DEPTH_EXCEEDED"
+              ? "parentId" : undefined;
+      if (knownErrorField && !serverFields[knownErrorField])
+        serverFields[knownErrorField] = getErrorMessage(caught);
+      if (serverFields.progress && draft.progressMode === "automatic") {
+        serverFields.progressMode = serverFields.progress;
+        delete serverFields.progress;
+      }
+      setFieldErrors(serverFields);
       const advancedIssue =
         apiError?.code?.includes("ACTUAL_DATE") ||
         (Array.isArray(issues) &&
@@ -454,31 +725,20 @@ export default function ProjectWorkFormDialog({
       }}
     >
       <DialogContent
-        className="left-4 right-4 top-[5dvh] mx-auto flex max-h-[min(90dvh,760px)] w-auto max-w-[560px] translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-2xl border-border bg-background p-0 text-foreground [&>button]:text-muted-foreground"
+        ref={dialogRef}
+        className={`left-4 right-4 top-[5dvh] mx-auto flex max-h-[min(90dvh,760px)] w-auto max-w-[560px] translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-2xl border-border bg-background p-0 text-foreground [&>button]:text-muted-foreground${locationOpen ? " project-work-location-dialog" : ""}`}
         style={{ transform: "none", translate: "none" }}
+        onCloseAutoFocus={onCloseAutoFocus}
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           titleRef.current?.focus();
         }}
-        onEscapeKeyDown={(event) => {
-          if (locationOpen) {
-            event.preventDefault();
-            if (!portal?.querySelector('[role="listbox"]')) closeLocation();
-            return;
-          }
-          if (
-            pending ||
-            lock.current ||
-            fieldsRef.current?.querySelector(
-              'button[aria-haspopup="listbox"][aria-expanded="true"], input[aria-expanded="true"]',
-            )
-          )
-            event.preventDefault();
-        }}
+        onEscapeKeyDown={handleEscape}
         onInteractOutside={(event) => {
           if (locationOpen || pending || lock.current) event.preventDefault();
         }}
       >
+        <TooltipProvider delayDuration={300}>
         <FloatingPanelPortalProvider value={portal}>
           <DialogHeader className="shrink-0 px-5 pb-4 pt-5 text-left sm:px-6">
             <DialogTitle
@@ -496,6 +756,16 @@ export default function ProjectWorkFormDialog({
                 : "단계의 상태를 변경해도 소속 업무의 상태는 유지됩니다."}
             </DialogDescription>
           </DialogHeader>
+          {!canManage && onRetryPermission && (
+            <div className="shrink-0 space-y-2 px-5 pb-4 sm:px-6">
+              <p role="status" className="text-sm text-muted-foreground">
+                권한을 다시 확인할 때까지 입력 내용이 유지되며 저장할 수 없습니다.
+              </p>
+              <Button type="button" variant="outline" size="sm" onClick={onRetryPermission} disabled={permissionRetrying} aria-busy={permissionRetrying}>
+                권한 다시 확인
+              </Button>
+            </div>
+          )}
           {!locationOpen && (
             <>
               <form
@@ -510,67 +780,83 @@ export default function ProjectWorkFormDialog({
                   disabled={fieldsDisabled}
                   className="min-w-0 space-y-4"
                 >
-                  <label className="block space-y-1">
+                  <label className="block space-y-1" data-project-work-field="name">
                     <span className="text-sm">{kindLabel}명 <span className="text-primary">*</span></span>
                     <Input
                       aria-label={`${kindLabel}명`}
                       required
                       maxLength={target.kind === "phase" ? 150 : 200}
+                      placeholder={`${kindLabel}명을 입력하세요`}
                       className={fieldClass}
                       value={draft.name}
                       onChange={(event) => field("name", event.target.value)}
                     />
+                    {fieldError("name")}
                   </label>
-                  <div className="space-y-1">
+                  {target.kind === "work" && <div className="space-y-1" data-project-work-field="parentId">
                     <p className="text-sm">소속 위치</p>
-                    {target.kind === "phase" ? (
-                      // TODO: expose phase navigation only when the API supports parent phases.
-                      <div
-                        className="flex items-center gap-2 rounded-xl border border-input px-3 py-3 text-sm"
-                        aria-label="단계 소속 위치"
-                      >
-                        <Folder
-                          aria-hidden
-                          className="h-4 w-4 shrink-0 text-muted-foreground"
-                        />
-                        프로젝트 최상위
-                      </div>
-                    ) : (
                       <>
-                        <button
-                          ref={locationRef}
-                          type="button"
-                          aria-label="소속 위치 선택"
-                          disabled={fieldsDisabled}
-                          onClick={openLocation}
-                          title={projectLocationLabel(tree, draft)}
-                          className="flex w-full items-center gap-2 rounded-xl border border-input bg-background px-3 py-3 text-left text-sm hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-50"
-                        >
-                          <Folder
-                            aria-hidden
-                            className="h-4 w-4 shrink-0 text-muted-foreground"
-                          />
-                          <span className="min-w-0 flex-1 truncate">
-                            {projectLocationLabel(tree, draft)}
-                          </span>
-                          <ChevronRight
-                            aria-hidden
-                            className="h-4 w-4 shrink-0 text-muted-foreground"
-                          />
-                        </button>
-                        <p className="break-words text-xs leading-5 text-muted-foreground" aria-label="선택한 소속 관계">
-                          {draft.parentId !== "none" ? "선택한 업무의 하위" : "상위 업무 없음"}
-                          {detail.project.phase_mode === "phased" && ` · 연결 단계: ${projectLinkedPhaseLabel(tree, draft)}`}
-                        </p>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              ref={locationRef}
+                              type="button"
+                              aria-label="소속 위치 선택"
+                              disabled={fieldsDisabled}
+                              onClick={openLocation}
+                              title={locationLabel}
+                              className="flex w-full items-center gap-2 rounded-xl border border-input bg-background px-3 py-3 text-left text-sm hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-50"
+                            >
+                              <Folder
+                                aria-hidden
+                                className="h-4 w-4 shrink-0 text-muted-foreground"
+                              />
+                              <span className="min-w-0 flex-1 truncate">
+                                {locationLabel}
+                              </span>
+                              <span className="shrink-0 text-xs font-medium text-primary">변경</span>
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent onEscapeKeyDown={handleTooltipEscape} className="max-w-[min(28rem,calc(100vw-2rem))] break-words">{locationLabel}</TooltipContent>
+                        </Tooltip>
+                        {detail.project.phase_mode === "phased" && draft.parentId !== "none" && (
+                          <p className="truncate text-xs leading-5 text-muted-foreground" aria-label="선택한 소속 관계" title={`연결 단계: ${projectLinkedPhaseLabel(tree, draft)}`}>
+                            연결 단계: {projectLinkedPhaseLabel(tree, draft)}
+                          </p>
+                        )}
                         {parentError && (
                           <p className="text-xs text-destructive">
                             {parentError}
                           </p>
                         )}
+                        {fieldError("parentId")}
                       </>
-                    )}
-                  </div>
-                  <div className="space-y-2 rounded-xl border border-border p-3">
+                  </div>}
+                  <div className="space-y-2" role="group" aria-label="계획 기간">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-medium">계획 기간</p>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span tabIndex={!fieldsDisabled && !canApplyPeriod ? 0 : undefined} aria-describedby={`${id}-period-help`} className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20">
+                            <Button type="button" variant="outline" size="sm" disabled={fieldsDisabled || !canApplyPeriod}
+                              aria-describedby={`${id}-period-help`}
+                              title={periodHelp}
+                              onClick={() => {
+                                if (!periodSource) return;
+                                const dates = applyParentPeriod({ planned_start_date: draft.plannedStart, planned_end_date: draft.plannedEnd }, periodSource);
+                                setDraft((previous) => ({ ...previous, plannedStart: dates.planned_start_date ?? "", plannedEnd: dates.planned_end_date ?? "" }));
+                                setFieldErrors((previous) => {
+                                  const next = { ...previous };
+                                  delete next.plannedStart;
+                                  delete next.plannedEnd;
+                                  return next;
+                                });
+                              }}>{target.kind === "phase" ? "프로젝트 기간 적용" : "상위 기간 적용"}</Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent onEscapeKeyDown={handleTooltipEscape} className="max-w-[min(22rem,calc(100vw-2rem))] break-words">{periodHelp}</TooltipContent>
+                      </Tooltip>
+                    </div>
                     {periodOptions.length > 1 && <CustomSelect
                       ariaLabel="부모 기간 적용 기준"
                       value={periodSource?.key ?? ""}
@@ -581,33 +867,15 @@ export default function ProjectWorkFormDialog({
                       matchTriggerWidth
                       collisionBoundaryRef={fieldsRef}
                     />}
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="min-w-0 break-words text-xs text-muted-foreground">
-                        {periodSource?.label ?? "상위 기간 정보 없음"}<br />
-                        {periodSource && `${formatProjectDate(periodSource.planned_start_date)} ~ ${formatProjectDate(periodSource.planned_end_date)}`}
-                      </p>
-                      <Button type="button" variant="outline" size="sm" disabled={fieldsDisabled || !canApplyPeriod}
-                        onClick={() => {
-                          if (!periodSource) return;
-                          const dates = applyParentPeriod({ planned_start_date: draft.plannedStart, planned_end_date: draft.plannedEnd }, periodSource);
-                          setDraft((previous) => ({ ...previous, plannedStart: dates.planned_start_date ?? "", plannedEnd: dates.planned_end_date ?? "" }));
-                        }}>부모 기간 적용</Button>
-                    </div>
-                    {periodSource && <p className="text-xs text-muted-foreground">비어 있는 날짜만 채웁니다.</p>}
-                  </div>
-                  <div
-                    className="grid gap-3 sm:grid-cols-2"
-                    role="group"
-                    aria-label="계획 기간"
-                  >
+                    <div className="grid grid-cols-2 gap-3">
                     {(
                       [
                         ["plannedStart", "계획 시작일"],
                         ["plannedEnd", "계획 종료일"],
                       ] as const
                     ).map(([key, label]) => (
-                      <div key={key} className="min-w-0 space-y-1">
-                        <p className="text-sm">{label} <span className="text-xs text-muted-foreground">(선택)</span></p>
+                      <div key={key} className="min-w-0 space-y-1" data-project-work-field={key}>
+                        <p className="text-xs text-muted-foreground">{label === "계획 시작일" ? "시작일" : "종료일"}</p>
                         <CompactDateInput
                           ariaLabel={`${kindLabel} ${label}`}
                           clearLabel={`${kindLabel} ${label} 지우기`}
@@ -617,17 +885,22 @@ export default function ProjectWorkFormDialog({
                           disabled={fieldsDisabled}
                           className={dateClass}
                         />
+                        {fieldError(key)}
                       </div>
                     ))}
+                    </div>
+                    <p id={`${id}-period-help`} className={canApplyPeriod ? "sr-only" : "text-xs text-muted-foreground"}>
+                      {periodHelp}
+                    </p>
                   </div>
-                  <div className="rounded-xl border border-border">
+                  <div>
                     <button
                       type="button"
                       aria-expanded={advancedOpen}
                       aria-controls={`${id}-advanced`}
                       disabled={fieldsDisabled}
                       onClick={() => setAdvancedOpen((open) => !open)}
-                      className="flex w-full items-center gap-2 rounded-xl px-3 py-3 text-left text-sm font-medium hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-50"
+                      className="flex w-full items-center gap-2 rounded-lg py-2 text-left text-sm font-medium hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-50"
                     >
                       <ChevronDown
                         aria-hidden
@@ -649,23 +922,25 @@ export default function ProjectWorkFormDialog({
                     {advancedOpen && (
                       <div
                         id={`${id}-advanced`}
-                        className="space-y-4 border-t border-border p-3"
+                        className="space-y-3 pt-2"
                       >
-                        <label className="block space-y-1">
+                        <label className="block space-y-1" data-project-work-field="description">
                           <span className="text-sm">설명</span>
                           <Textarea
+                            ref={descriptionRef}
                             aria-label={`${kindLabel} 설명`}
-                            rows={2}
-                            className={`${fieldClass} min-h-16 resize-y`}
+                            rows={1}
+                            className={`${fieldClass} min-h-14 max-h-40 resize-y`}
                             maxLength={5000}
                             value={draft.description}
                             onChange={(event) =>
                               field("description", event.target.value)
                             }
                           />
+                          {fieldError("description")}
                         </label>
                         <div className="grid gap-3 sm:grid-cols-2">
-                          <div className="min-w-0 space-y-1">
+                          <div className="min-w-0 space-y-1" data-project-work-field="status">
                             <p className="text-sm">상태</p>
                             <CustomSelect
                               ariaLabel={`${kindLabel} 상태 선택`}
@@ -679,9 +954,10 @@ export default function ProjectWorkFormDialog({
                               collisionBoundaryRef={fieldsRef}
                               contentClassName="project-work-select-menu border-border bg-background text-foreground overscroll-contain"
                             />
+                            {fieldError("status")}
                           </div>
                           {target.kind === "work" && (
-                            <div className="min-w-0 space-y-1">
+                            <div className="min-w-0 space-y-1" data-project-work-field="priority">
                               <p className="text-sm">우선순위</p>
                               <CustomSelect
                                 ariaLabel="업무 우선순위 선택"
@@ -695,11 +971,12 @@ export default function ProjectWorkFormDialog({
                                 collisionBoundaryRef={fieldsRef}
                                 contentClassName="project-work-select-menu border-border bg-background text-foreground overscroll-contain"
                               />
+                              {fieldError("priority")}
                             </div>
                           )}
                         </div>
                         <div
-                          className="grid gap-3 sm:grid-cols-2"
+                          className="grid grid-cols-2 gap-3"
                           role="group"
                           aria-label="실적 기간"
                         >
@@ -709,7 +986,7 @@ export default function ProjectWorkFormDialog({
                               ["actualEnd", "실적 종료일"],
                             ] as const
                           ).map(([key, label]) => (
-                            <div key={key} className="min-w-0 space-y-1">
+                            <div key={key} className="min-w-0 space-y-1" data-project-work-field={key}>
                               <p className="text-sm">{label}</p>
                               <CompactDateInput
                                 ariaLabel={`${kindLabel} ${label}`}
@@ -720,6 +997,7 @@ export default function ProjectWorkFormDialog({
                                 disabled={fieldsDisabled}
                                 className={dateClass}
                               />
+                              {fieldError(key)}
                             </div>
                           ))}
                         </div>
@@ -730,7 +1008,7 @@ export default function ProjectWorkFormDialog({
                               role="group"
                               aria-label="마감 일시"
                             >
-                              <div className="min-w-0 space-y-1">
+                              <div className="min-w-0 space-y-1" data-project-work-field="dueDate">
                                 <p className="text-sm">마감 날짜</p>
                                 <CompactDateInput
                                   ariaLabel="업무 마감 날짜"
@@ -741,8 +1019,9 @@ export default function ProjectWorkFormDialog({
                                   disabled={fieldsDisabled}
                                   className={dateClass}
                                 />
+                                {fieldError("dueDate")}
                               </div>
-                              <div className="min-w-0 space-y-1">
+                              <div className="min-w-0 space-y-1" data-project-work-field="dueTime">
                                 <p className="text-sm">마감 시간</p>
                                 <div className="relative">
                                   <CompactTimeInput
@@ -771,11 +1050,12 @@ export default function ProjectWorkFormDialog({
                                     </button>
                                   )}
                                 </div>
+                                {fieldError("dueTime")}
                               </div>
                             </div>
                             <div className="space-y-2">
                               <div className="grid gap-3 sm:grid-cols-2">
-                                <div className="min-w-0 space-y-1">
+                                <div className="min-w-0 space-y-1" data-project-work-field="progressMode">
                                   <p className="text-sm">진행률 설정</p>
                                   <CustomSelect
                                     ariaLabel="업무 진행률 설정"
@@ -791,9 +1071,10 @@ export default function ProjectWorkFormDialog({
                                     collisionBoundaryRef={fieldsRef}
                                     contentClassName="project-work-select-menu border-border bg-background text-foreground overscroll-contain"
                                   />
+                                  {fieldError("progressMode")}
                                 </div>
                                 {draft.progressMode === "manual" && (
-                                  <label className="min-w-0 space-y-1">
+                                  <label className="min-w-0 space-y-1" data-project-work-field="progress">
                                     <span className="text-sm">
                                       진행률 수동 설정 (%)
                                     </span>
@@ -809,6 +1090,7 @@ export default function ProjectWorkFormDialog({
                                         field("progress", event.target.value)
                                       }
                                     />
+                                    {fieldError("progress")}
                                   </label>
                                 )}
                               </div>
@@ -819,7 +1101,7 @@ export default function ProjectWorkFormDialog({
                                 유지됩니다.
                               </p>
                             </div>
-                            <label className="block space-y-1">
+                            <label className="block space-y-1" data-project-work-field="wbs">
                               <span className="text-sm">WBS 코드</span>
                               <Input
                                 aria-label="업무 WBS 코드"
@@ -830,10 +1112,11 @@ export default function ProjectWorkFormDialog({
                                   field("wbs", event.target.value)
                                 }
                               />
+                              {fieldError("wbs")}
                             </label>
                           </>
                         )}
-                        <label className="block space-y-1">
+                        <label className="block space-y-1" data-project-work-field="sortOrder">
                           <span className="text-sm">정렬 순서</span>
                           <Input
                             type="number"
@@ -845,6 +1128,7 @@ export default function ProjectWorkFormDialog({
                               field("sortOrder", event.target.value)
                             }
                           />
+                          {fieldError("sortOrder")}
                         </label>
                       </div>
                     )}
@@ -861,7 +1145,7 @@ export default function ProjectWorkFormDialog({
               )}
               <DialogFooter className="shrink-0 flex-row flex-wrap justify-end gap-2 border-t border-border px-5 py-3 sm:px-6 sm:space-x-0">
                 <Button variant="outline" onClick={close} disabled={pending}>
-                  닫기
+                  취소
                 </Button>
                 <Button
                   type="submit"
@@ -869,7 +1153,7 @@ export default function ProjectWorkFormDialog({
                   disabled={fieldsDisabled || parentUnavailable}
                   aria-busy={pending}
                 >
-                  {pending ? "저장 중..." : "저장"}
+                  {pending ? "저장 중..." : editing ? "저장" : `${kindLabel} 추가`}
                 </Button>
               </DialogFooter>
             </>
@@ -892,7 +1176,40 @@ export default function ProjectWorkFormDialog({
           <div ref={setPortal} />
           <ProjectPeriodWarning messages={periodWarning} onCancel={() => setPeriodWarning(null)}
             onConfirm={() => { setPeriodWarning(null); void submit(undefined, true); }} />
+          <Dialog open={discardOpen} onOpenChange={(open) => {
+            setDiscardOpen(open);
+            if (!open) discardAction.current = null;
+          }}>
+            <DialogContent
+              className="max-h-[85dvh] max-w-[calc(100vw-2rem)] overflow-y-auto border-border bg-background text-foreground sm:max-w-md"
+              onCloseAutoFocus={(event) => {
+                event.preventDefault();
+                requestAnimationFrame(() => {
+                  if (!titleRef.current?.isConnected) return;
+                  const opener = discardOpener.current;
+                  if (opener?.isConnected && opener !== document.body && !opener.closest('[inert], [hidden], [aria-hidden="true"]') && !opener.matches(":disabled"))
+                    opener.focus({ preventScroll: true });
+                  else titleRef.current.focus({ preventScroll: true });
+                });
+              }}
+            >
+              <DialogHeader>
+                <DialogTitle>저장하지 않은 변경사항이 있습니다.</DialogTitle>
+                <DialogDescription className="text-muted-foreground">변경사항을 버리고 나가시겠습니까?</DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="gap-2 sm:space-x-0">
+                <Button variant="outline" onClick={() => { discardAction.current = null; setDiscardOpen(false); }}>계속 편집</Button>
+                <Button onClick={() => {
+                  const action = discardAction.current;
+                  discardAction.current = null;
+                  setDiscardOpen(false);
+                  action?.();
+                }}>변경사항 버리고 나가기</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </FloatingPanelPortalProvider>
+        </TooltipProvider>
       </DialogContent>
     </Dialog>
   );

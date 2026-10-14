@@ -22,7 +22,17 @@ new Function("require", "module", "exports", compiled)(
   module,
   module.exports,
 );
-const { getApiErrorDetails, getErrorMessage } = module.exports;
+const { getApiErrorDetails, getErrorMessage, isTransientApiReadError } = module.exports;
+
+test("temporary read failures retain drafts without treating denied or invalid responses as recoverable", () => {
+  assert.equal(isTransientApiReadError(new axios.AxiosError("Network Error")), true);
+  for (const status of [408, 429, 500, 503])
+    assert.equal(isTransientApiReadError(projectFailure({}, status)), true);
+  for (const status of [200, 400, 401, 403, 404, 409])
+    assert.equal(isTransientApiReadError(projectFailure({}, status)), false);
+  assert.equal(isTransientApiReadError(new Error("Invalid project response")), false);
+  assert.equal(isTransientApiReadError(new axios.CanceledError("Session changed")), false);
+});
 
 function projectFailure(data, status = 403) {
   return new axios.AxiosError(

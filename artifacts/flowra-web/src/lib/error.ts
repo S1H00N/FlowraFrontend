@@ -66,6 +66,12 @@ export function getApiErrorDetails(err: unknown) {
   };
 }
 
+export function isTransientApiReadError(err: unknown): boolean {
+  if (!axios.isAxiosError(err) || axios.isCancel(err)) return false;
+  const status = err.response?.status;
+  return status === undefined || status === 408 || status === 429 || status >= 500;
+}
+
 export function getErrorCode(err: unknown): string | null {
   if (axios.isAxiosError(err)) {
     const data = getErrorBody(err);

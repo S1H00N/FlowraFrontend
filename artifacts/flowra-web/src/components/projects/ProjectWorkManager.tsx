@@ -17,6 +17,7 @@ import {
   ListTree,
   Loader2,
   MoreHorizontal,
+  Pencil,
   Pin,
   PinOff,
   Search,
@@ -27,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import CustomSelect from "@/components/ui/CustomSelect";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -59,7 +61,7 @@ import {
 } from "@/hooks/useCompanyProjects";
 import { useProjectWorkTree } from "@/hooks/useProjectWorkTree";
 import ProjectWorkFormDialog, { type ProjectWorkEditTarget } from "./ProjectWorkFormDialog";
-import { getErrorMessage } from "@/lib/error";
+import { getErrorMessage, isTransientApiReadError } from "@/lib/error";
 import { projectHierarchyTitle, workKey, type ProjectHierarchyKey } from "@/lib/projectHierarchy";
 import {
   compareWorkItems,
@@ -91,6 +93,7 @@ interface WorkSelection {
 
 type WorkPanelMode = "docked" | "floating" | "fullscreen";
 const panelLayoutStorageKey = "flowra-project-work-panel-layout";
+const panelWidth = 380;
 
 function initialPanelPreference(): "docked" | "floating" {
   try {
@@ -130,6 +133,7 @@ export default function ProjectWorkManager({
   const delays = aggregateProjectDelays(tree.graph, today);
   const delaysPartial = tree.searchScope !== "complete";
   const permission = useCompanyProjectMembers(project.company_project_id);
+  const transientPermissionError = permission.isError && isTransientApiReadError(permission.error);
   const canManage =
     !permission.isError &&
     isActiveProjectMembership(membership) &&
@@ -170,6 +174,7 @@ export default function ProjectWorkManager({
   const panelRef = useRef<HTMLElement>(null);
   const panelTitleRef = useRef<HTMLHeadingElement>(null);
   const panelContentRef = useRef<HTMLDivElement>(null);
+  const editorReturnFocusRef = useRef<HTMLElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const scopeToolbarRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -179,7 +184,7 @@ export default function ProjectWorkManager({
   const panelScrollBeforeDockRef = useRef<number | null>(null);
   const [panelLayout, setPanelLayout] = useState<{
     mode: WorkPanelMode; canDock: boolean; width: number; top: number; right: number;
-  }>({ mode: "fullscreen", canDock: false, width: 340, top: 0, right: 0 });
+  }>({ mode: "fullscreen", canDock: false, width: panelWidth, top: 0, right: 0 });
   const fullscreenPanel = panelLayout.mode === "fullscreen";
   const panelDocked = panelLayout.mode === "docked";
   const [mobile, setMobile] = useState(
@@ -281,6 +286,21 @@ export default function ProjectWorkManager({
       (target ?? fallback)?.focus({ preventScroll: true });
     });
   }
+  function openEditor(target: ProjectWorkEditTarget) {
+    const focused = document.activeElement;
+    // Menu items are removed when the menu closes; retain their trigger instead.
+    if (focused instanceof HTMLElement && !focused.closest('[role="menu"]'))
+      editorReturnFocusRef.current = focused;
+    setEditTarget(target);
+  }
+  function restoreEditorFocus(event: Event) {
+    event.preventDefault();
+    requestAnimationFrame(() => {
+      const target = [editorReturnFocusRef.current, panelOpen ? panelTitleRef.current : null, searchRef.current]
+        .find((element) => canFocus(element));
+      target?.focus({ preventScroll: true });
+    });
+  }
   useEffect(() => {
     if (!active) {
       setSelection(null);
@@ -289,6 +309,10 @@ export default function ProjectWorkManager({
       setFilterOpen(false);
     }
   }, [active]);
+  useEffect(() => {
+    // An explicit permission denial closes the editor and releases the panel.
+    if (!canManage && !transientPermissionError) setEditTarget(null);
+  }, [canManage, transientPermissionError]);
   useLayoutEffect(() => {
     const workspace = workspaceRef.current;
     const toolbar = scopeToolbarRef.current;
@@ -306,11 +330,11 @@ export default function ProjectWorkManager({
       const height = viewport?.height ?? window.innerHeight;
       const header = document.querySelector<HTMLElement>(".flowra-app-shell header");
       const headerBottom = Math.ceil(header?.getBoundingClientRect().bottom ?? 64);
-      const canDock = bounds.width >= 20 * rem + 340 + 16 && height >= 18 * rem;
-      const docked = panelPreference === "docked";
+      const canDock = bounds.width >= 28 * rem + panelWidth + 16 && height >= 18 * rem;
+      const docked = panelPreference === "docked" && canDock;
       const top = docked ? 0 : Math.ceil(Math.max(headerBottom + 8,
         toolbar.getBoundingClientRect().bottom + 8));
-      const width = docked ? 340 : 390;
+      const width = panelWidth;
       const right = docked ? 0 : Math.max(16, Math.ceil(window.innerWidth - workspace.getBoundingClientRect().right));
       const fullscreen = bounds.width < 20 * rem + width + 16 || height - top - (docked ? 0 : 16) < 18 * rem;
       const mode: WorkPanelMode = fullscreen ? "fullscreen" : docked ? "docked" : "floating";
@@ -366,11 +390,11 @@ export default function ProjectWorkManager({
     return () => media.removeEventListener("change", update);
   }, []);
   useEffect(() => {
-    if (!panelOpen) return;
+    if (!panelOpen || editTarget || cancelTarget) return;
     const focused = document.activeElement;
     if (focused instanceof HTMLElement && canFocus(focused) && panelRef.current?.contains(focused)) return;
     panelTitleRef.current?.focus({ preventScroll: true });
-  }, [selectedId, panelOpen, fullscreenPanel]);
+  }, [selectedId, panelOpen, fullscreenPanel, editTarget, cancelTarget]);
   useEffect(() => {
     if (panelOpen && panelContentRef.current) panelContentRef.current.scrollTop = 0;
   }, [selectedId, panelOpen]);
@@ -510,16 +534,18 @@ export default function ProjectWorkManager({
             variant="ghost"
             size="icon"
             aria-label={`${item.title} 더 보기`}
+            onPointerDown={(event) => { editorReturnFocusRef.current = event.currentTarget; }}
+            onKeyDown={(event) => { editorReturnFocusRef.current = event.currentTarget; }}
           >
             <MoreHorizontal aria-hidden="true" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" collisionPadding={12}>
           <DropdownMenuItem disabled={pending || !canAddChild(item)}
-            onSelect={() => setEditTarget({ kind: "work", parent: item })}>
+            onSelect={() => openEditor({ kind: "work", parent: item })}>
             하위 업무 추가
           </DropdownMenuItem>
-          <DropdownMenuItem disabled={pending} onSelect={() => setEditTarget({ kind: "work", item })}>
+          <DropdownMenuItem disabled={pending} onSelect={() => openEditor({ kind: "work", item })}>
             업무 수정
           </DropdownMenuItem>
           <DropdownMenuItem
@@ -579,7 +605,18 @@ export default function ProjectWorkManager({
     const title = projectHierarchyTitle(item.title, number);
     const prefixLength = number === undefined ? 0 : number.length +
       (title[number.length] === "." ? 2 : 1);
-    const childCount = item.rollup?.child_count ?? tree.children.get(id)?.length;
+    const directChildrenComplete = tree.completeSiblingSets.has(id);
+    const serverChildCount = item.rollup?.child_count;
+    const hasServerChildCount = typeof serverChildCount === "number" &&
+      Number.isSafeInteger(serverChildCount) && serverChildCount >= 0;
+    // A complete direct branch is authoritative even when the rollup cache is stale.
+    const childCount = directChildrenComplete
+      ? tree.children.get(id)?.length ?? 0
+      : hasServerChildCount ? serverChildCount : tree.children.get(id)?.length ?? 0;
+    const childCountPartial = !directChildrenComplete && !hasServerChildCount;
+    const childCountDescription = childCountPartial
+      ? `현재 불러온 직계 하위 업무 ${childCount}개 · 전체 개수는 확인되지 않았습니다.`
+      : `직계 하위 업무 ${childCount}개 · ${directChildrenComplete ? "조회 완료" : "서버 집계"} 기준 · 취소 포함`;
     const rows: React.ReactNode[] = [
       <tr
         key={`work:${id}`}
@@ -639,9 +676,9 @@ export default function ProjectWorkManager({
             </button>
             {mobile && <div className="work-mobile-status"><WorkStatusBadge status={item.status} /></div>}
             </div>
-            {typeof childCount === "number" && childCount > 0 && (
-              <span className="work-child-count" title={tree.completeSiblingSets.has(id) || item.rollup?.child_count !== undefined ? "하위 업무 수" : "현재 불러온 하위 업무 수"}>
-                {tree.completeSiblingSets.has(id) || item.rollup?.child_count !== undefined ? "" : "조회 "}{childCount}
+            {childCount > 0 && (
+              <span className="work-child-count" title={childCountDescription} aria-description={childCountDescription}>
+                {childCountPartial ? "조회 " : ""}하위 {childCount}개
               </span>
             )}
           </div>
@@ -775,7 +812,9 @@ export default function ProjectWorkManager({
               {mobile && group.phase && typeof group.phase.status === "string" &&
                 <div className="work-mobile-status"><WorkStatusBadge status={group.phase.status} /></div>}
               </div>
-              <span className="work-phase-count" title={complete ? "하위 업무 수" : "현재 불러온 하위 업무 수"}>
+              <span className="work-phase-count"
+                title={`표시 그룹의 모든 깊이 업무 ${descendants.size}개 · ${complete ? "전체 조회" : "현재 불러온 업무"} 기준 · 취소 포함`}
+                aria-description={`표시 그룹의 모든 깊이 업무 ${descendants.size}개 · ${complete ? "전체 조회" : "현재 불러온 업무"} 기준 · 취소 포함`}>
                 {complete ? "업무" : "조회"} {descendants.size}개
               </span>
             </div>
@@ -807,6 +846,8 @@ export default function ProjectWorkManager({
                       variant="ghost"
                       size="icon"
                       aria-label={`${group.phase.name} 더 보기`}
+                      onPointerDown={(event) => { editorReturnFocusRef.current = event.currentTarget; }}
+                      onKeyDown={(event) => { editorReturnFocusRef.current = event.currentTarget; }}
                     >
                       <MoreHorizontal aria-hidden="true" />
                     </Button>
@@ -814,7 +855,13 @@ export default function ProjectWorkManager({
                   <DropdownMenuContent align="end" collisionPadding={12}>
                     <DropdownMenuItem
                       disabled={pending}
-                      onSelect={() => setEditTarget({ kind: "phase", phase: group.phase! })}
+                      onSelect={() => openEditor({ kind: "work", phase: group.phase! })}
+                    >
+                      업무 추가
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={pending}
+                      onSelect={() => openEditor({ kind: "phase", phase: group.phase! })}
                     >
                       단계 수정
                     </DropdownMenuItem>
@@ -883,14 +930,14 @@ export default function ProjectWorkManager({
                 <Button
                   variant="outline"
                   disabled={pending}
-                  onClick={() => setEditTarget({ kind: "phase" })}
+                  onClick={() => openEditor({ kind: "phase" })}
                 >
                   단계 추가
                 </Button>
               )}
               <Button
                 disabled={pending}
-                onClick={() => setEditTarget({ kind: "work" })}
+                onClick={() => openEditor({ kind: "work" })}
               >
                 업무 추가
               </Button>
@@ -1079,18 +1126,42 @@ export default function ProjectWorkManager({
             aria-label="업무 상세"
             role={fullscreenPanel ? "dialog" : "complementary"}
             aria-modal={fullscreenPanel ? true : undefined}
+            inert={editTarget !== null || cancelTarget !== null}
             onKeyDown={trapPanelFocus}
           >
             <div className="work-panel-header">
+              <details className="work-panel-path" key={selectedId}>
+                <summary aria-label="업무 전체 경로" title={selected ? workPath(selected) : selection?.path}>
+                  <span>{selected ? workPath(selected) : selection?.path}</span>
+                  <ChevronDown aria-hidden className="h-3 w-3 shrink-0" />
+                </summary>
+                <p>{selected ? workPath(selected) : selection?.path}</p>
+              </details>
               <div className="work-panel-heading">
-                <p title={selected ? workPath(selected) : selection?.path}>
-                  {selected ? workPath(selected) : selection?.path}
-                </p>
-                <h3 ref={panelTitleRef} tabIndex={-1}>
+                <h3 ref={panelTitleRef} tabIndex={-1} title={selected?.title ?? selection?.title}>
                   {selected?.title ?? selection?.title}
                 </h3>
               </div>
               <div className="work-panel-header-actions">
+                {selected && canManage && (
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label="업무 수정"
+                          title="업무 수정"
+                          disabled={pending}
+                          onClick={() => openEditor({ kind: "work", item: selected })}
+                        >
+                          <Pencil aria-hidden="true" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent onEscapeKeyDown={closePanel}>업무 수정</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
                 {selected && menu(selected)}
                 <Button
                   variant="ghost"
@@ -1100,7 +1171,7 @@ export default function ProjectWorkManager({
                   aria-description={!panelLayout.canDock ? "목록과 상세를 함께 표시할 화면 공간이 부족합니다." : undefined}
                   className={panelDocked ? "text-primary" : undefined}
                   disabled={!panelLayout.canDock}
-                  title={panelLayout.canDock ? panelDocked ? "도킹 해제" : "오른쪽에 도킹" : "화면 공간이 확보되면 도킹할 수 있습니다."}
+                  title={panelLayout.canDock ? panelDocked ? "상세 패널 고정 해제" : "상세 패널 고정" : "화면 공간이 확보되면 도킹할 수 있습니다."}
                   onClick={togglePanelDock}
                 >
                   {panelDocked ? <PinOff aria-hidden="true" /> : <Pin aria-hidden="true" />}
@@ -1125,23 +1196,21 @@ export default function ProjectWorkManager({
                   <section aria-label="업무 기본 정보">
                     <h4>기본 정보</h4>
                     <dl className="work-panel-fields">
-                      <div>
-                        <dt>계획 시작일</dt>
+                      <div className="work-panel-field-wide">
+                        <dt>계획 기간</dt>
                         <dd>
-                          {formatProjectDate(selected.planned_start_date)}
+                          {selected.planned_start_date || selected.planned_end_date
+                            ? `${selected.planned_start_date ? formatProjectDate(selected.planned_start_date) : "시작일 미정"} ~ ${selected.planned_end_date ? formatProjectDate(selected.planned_end_date) : "종료일 미정"}`
+                            : "미정"}
                         </dd>
                       </div>
-                      <div>
-                        <dt>계획 종료일</dt>
-                        <dd>{formatProjectDate(selected.planned_end_date)}</dd>
-                      </div>
                       {phased && <div><dt>단계</dt><dd>{phases.find((phase) => phase.company_project_phase_id === selected.company_project_phase_id)?.name ?? "단계 미지정"}</dd></div>}
-                      <div><dt>일정 상태</dt><dd><ProjectScheduleLabel source={selected} today={today} /></dd></div>
-                      <div><dt>하위 업무 지연</dt><dd>{delays.work.get(selected.company_project_work_item_id)?.size ?? 0}건{delaysPartial ? " (조회된 업무 기준)" : ""}</dd></div>
-                      <div>
-                        <dt>진행률</dt>
+                      {(selected.planned_start_date || selected.planned_end_date) && <div><dt>일정 상태</dt><dd><ProjectScheduleLabel source={selected} today={today} /></dd></div>}
+                      {Boolean(delays.work.get(selected.company_project_work_item_id)?.size) && <div className="work-panel-delay"><dt>하위 업무 지연</dt><dd>{delays.work.get(selected.company_project_work_item_id)!.size}건{delaysPartial ? " (조회된 업무 기준)" : ""}</dd></div>}
+                      <div className="work-panel-field-wide work-panel-progress">
+                        <dt className="sr-only">진행률</dt>
                         <dd>
-                          <WorkProgress item={selected} />
+                          <WorkProgress item={selected} label="진행률" />
                         </dd>
                       </div>
                       <div>
@@ -1152,8 +1221,8 @@ export default function ProjectWorkManager({
                   </section>
                   <section aria-label="업무 설명">
                     <h4>설명</h4>
-                    <p className="work-description">
-                      {selected.description || "등록된 설명이 없습니다."}
+                    <p className={selected.description ? "work-description" : "work-panel-empty"}>
+                      {selected.description || "설명 없음"}
                     </p>
                   </section>
                   <section aria-label="하위 업무">
@@ -1165,7 +1234,7 @@ export default function ProjectWorkManager({
                           size="sm"
                           disabled={pending || !canAddChild(selected)}
                           title={!canAddChild(selected) ? "업무는 최대 5단계까지 추가할 수 있습니다." : undefined}
-                          onClick={() => setEditTarget({ kind: "work", parent: selected })}
+                          onClick={() => openEditor({ kind: "work", parent: selected })}
                         >
                           하위 업무 추가
                         </Button>
@@ -1210,7 +1279,7 @@ export default function ProjectWorkManager({
                     </ul>
                     {!tree.children.get(selectedId!)?.length &&
                       !tree.hasChildren(selected) && (
-                        <p className="projects-note">하위 업무가 없습니다.</p>
+                        <p className="work-panel-empty">하위 업무 없음</p>
                       )}
                     {tree.needsChildren(selected) &&
                       !tree.queryById.get(selectedId!)?.isFetching &&
@@ -1316,9 +1385,12 @@ export default function ProjectWorkManager({
           </aside>
         </WorkPanelPortal>
       )}
-      {editTarget && active && canManage && <ProjectWorkFormDialog
+      {editTarget && active && (canManage || transientPermissionError) && <ProjectWorkFormDialog
         key={editTarget.kind === "phase" ? `phase:${editTarget.phase?.company_project_phase_id ?? "new"}` : `work:${editTarget.item?.company_project_work_item_id ?? `new:${editTarget.parent?.company_project_work_item_id ?? "root"}`}`}
         target={editTarget} detail={detail} tree={tree} canManage={canManage}
+        onRetryPermission={transientPermissionError ? () => void permission.refetch() : undefined}
+        permissionRetrying={permission.isFetching}
+        onCloseAutoFocus={restoreEditorFocus}
         onClose={() => setEditTarget(null)} onSaved={() => setEditTarget(null)} />}
       <Dialog
         open={cancelTarget !== null}
@@ -1328,6 +1400,7 @@ export default function ProjectWorkManager({
       >
         <DialogContent
           className="work-cancel-dialog border-border bg-background text-foreground [&>button]:text-muted-foreground"
+          onCloseAutoFocus={restoreEditorFocus}
           onEscapeKeyDown={(event) => {
             if (pending) event.preventDefault();
           }}

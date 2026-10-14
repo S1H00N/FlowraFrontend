@@ -8,6 +8,7 @@ import EmptyState from "@/components/ui/EmptyState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
 import ProjectWorkManager from "@/components/projects/ProjectWorkManager";
+import { isTransientApiReadError } from "@/lib/error";
 import { ProjectScheduleLabel, useProjectToday } from "@/components/projects/ProjectSchedulePresentation";
 import {
   formatProjectDate,
@@ -52,6 +53,7 @@ export default function ProjectDetail() {
       companyAccessible,
   });
   const project = detail.data?.project;
+  const transientRefreshError = detail.isError && !!detail.data && isTransientApiReadError(detail.error);
   const membership = activeMemberships.find(
     (item) => item.company_id === project?.company_id,
   );
@@ -133,7 +135,7 @@ export default function ProjectDetail() {
           />
         ) : detail.isLoading ? (
           <FullSpinner message="프로젝트를 불러오는 중..." />
-        ) : detail.isError ? (
+        ) : detail.isError && !transientRefreshError ? (
           <ProjectError
             error={detail.error}
             onRetry={() => void detail.refetch()}
@@ -141,6 +143,11 @@ export default function ProjectDetail() {
           />
         ) : project && membership ? (
           <>
+            {transientRefreshError && <ProjectError
+              error={detail.error}
+              onRetry={() => void detail.refetch()}
+              retrying={detail.isFetching}
+            />}
             <header className="projects-detail-header flowra-surface">
               <div className="projects-detail-title">
                 <div className="projects-detail-name">
