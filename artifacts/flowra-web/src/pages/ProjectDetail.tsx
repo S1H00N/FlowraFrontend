@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, FolderKanban, RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -8,6 +8,7 @@ import EmptyState from "@/components/ui/EmptyState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
 import ProjectWorkManager from "@/components/projects/ProjectWorkManager";
+import { ProjectScheduleLabel, useProjectToday } from "@/components/projects/ProjectSchedulePresentation";
 import {
   formatProjectDate,
   isActiveProjectMembership,
@@ -25,6 +26,7 @@ import "./Projects.css";
 
 export default function ProjectDetail() {
   const queryClient = useQueryClient();
+  const today = useProjectToday();
   const { companyProjectId } = useParams();
   const id =
     companyProjectId &&
@@ -55,8 +57,10 @@ export default function ProjectDetail() {
   );
   const [editingId, setEditingId] = useState<number | null>(null);
   const [tab, setTab] = useState<"overview" | "work">("work");
+  const [panelLayout, setPanelLayout] = useState({ overlay: false, docked: false, width: 0, right: 0 });
   useEffect(() => setEditingId(null), [id, membership?.company_member_id]);
   useEffect(() => setTab("work"), [id]);
+  useEffect(() => setPanelLayout({ overlay: false, docked: false, width: 0, right: 0 }), [id, membership?.company_member_id]);
   const listCompany = requestedMembership?.company_id ?? membership?.company_id;
   const backUrl = listCompany
     ? `/projects?company_id=${listCompany}`
@@ -67,7 +71,14 @@ export default function ProjectDetail() {
     String(project.company_id) !== requestedCompany;
 
   return (
-    <AppShell>
+    <AppShell
+      wide
+      aiChatButtonOffset={tab === "work" && panelLayout.overlay ? `${panelLayout.width + panelLayout.right}px` : undefined}
+      headerRightOffset={tab === "work" && panelLayout.docked ? `${panelLayout.width}px` : undefined}
+    >
+      <div className="projects-detail-workspace"
+        data-work-panel-docked={tab === "work" && panelLayout.docked}
+        style={{ "--project-work-dock-space": `${panelLayout.width}px` } as CSSProperties}>
       <div className="projects-page projects-work-page flowra-page-stack">
         <div className="projects-detail-nav">
           <Button asChild variant="ghost">
@@ -132,9 +143,9 @@ export default function ProjectDetail() {
           <>
             <header className="projects-detail-header flowra-surface">
               <div className="projects-detail-title">
-                <div>
-                  <ProjectStatusBadge status={project.status} />
+                <div className="projects-detail-name">
                   <h2>{project.name}</h2>
+                  <ProjectStatusBadge status={project.status} />
                 </div>
                 <ProjectEditAction
                   project={project}
@@ -149,9 +160,12 @@ export default function ProjectDetail() {
                     ? ` · ${membership.department?.department_id === project.origin_department_id ? membership.department.name : `부서 ${project.origin_department_id}`}`
                     : ""}
                 </span>
-                <span>
-                  {formatProjectDate(project.planned_start_date)} ~{" "}
-                  {formatProjectDate(project.planned_end_date)}
+                <span className="projects-detail-period">
+                  <span>
+                    {formatProjectDate(project.planned_start_date)} ~{" "}
+                    {formatProjectDate(project.planned_end_date)}
+                  </span>
+                  <ProjectScheduleLabel source={project} today={today} compact />
                 </span>
               </div>
             </header>
@@ -220,6 +234,7 @@ export default function ProjectDetail() {
                   detailUpdatedAt={detail.dataUpdatedAt}
                   membership={membership}
                   active={tab === "work"}
+                  onPanelLayoutChange={setPanelLayout}
                 />
               )}
             </div>
@@ -307,6 +322,7 @@ export default function ProjectDetail() {
                 }}
                 membership={membership}
                 project={project}
+                knownChildren={detail.data ? [...detail.data.phases, ...detail.data.work_items] : []}
                 onSaved={() => setEditingId(null)}
               />
             )}
@@ -317,6 +333,7 @@ export default function ProjectDetail() {
             description="이 프로젝트의 회사 멤버십을 확인해 주세요."
           />
         )}
+      </div>
       </div>
     </AppShell>
   );

@@ -64,7 +64,7 @@ export function WorkProgress({ item, compact = false }: {
   return (
     <div className={compact ? "min-w-20" : "space-y-2"}>
       <div className="flex items-center gap-2">
-        <span className="text-sm tabular-nums">{formatWorkProgress(value)}</span>
+        <span className={`${compact ? "text-xs" : "text-sm"} tabular-nums`}>{formatWorkProgress(value)}</span>
         {manualOverride && (
           <span
             className="whitespace-nowrap text-[11px] text-muted-foreground"

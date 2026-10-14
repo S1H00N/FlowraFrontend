@@ -1,24 +1,32 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type KeyboardEvent,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import {
   ChevronDown,
   ChevronRight,
+  Folder,
+  FileCheck2,
   ListTree,
   Loader2,
   MoreHorizontal,
+  Pin,
+  PinOff,
   Search,
+  SlidersHorizontal,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import CustomSelect from "@/components/ui/CustomSelect";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,7 +60,9 @@ import {
 import { useProjectWorkTree } from "@/hooks/useProjectWorkTree";
 import ProjectWorkFormDialog, { type ProjectWorkEditTarget } from "./ProjectWorkFormDialog";
 import { getErrorMessage } from "@/lib/error";
+import { projectHierarchyTitle, workKey, type ProjectHierarchyKey } from "@/lib/projectHierarchy";
 import {
+  compareWorkItems,
   getWorkItemAncestorPath,
   getWorkItemDepthInfo,
   MAX_PROJECT_WORK_DEPTH,
@@ -65,6 +75,8 @@ import type {
   CompanyProjectWorkItem,
 } from "@/types";
 import "./ProjectWorkManager.css";
+import { aggregateProjectDelays } from "@/lib/projectSchedule";
+import { ProjectScheduleLabel, useProjectToday } from "./ProjectSchedulePresentation";
 
 type CancelTarget =
   | { kind: "work"; item: CompanyProjectWorkItem }
@@ -77,14 +89,26 @@ interface WorkSelection {
   ancestorIds: number[];
 }
 
-function WorkPanelPortal({
-  mobile,
-  children,
-}: {
-  mobile: boolean;
-  children: ReactNode;
-}) {
-  return mobile ? createPortal(children, document.body) : children;
+type WorkPanelMode = "docked" | "floating" | "fullscreen";
+const panelLayoutStorageKey = "flowra-project-work-panel-layout";
+
+function initialPanelPreference(): "docked" | "floating" {
+  try {
+    return window.localStorage.getItem(panelLayoutStorageKey) === "floating" ? "floating" : "docked";
+  } catch {
+    return "docked";
+  }
+}
+
+function WorkPanelPortal({ children }: { children: ReactNode }) {
+  return createPortal(children, document.body);
+}
+
+function canFocus(element: HTMLElement | null | undefined): element is HTMLElement {
+  if (!element?.isConnected || element.closest('[inert], [hidden], [aria-hidden="true"]') ||
+    element.matches(':disabled') || !element.getClientRects().length) return false;
+  const style = getComputedStyle(element);
+  return style.visibility === "visible" && style.display !== "none";
 }
 
 export default function ProjectWorkManager({
@@ -92,14 +116,19 @@ export default function ProjectWorkManager({
   detailUpdatedAt,
   membership,
   active,
+  onPanelLayoutChange,
 }: {
   detail: CompanyProjectDetailData;
   detailUpdatedAt: number;
   membership: CompanyMembership;
   active: boolean;
+  onPanelLayoutChange?: (layout: { overlay: boolean; docked: boolean; width: number; right: number }) => void;
 }) {
   const project = detail.project;
   const tree = useProjectWorkTree(detail, detailUpdatedAt);
+  const today = useProjectToday();
+  const delays = aggregateProjectDelays(tree.graph, today);
+  const delaysPartial = tree.searchScope !== "complete";
   const permission = useCompanyProjectMembers(project.company_project_id);
   const canManage =
     !permission.isError &&
@@ -117,10 +146,14 @@ export default function ProjectWorkManager({
   const [status, setStatus] = useState("all");
   const [priority, setPriority] = useState("all");
   const [phaseFilter, setPhaseFilter] = useState("all");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [collapsedPhases, setCollapsedPhases] = useState<Set<ProjectHierarchyKey>>(() => new Set());
   // Retain navigation context through a refresh, never the old item fields.
   const [selection, setSelection] = useState<WorkSelection | null>(null);
+  const [panelVisible, setPanelVisible] = useState(false);
+  const [selectedPhase, setSelectedPhase] = useState<ProjectHierarchyKey | null>(null);
   const selectedId = selection?.id ?? null;
-  const panelOpen = active && selection !== null;
+  const panelOpen = active && panelVisible && selection !== null;
   const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
   const [editTarget, setEditTarget] = useState<ProjectWorkEditTarget | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -136,6 +169,19 @@ export default function ProjectWorkManager({
   const selectionLoading = selectionQueries.some((query) => query.isFetching);
   const panelRef = useRef<HTMLElement>(null);
   const panelTitleRef = useRef<HTMLHeadingElement>(null);
+  const panelContentRef = useRef<HTMLDivElement>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const scopeToolbarRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const filterButtonRef = useRef<HTMLButtonElement>(null);
+  const filterDoneRef = useRef<HTMLButtonElement>(null);
+  const [panelPreference, setPanelPreference] = useState(initialPanelPreference);
+  const panelScrollBeforeDockRef = useRef<number | null>(null);
+  const [panelLayout, setPanelLayout] = useState<{
+    mode: WorkPanelMode; canDock: boolean; width: number; top: number; right: number;
+  }>({ mode: "fullscreen", canDock: false, width: 340, top: 0, right: 0 });
+  const fullscreenPanel = panelLayout.mode === "fullscreen";
+  const panelDocked = panelLayout.mode === "docked";
   const [mobile, setMobile] = useState(
     () => window.matchMedia("(max-width: 700px)").matches,
   );
@@ -146,14 +192,35 @@ export default function ProjectWorkManager({
     status !== "all" ||
     priority !== "all" ||
     phaseFilter !== "all";
-  const sorter = (a: CompanyProjectWorkItem, b: CompanyProjectWorkItem) =>
-    (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
-    a.company_project_work_item_id - b.company_project_work_item_id;
-  const phases = [...detail.phases].sort(
-    (a, b) =>
-      (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
-      a.company_project_phase_id - b.company_project_phase_id,
-  );
+  const phases = tree.hierarchy.phases;
+  const filterCount = Number(status !== "all") + Number(priority !== "all") +
+    Number(phased && phaseFilter !== "all");
+  function restoreFilterFocus() {
+    requestAnimationFrame(() => {
+      const target = [filterOpen ? filterDoneRef.current : searchRef.current, filterButtonRef.current]
+        .find((element) => canFocus(element));
+      if (canFocus(target)) target.focus({ preventScroll: true });
+    });
+  }
+  function clearFilter(clear: () => void) {
+    clear();
+    restoreFilterFocus();
+  }
+  function resetFilters() {
+    setSearch("");
+    setStatus("all");
+    setPriority("all");
+    setPhaseFilter("all");
+    restoreFilterFocus();
+  }
+  function togglePhase(key: ProjectHierarchyKey) {
+    if (filtering) return;
+    setCollapsedPhases((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
   const assigneesByWorkId = useMemo(() => {
     const grouped = new Map<number, Set<number>>();
     for (const assignment of tree.assignments) {
@@ -181,6 +248,9 @@ export default function ProjectWorkManager({
   }
 
   function select(item: CompanyProjectWorkItem) {
+    setFilterOpen(false);
+    setSelectedPhase(null);
+    setPanelVisible(true);
     setSelection({
       id: item.company_project_work_item_id,
       title: item.title,
@@ -198,26 +268,97 @@ export default function ProjectWorkManager({
     const path = selection
       ? [...selection.ancestorIds, selection.id].reverse()
       : [];
-    setSelection(null);
+    setPanelVisible(false);
     requestAnimationFrame(() => {
       const target = path
         .map((id) =>
-          document.querySelector<HTMLButtonElement>(
+          workspaceRef.current?.querySelector<HTMLButtonElement>(
             `[data-work-id="${id}"] .work-title-button`,
           ),
         )
-        .find((button) => button !== null);
-      (
-        target ??
-        document.querySelector<HTMLInputElement>(
-          'input[aria-label="업무 검색"]',
-        )
-      )?.focus();
+        .find((button) => canFocus(button ?? null));
+      const fallback = canFocus(searchRef.current) ? searchRef.current : null;
+      (target ?? fallback)?.focus({ preventScroll: true });
     });
   }
   useEffect(() => {
-    if (!active) { setSelection(null); setEditTarget(null); }
+    if (!active) {
+      setSelection(null);
+      setPanelVisible(false);
+      setEditTarget(null);
+      setFilterOpen(false);
+    }
   }, [active]);
+  useLayoutEffect(() => {
+    const workspace = workspaceRef.current;
+    const toolbar = scopeToolbarRef.current;
+    if (!workspace || !toolbar || !active) return;
+    // Measure before the parent reserves sidebar space to avoid docking oscillation.
+    const boundary = workspace.closest<HTMLElement>(".projects-detail-workspace") ?? workspace;
+    let frame = 0;
+    function measure() {
+      frame = 0;
+      if (!workspace || !toolbar) return;
+      const bounds = boundary.getBoundingClientRect();
+      if (!bounds.width) return;
+      const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      const viewport = window.visualViewport;
+      const height = viewport?.height ?? window.innerHeight;
+      const header = document.querySelector<HTMLElement>(".flowra-app-shell header");
+      const headerBottom = Math.ceil(header?.getBoundingClientRect().bottom ?? 64);
+      const canDock = bounds.width >= 20 * rem + 340 + 16 && height >= 18 * rem;
+      const docked = panelPreference === "docked";
+      const top = docked ? 0 : Math.ceil(Math.max(headerBottom + 8,
+        toolbar.getBoundingClientRect().bottom + 8));
+      const width = docked ? 340 : 390;
+      const right = docked ? 0 : Math.max(16, Math.ceil(window.innerWidth - workspace.getBoundingClientRect().right));
+      const fullscreen = bounds.width < 20 * rem + width + 16 || height - top - (docked ? 0 : 16) < 18 * rem;
+      const mode: WorkPanelMode = fullscreen ? "fullscreen" : docked ? "docked" : "floating";
+      setPanelLayout((previous) => previous.mode === mode && previous.canDock === canDock && previous.width === width &&
+        previous.top === top && previous.right === right ? previous : { mode, canDock, width, top, right });
+    }
+    function scheduleMeasure() {
+      if (!frame) frame = requestAnimationFrame(measure);
+    }
+    measure();
+    const observer = new ResizeObserver(scheduleMeasure);
+    observer.observe(boundary);
+    observer.observe(workspace);
+    observer.observe(toolbar);
+    window.addEventListener("resize", scheduleMeasure);
+    window.addEventListener("scroll", scheduleMeasure, true);
+    window.visualViewport?.addEventListener("resize", scheduleMeasure);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", scheduleMeasure);
+      window.removeEventListener("scroll", scheduleMeasure, true);
+      window.visualViewport?.removeEventListener("resize", scheduleMeasure);
+    };
+  }, [active, panelPreference]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(panelLayoutStorageKey, panelPreference);
+    } catch {
+      // Keep the in-memory choice when browser storage is unavailable.
+    }
+  }, [panelPreference]);
+  function togglePanelDock() {
+    panelScrollBeforeDockRef.current = panelContentRef.current?.scrollTop ?? null;
+    setPanelPreference((previous) => previous === "docked" ? "floating" : "docked");
+  }
+  useLayoutEffect(() => {
+    if (panelScrollBeforeDockRef.current === null || !panelContentRef.current) return;
+    panelContentRef.current.scrollTop = panelScrollBeforeDockRef.current;
+    panelScrollBeforeDockRef.current = null;
+  }, [panelLayout.mode]);
+  useEffect(() => {
+    onPanelLayoutChange?.({ overlay: panelOpen && !fullscreenPanel, docked: panelOpen && panelDocked,
+      width: panelLayout.width, right: panelLayout.right });
+  }, [panelOpen, fullscreenPanel, panelDocked, panelLayout.width, panelLayout.right, onPanelLayoutChange]);
+  useEffect(() => () => {
+    onPanelLayoutChange?.({ overlay: false, docked: false, width: 0, right: 0 });
+  }, [onPanelLayoutChange]);
   useEffect(() => {
     const media = window.matchMedia("(max-width: 700px)");
     const update = () => setMobile(media.matches);
@@ -226,8 +367,13 @@ export default function ProjectWorkManager({
   }, []);
   useEffect(() => {
     if (!panelOpen) return;
-    panelTitleRef.current?.focus();
-  }, [selectedId, panelOpen, mobile]);
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && canFocus(focused) && panelRef.current?.contains(focused)) return;
+    panelTitleRef.current?.focus({ preventScroll: true });
+  }, [selectedId, panelOpen, fullscreenPanel]);
+  useEffect(() => {
+    if (panelOpen && panelContentRef.current) panelContentRef.current.scrollTop = 0;
+  }, [selectedId, panelOpen]);
   useEffect(() => {
     if (!panelOpen) return;
     function escape(event: globalThis.KeyboardEvent) {
@@ -249,18 +395,25 @@ export default function ProjectWorkManager({
     document.addEventListener("keydown", escape);
     return () => document.removeEventListener("keydown", escape);
   }, [selection, panelOpen, cancelTarget]);
-  useEffect(() => {
-    if (!panelOpen || !mobile) return;
+  useLayoutEffect(() => {
+    if (!panelOpen || !fullscreenPanel) return;
+    setFilterOpen(false);
     const previous = document.body.style.overflow;
+    const previousPadding = document.body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    const paddingRight = Number.parseFloat(getComputedStyle(document.body).paddingRight) || 0;
     const appRoot = document.getElementById("root");
     const previouslyInert = appRoot?.inert;
     document.body.style.overflow = "hidden";
+    // Preserve available width while locking scroll on browsers with classic scrollbars.
+    if (scrollbarWidth > 0) document.body.style.paddingRight = `${paddingRight + scrollbarWidth}px`;
     if (appRoot) appRoot.inert = true;
     return () => {
       document.body.style.overflow = previous;
+      document.body.style.paddingRight = previousPadding;
       if (appRoot) appRoot.inert = previouslyInert ?? false;
     };
-  }, [panelOpen, mobile]);
+  }, [panelOpen, fullscreenPanel]);
 
   const visibleIds = useMemo(() => {
     const included = new Set<number>();
@@ -389,13 +542,14 @@ export default function ProjectWorkManager({
       event.preventDefault();
       select(item);
     } else if (
+      !filtering &&
       event.key === "ArrowRight" &&
       tree.hasChildren(item) &&
       !tree.expanded.has(id)
     ) {
       event.preventDefault();
       tree.toggle(item);
-    } else if (event.key === "ArrowLeft" && tree.expanded.has(id)) {
+    } else if (!filtering && event.key === "ArrowLeft" && tree.expanded.has(id)) {
       event.preventDefault();
       tree.toggle(item);
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -421,6 +575,11 @@ export default function ProjectWorkManager({
     const branch = tree.hasChildren(item);
     const open = tree.expanded.has(id) || filtering;
     const query = tree.queryById.get(id);
+    const number = tree.hierarchy.wbsByKey.get(workKey(id));
+    const title = projectHierarchyTitle(item.title, number);
+    const prefixLength = number === undefined ? 0 : number.length +
+      (title[number.length] === "." ? 2 : 1);
+    const childCount = item.rollup?.child_count ?? tree.children.get(id)?.length;
     const rows: React.ReactNode[] = [
       <tr
         key={`work:${id}`}
@@ -436,8 +595,9 @@ export default function ProjectWorkManager({
         <td>
           <div
             className="work-name"
-            style={{ paddingLeft: Math.min(level, 8) * 18 }}
+            style={{ paddingLeft: `calc(${level} * var(--work-indent-step, 22px))` }}
           >
+            {level > 0 && <span aria-hidden className="work-tree-connector" style={{ left: `calc((${level} - 0.5) * var(--work-indent-step, 22px))` }} />}
             {branch ? (
               <Button
                 variant="ghost"
@@ -462,20 +622,32 @@ export default function ProjectWorkManager({
             ) : (
               <span className="work-expand-spacer" />
             )}
+            <FileCheck2 className="work-kind-icon" aria-hidden="true" />
+            <div className="work-name-content">
             <button
-              className="work-title-button"
-              title={item.title}
+              className={`work-title-button${branch ? " work-parent-title" : ""}`}
+              aria-label={title}
+              title={number === undefined ? `${item.title} (번호 확인 필요)` : title}
+              aria-description={number === undefined ? "계층 조회 정보가 부족하여 번호 확인이 필요합니다." : undefined}
               onClick={(event) => {
                 event.stopPropagation();
                 select(item);
               }}
             >
-              {item.title}
+              {number !== undefined && <span className="work-wbs-number">{title.slice(0, prefixLength)}</span>}
+              <span className="work-title-text">{title.slice(prefixLength)}</span>
             </button>
+            {mobile && <div className="work-mobile-status"><WorkStatusBadge status={item.status} /></div>}
+            </div>
+            {typeof childCount === "number" && childCount > 0 && (
+              <span className="work-child-count" title={tree.completeSiblingSets.has(id) || item.rollup?.child_count !== undefined ? "하위 업무 수" : "현재 불러온 하위 업무 수"}>
+                {tree.completeSiblingSets.has(id) || item.rollup?.child_count !== undefined ? "" : "조회 "}{childCount}
+              </span>
+            )}
           </div>
         </td>
         <td>
-          <WorkStatusBadge status={item.status} />
+          {!mobile && <WorkStatusBadge status={item.status} />}
         </td>
         <td>
           <WorkPriorityBadge priority={item.priority} />
@@ -484,9 +656,10 @@ export default function ProjectWorkManager({
           {assignees(item)}
         </td>
         <td className="work-dates">
-          {formatProjectDate(item.planned_start_date)}
-          <br />
-          <span>~ {formatProjectDate(item.planned_end_date)}</span>
+          <span>{item.planned_start_date || item.planned_end_date
+            ? `${formatProjectDate(item.planned_start_date)} ~ ${formatProjectDate(item.planned_end_date)}`
+            : "미정"}</span>
+          <ProjectScheduleLabel source={item} today={today} compact />
         </td>
         <td>
           <WorkProgress item={item} compact />
@@ -497,7 +670,7 @@ export default function ProjectWorkManager({
     if (open && query?.isError)
       rows.push(
         <tr key={`error:${id}`}>
-          <td colSpan={7}>
+          <td colSpan={mobile ? 2 : 7}>
             <div role="alert" className="work-child-feedback">
               {getErrorMessage(query.error, "하위 업무를 불러오지 못했습니다.")}{" "}
               <Button
@@ -515,7 +688,7 @@ export default function ProjectWorkManager({
     if (open && query?.isFetching && !query.data)
       rows.push(
         <tr key={`loading:${id}`}>
-          <td colSpan={7}>
+          <td colSpan={mobile ? 2 : 7}>
             <p role="status" className="work-child-feedback">
               하위 업무를 불러오는 중...
             </p>
@@ -523,56 +696,110 @@ export default function ProjectWorkManager({
         </tr>,
       );
     if (open)
-      for (const child of [...(tree.children.get(id) ?? [])].sort(sorter))
+      for (const child of tree.children.get(id) ?? [])
         rows.push(...renderRows(child, level + 1));
     return rows;
   }
-  const roots = tree.graph.rootIds.map((id) => tree.byId.get(id)!).sort(sorter);
   const tableRows: React.ReactNode[] = [];
-  const groups: Array<{
-    phase?: CompanyProjectPhase;
-    roots: CompanyProjectWorkItem[];
-  }> = phased
-    ? [
-        ...phases.map((phase) => ({
-          phase,
-          roots: roots.filter(
-            (item) =>
-              item.company_project_phase_id === phase.company_project_phase_id,
-          ),
-        })),
-        {
-          roots: roots.filter(
-            (item) =>
-              !phases.some(
-                (phase) =>
-                  phase.company_project_phase_id ===
-                  item.company_project_phase_id,
-              ),
-          ),
-        },
-      ]
-    : [{ roots }];
-  for (const group of groups) {
+  for (const group of tree.hierarchy.groups) {
     if (
       filtering &&
-      !group.roots.some((item) =>
-        visibleIds.has(item.company_project_work_item_id),
-      )
+      !group.rootIds.some((id) => visibleIds.has(id))
     )
       continue;
-    if (phased && (group.phase || group.roots.length))
+    const open = !phased || filtering || !collapsedPhases.has(group.key);
+    const groupName = group.phase?.name ?? "단계 미지정";
+    const groupTitle = projectHierarchyTitle(groupName, tree.hierarchy.wbsByKey.get(group.key));
+    const groupNumber = tree.hierarchy.wbsByKey.get(group.key);
+    const groupPrefixLength = groupNumber === undefined ? 0 : groupNumber.length +
+      (groupTitle[groupNumber.length] === "." ? 2 : 1);
+    const descendants = new Set<number>();
+    const remaining = [...group.rootIds];
+    let complete = !tree.mayBePartial && tree.completeSiblingSets.has(null);
+    while (remaining.length) {
+      const id = remaining.pop()!;
+      if (descendants.has(id)) continue;
+      descendants.add(id);
+      if (!tree.completeSiblingSets.has(id)) complete = false;
+      remaining.push(...(tree.graph.childrenByParent.get(id) ?? []));
+    }
+    const selectPhase = () => { setSelection(null); setPanelVisible(false); setSelectedPhase(group.key); };
+    if (phased && (group.phase || group.rootIds.length))
       tableRows.push(
         <tr
-          className="work-phase-row"
-          key={`phase:${group.phase?.company_project_phase_id ?? "none"}`}
+          className={`work-phase-row${selectedPhase === group.key ? " work-row-selected" : ""}`}
+          key={group.key}
+          data-hierarchy-key={group.key}
+          aria-level={1}
+          tabIndex={0}
+          aria-selected={selectedPhase === group.key}
+          aria-expanded={group.rootIds.length ? open : undefined}
+          onClick={selectPhase}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) return;
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              selectPhase();
+            } else if (group.rootIds.length && ((event.key === "ArrowLeft" && open) || (event.key === "ArrowRight" && !open))) {
+              event.preventDefault();
+              togglePhase(group.key);
+            }
+          }}
         >
-          <td colSpan={7}>
-            <div>
-              <span>{group.phase?.name ?? "단계 미지정"}</span>
-              {group.phase && typeof group.phase.status === "string" && (
+          <td>
+            <div className="work-name">
+              {group.rootIds.length ? <Button
+                variant="ghost"
+                size="icon"
+                className="work-expand"
+                aria-label={`${groupName} ${open ? "접기" : "펼치기"}`}
+                aria-expanded={open}
+                disabled={filtering}
+                onClick={(event) => { event.stopPropagation(); togglePhase(group.key); }}
+                onKeyDown={(event) => {
+                  if ((event.key === "ArrowLeft" && open) || (event.key === "ArrowRight" && !open)) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    togglePhase(group.key);
+                  }
+                }}
+              >
+                {open ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+              </Button> : <span className="work-expand-spacer" />}
+              <Folder className="work-kind-icon" aria-hidden="true" />
+              <div className="work-name-content">
+              <button className="work-phase-title" aria-label={groupTitle} title={groupTitle} onClick={(event) => { event.stopPropagation(); selectPhase(); }}>
+                {groupNumber !== undefined && <span className="work-wbs-number">{groupTitle.slice(0, groupPrefixLength)}</span>}
+                <span className="work-title-text">{groupTitle.slice(groupPrefixLength)}</span>
+              </button>
+              {mobile && group.phase && typeof group.phase.status === "string" &&
+                <div className="work-mobile-status"><WorkStatusBadge status={group.phase.status} /></div>}
+              </div>
+              <span className="work-phase-count" title={complete ? "하위 업무 수" : "현재 불러온 하위 업무 수"}>
+                {complete ? "업무" : "조회"} {descendants.size}개
+              </span>
+            </div>
+          </td>
+          <td>
+              {!mobile && group.phase && typeof group.phase.status === "string" ? (
                 <WorkStatusBadge status={group.phase.status} />
-              )}
+              ) : "—"}
+          </td>
+          <td className="text-muted-foreground">—</td>
+          <td className="text-muted-foreground">—</td>
+          <td className="work-dates">
+            <span>{group.phase?.planned_start_date || group.phase?.planned_end_date
+              ? `${formatProjectDate(group.phase.planned_start_date)} ~ ${formatProjectDate(group.phase.planned_end_date)}`
+              : "—"}</span>
+            {group.phase && <>
+              <ProjectScheduleLabel source={group.phase} today={today} compact />
+              {(delays.phases.get(group.phase.company_project_phase_id)?.size ?? 0) > 0 && <span className="project-schedule-label block text-xs text-destructive">
+                하위 업무 지연 {delays.phases.get(group.phase.company_project_phase_id)?.size ?? 0}건{delaysPartial ? " (조회 기준)" : ""}
+              </span>}
+            </>}
+          </td>
+          <td className="text-muted-foreground">—</td>
+          <td onClick={(event) => event.stopPropagation()}>
               {group.phase && canManage && (
                 <DropdownMenu modal={false}>
                   <DropdownMenuTrigger asChild>
@@ -602,20 +829,21 @@ export default function ProjectWorkManager({
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
-            </div>
           </td>
         </tr>,
       );
-    for (const root of group.roots) tableRows.push(...renderRows(root, 0));
+    if (open)
+      for (const id of group.rootIds) tableRows.push(...renderRows(tree.byId.get(id)!, phased ? 1 : 0));
   }
 
-  function trapMobileFocus(event: KeyboardEvent<HTMLElement>) {
-    if (!mobile || event.key !== "Tab" || event.defaultPrevented) return;
+  function trapPanelFocus(event: KeyboardEvent<HTMLElement>) {
+    if (!fullscreenPanel || editTarget || cancelTarget || event.key !== "Tab" || event.defaultPrevented) return;
     const controls = [
       ...panelRef.current!.querySelectorAll<HTMLElement>(
-        "button:not(:disabled), input:not(:disabled), [tabindex='0']",
+        "button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], summary, [tabindex='0']",
       ),
-    ];
+    ].filter((control) => canFocus(control) &&
+      (!control.closest("details:not([open])") || control.tagName === "SUMMARY"));
     const first = controls[0],
       last = controls.at(-1);
     if (!first || !last) return;
@@ -632,19 +860,22 @@ export default function ProjectWorkManager({
     }
   }
   return (
-    <div className={`project-work-layout ${panelOpen ? "has-work-panel" : ""}`}>
+    <div ref={workspaceRef} className={`project-work-layout ${panelOpen ? "has-work-panel" : ""}`}>
       <section
         className="project-work-list flowra-surface"
         aria-label="프로젝트 업무 목록"
       >
         <div className="work-heading">
-          <div>
+          <div className="work-heading-summary">
             <h3>업무 목록</h3>
-            <p>
+            <span className="work-loaded-count">
               {tree.items.length > 0
                 ? `불러온 업무 ${tree.items.length}개`
                 : "표시할 업무가 없습니다."}
-            </p>
+            </span>
+            {delays.project.size > 0 && <span aria-label="프로젝트 지연 현황" className="work-delay-summary text-destructive">
+              하위 업무 지연 {delays.project.size}건{delaysPartial ? " · 조회된 업무 기준" : " · 전체 업무 기준"}
+            </span>}
           </div>
           {canManage && (
             <div className="work-add-actions">
@@ -666,73 +897,136 @@ export default function ProjectWorkManager({
             </div>
           )}
         </div>
-        <div className="work-filters">
-          <div className="projects-search">
+        <div className="work-toolbar">
+          <div className="work-toolbar-controls">
+          <div className="projects-search work-search">
             <Search size={16} aria-hidden="true" />
             <Input
+              ref={searchRef}
               aria-label="업무 검색"
               placeholder="업무명 검색"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
-          <CustomSelect
-            ariaLabel="업무 상태"
-            value={status}
-            onChange={(value) => setStatus(String(value))}
-            options={[
-              { value: "all", label: "전체 상태" },
-              ...WORK_STATUS_OPTIONS,
-            ]}
-          />
-          <CustomSelect
-            ariaLabel="업무 우선순위"
-            value={priority}
-            onChange={(value) => setPriority(String(value))}
-            options={[
-              { value: "all", label: "전체 우선순위" },
-              ...WORK_PRIORITY_OPTIONS,
-            ]}
-          />
-          {phased && (
-            <CustomSelect
-              ariaLabel="Phase 선택"
-              value={phaseFilter}
-              onChange={(value) => setPhaseFilter(String(value))}
-              options={[
-                { value: "all", label: "전체 단계" },
-                ...phases.map((phase) => ({
-                  value: String(phase.company_project_phase_id),
-                  label: phase.name,
-                })),
-                { value: "none", label: "단계 미지정" },
-              ]}
-            />
-          )}
-        </div>
-        <div className="work-tree-toolbar">
-          <p>
-            {tree.mayBePartial ? "현재 불러온 업무에서 검색합니다. 하위 업무는 펼칠 때 불러옵니다." : "전체 업무에서 검색합니다."}
-            {filtering && " 검색 결과의 상위 업무도 함께 표시합니다."}
-          </p>
-          <div>
+          <Popover open={filterOpen} onOpenChange={setFilterOpen}>
+            <PopoverTrigger asChild>
+              <Button ref={filterButtonRef} variant="outline" aria-label="업무 필터"
+                aria-description={filterCount > 0 ? `${filterCount}개 조건 적용 중` : "적용된 조건 없음"}>
+                <SlidersHorizontal aria-hidden="true" />
+                필터{filterCount > 0 && <span className="work-filter-count">{filterCount}</span>}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" collisionPadding={12}
+              className="work-filter-content" aria-label="업무 필터 조건"
+              onInteractOutside={(event) => {
+                // CustomSelect uses viewport coordinates in a body portal.
+                // Treat its menu as part of this popover's interaction scope.
+                const target = event.detail.originalEvent.target;
+                if (target instanceof Element && target.closest(".project-work-filter-menu"))
+                  event.preventDefault();
+              }}
+              onEscapeKeyDown={(event) => {
+                if (document.querySelector(".project-work-filter-menu[role='listbox']"))
+                  event.preventDefault();
+              }}>
+                <h4>업무 필터</h4>
+                <CustomSelect
+                  fieldLabel="상태"
+                  ariaLabel="업무 상태"
+                  value={status}
+                  onChange={(value) => setStatus(String(value))}
+                  options={[
+                    { value: "all", label: "전체 상태" },
+                    ...WORK_STATUS_OPTIONS,
+                  ]}
+                  contentClassName="project-work-select-menu project-work-filter-menu"
+                />
+                <CustomSelect
+                  fieldLabel="우선순위"
+                  ariaLabel="업무 우선순위"
+                  value={priority}
+                  onChange={(value) => setPriority(String(value))}
+                  options={[
+                    { value: "all", label: "전체 우선순위" },
+                    ...WORK_PRIORITY_OPTIONS,
+                  ]}
+                  contentClassName="project-work-select-menu project-work-filter-menu"
+                />
+                {phased && (
+                  <CustomSelect
+                    fieldLabel="단계"
+                    ariaLabel="Phase 선택"
+                    value={phaseFilter}
+                    onChange={(value) => setPhaseFilter(String(value))}
+                    options={[
+                      { value: "all", label: "전체 단계" },
+                      ...phases.map((phase) => ({
+                        value: String(phase.company_project_phase_id),
+                        label: phase.name,
+                      })),
+                      { value: "none", label: "단계 미지정" },
+                    ]}
+                    contentClassName="project-work-select-menu project-work-filter-menu"
+                  />
+                )}
+                <div className="work-filter-footer">
+                  <Button variant="ghost" size="sm" onClick={() => resetFilters()} disabled={!filtering}>
+                    초기화
+                  </Button>
+                  <Button ref={filterDoneRef} size="sm" onClick={() => setFilterOpen(false)}>완료</Button>
+                </div>
+            </PopoverContent>
+          </Popover>
+          <div className="work-tree-actions">
             <Button
               variant="ghost"
               size="sm"
-              onClick={tree.expandLoaded}
+              onClick={() => { setCollapsedPhases(new Set()); tree.expandLoaded(); }}
               disabled={filtering}
             >
-              전체 펼치기
+              {tree.mayBePartial ? "불러온 업무 펼치기" : "전체 펼치기"}
             </Button>
             <Button
               variant="ghost"
               size="sm"
-              onClick={tree.collapseAll}
+              onClick={() => {
+                setCollapsedPhases(new Set(tree.hierarchy.groups.map((group) => group.key)));
+                tree.collapseAll();
+              }}
               disabled={filtering}
             >
               전체 접기
             </Button>
           </div>
+          </div>
+          {filtering && <div className="work-active-filters" aria-label="적용된 검색 및 필터">
+            {search.trim() && <Button variant="ghost" size="sm" aria-label="검색 해제" onClick={() => clearFilter(() => setSearch(""))} title={search.trim()}>
+              <span>검색: {search.trim()}</span><X aria-hidden="true" />
+            </Button>}
+            {status !== "all" && <Button variant="ghost" size="sm" aria-label="상태 필터 해제" onClick={() => clearFilter(() => setStatus("all"))}>
+              <span>상태: {WORK_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status}</span><X aria-hidden="true" />
+            </Button>}
+            {priority !== "all" && <Button variant="ghost" size="sm" aria-label="우선순위 필터 해제" onClick={() => clearFilter(() => setPriority("all"))}>
+              <span>우선순위: {WORK_PRIORITY_OPTIONS.find((option) => option.value === priority)?.label ?? priority}</span><X aria-hidden="true" />
+            </Button>}
+            {phased && phaseFilter !== "all" && <Button variant="ghost" size="sm" aria-label="단계 필터 해제" onClick={() => clearFilter(() => setPhaseFilter("all"))}>
+              <span>단계: {phases.find((phase) => String(phase.company_project_phase_id) === phaseFilter)?.name ?? "단계 미지정"}</span><X aria-hidden="true" />
+            </Button>}
+            <Button className="work-filter-reset" variant="ghost" size="sm" aria-label="업무 필터 초기화" onClick={() => resetFilters()}>초기화</Button>
+          </div>}
+        </div>
+        <div ref={scopeToolbarRef} className="work-tree-toolbar">
+          <p>
+            {tree.searchScope === "complete" ? "전체 업무명에서 검색·필터합니다." : "불러온 업무명에서 검색·필터합니다."}
+            {tree.searchScope === "loaded" && (tree.items.some((item) => tree.needsChildren(item))
+              ? " 하위 업무는 펼칠 때 불러옵니다."
+              : " 조회 정보가 완전하지 않습니다. 새로고침으로 확인해 주세요.")}
+            {tree.searchScope === "invalid" && <span className="text-destructive" role="status">
+              {" "}계층 정보에 오류가 있어 상위 경로가 완전하지 않을 수 있습니다.
+            </span>}
+            {filtering && " 검색 결과의 상위 업무도 함께 표시합니다."}
+          </p>
         </div>
         <div className="work-table-scroll">
           <table
@@ -760,70 +1054,76 @@ export default function ProjectWorkManager({
         {tree.items.length === 0 ? (
           <div className="work-empty">
             <ListTree aria-hidden="true" />
-            <p>등록된 업무가 없습니다.</p>
+            <p>{tree.searchScope === "complete" ? "등록된 업무가 없습니다." : "현재 불러온 업무가 없습니다."}</p>
           </div>
         ) : (
-          visited.size === 0 && (
+          visibleIds.size === 0 && (
             <div className="work-empty">
-              <p>검색 조건에 맞는 업무가 없습니다.</p>
+              <p>{tree.mayBePartial ? "현재 불러온 업무 중 검색 조건에 맞는 업무가 없습니다." : "검색 조건에 맞는 업무가 없습니다."}</p>
+              <Button variant="outline" size="sm" onClick={() => resetFilters()}>검색 및 필터 초기화</Button>
             </div>
           )
         )}
       </section>
       {panelOpen && (
-        <WorkPanelPortal mobile={mobile}>
+        <WorkPanelPortal>
           <aside
             ref={panelRef}
             className="project-work-panel flowra-surface"
+            data-panel-mode={panelLayout.mode}
+            style={fullscreenPanel ? undefined : {
+              "--work-panel-top": `${panelLayout.top}px`,
+              "--work-panel-width": `${panelLayout.width}px`,
+              "--work-panel-right": `${panelLayout.right}px`,
+            } as CSSProperties}
             aria-label="업무 상세"
-            role={mobile ? "dialog" : "complementary"}
-            aria-modal={mobile ? true : undefined}
-            onKeyDown={trapMobileFocus}
+            role={fullscreenPanel ? "dialog" : "complementary"}
+            aria-modal={fullscreenPanel ? true : undefined}
+            onKeyDown={trapPanelFocus}
           >
             <div className="work-panel-header">
-              <p title={selected ? workPath(selected) : selection?.path}>
-                {selected ? workPath(selected) : selection?.path}
-              </p>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="업무 상세 닫기"
-                onClick={closePanel}
-              >
-                <X aria-hidden="true" />
-              </Button>
+              <div className="work-panel-heading">
+                <p title={selected ? workPath(selected) : selection?.path}>
+                  {selected ? workPath(selected) : selection?.path}
+                </p>
+                <h3 ref={panelTitleRef} tabIndex={-1}>
+                  {selected?.title ?? selection?.title}
+                </h3>
+              </div>
+              <div className="work-panel-header-actions">
+                {selected && menu(selected)}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={panelDocked ? "업무 상세 도킹 해제" : "업무 상세 도킹"}
+                  aria-pressed={panelDocked}
+                  aria-description={!panelLayout.canDock ? "목록과 상세를 함께 표시할 화면 공간이 부족합니다." : undefined}
+                  className={panelDocked ? "text-primary" : undefined}
+                  disabled={!panelLayout.canDock}
+                  title={panelLayout.canDock ? panelDocked ? "도킹 해제" : "오른쪽에 도킹" : "화면 공간이 확보되면 도킹할 수 있습니다."}
+                  onClick={togglePanelDock}
+                >
+                  {panelDocked ? <PinOff aria-hidden="true" /> : <Pin aria-hidden="true" />}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="업무 상세 닫기"
+                  onClick={closePanel}
+                >
+                  <X aria-hidden="true" />
+                </Button>
+              </div>
             </div>
-            <div className="work-panel-content">
-              <h3 ref={panelTitleRef} tabIndex={-1}>
-                {selected?.title ?? selection?.title}
-              </h3>
+            <div className="work-panel-content" ref={panelContentRef}>
               {selected ? (
                 <>
                   <div className="work-panel-badges">
                     <WorkStatusBadge status={selected.status} />
                     <WorkPriorityBadge priority={selected.priority} />
-                    {getWorkItemUiDepth(
-                      tree.graph,
-                      selected.company_project_work_item_id,
-                    ) !== null && (
-                      <span
-                        className="projects-note"
-                        title="프로젝트를 포함한 업무 계층이며, Phase는 깊이에 포함하지 않습니다."
-                      >
-                        D
-                        {getWorkItemUiDepth(
-                          tree.graph,
-                          selected.company_project_work_item_id,
-                        )}
-                      </span>
-                    )}
-                    {menu(selected)}
                   </div>
                   <section aria-label="업무 기본 정보">
                     <h4>기본 정보</h4>
-                    <p className="work-description">
-                      {selected.description || "등록된 설명이 없습니다."}
-                    </p>
                     <dl className="work-panel-fields">
                       <div>
                         <dt>계획 시작일</dt>
@@ -836,25 +1136,25 @@ export default function ProjectWorkManager({
                         <dd>{formatProjectDate(selected.planned_end_date)}</dd>
                       </div>
                       {phased && <div><dt>단계</dt><dd>{phases.find((phase) => phase.company_project_phase_id === selected.company_project_phase_id)?.name ?? "단계 미지정"}</dd></div>}
+                      <div><dt>일정 상태</dt><dd><ProjectScheduleLabel source={selected} today={today} /></dd></div>
+                      <div><dt>하위 업무 지연</dt><dd>{delays.work.get(selected.company_project_work_item_id)?.size ?? 0}건{delaysPartial ? " (조회된 업무 기준)" : ""}</dd></div>
                       <div>
                         <dt>진행률</dt>
                         <dd>
                           <WorkProgress item={selected} />
                         </dd>
                       </div>
-                      {assignees(selected) !== "—" && (
-                        <div>
+                      <div>
                           <dt>담당자</dt>
                           <dd>{assignees(selected)}</dd>
-                        </div>
-                      )}
-                      {selected.wbs_code && (
-                        <div>
-                          <dt>WBS 코드</dt>
-                          <dd>{selected.wbs_code}</dd>
-                        </div>
-                      )}
+                      </div>
                     </dl>
+                  </section>
+                  <section aria-label="업무 설명">
+                    <h4>설명</h4>
+                    <p className="work-description">
+                      {selected.description || "등록된 설명이 없습니다."}
+                    </p>
                   </section>
                   <section aria-label="하위 업무">
                     <div className="work-panel-section-heading">
@@ -895,7 +1195,7 @@ export default function ProjectWorkManager({
                     )}
                     <ul className="work-panel-children">
                       {[...(tree.children.get(selectedId!) ?? [])]
-                        .sort(sorter)
+                        .sort(compareWorkItems)
                         .map((child) => (
                           <li key={child.company_project_work_item_id}>
                             <button
@@ -960,6 +1260,21 @@ export default function ProjectWorkManager({
                       </ul>
                     </section>
                   )}
+                  <details className="work-panel-additional" key={selectedId}>
+                    <summary>추가 정보</summary>
+                    <dl className="work-panel-fields">
+                      {getWorkItemUiDepth(tree.graph, selected.company_project_work_item_id) !== null && <div>
+                        <dt>업무 계층</dt>
+                        <dd title="프로젝트를 포함한 업무 계층이며, Phase는 깊이에 포함하지 않습니다.">
+                          D{getWorkItemUiDepth(tree.graph, selected.company_project_work_item_id)}
+                        </dd>
+                      </div>}
+                      <div><dt>WBS 코드</dt><dd>{selected.wbs_code || "—"}</dd></div>
+                      <div><dt>실적 시작일</dt><dd>{formatProjectDate(selected.actual_start_date)}</dd></div>
+                      <div><dt>실적 종료일</dt><dd>{formatProjectDate(selected.actual_end_date)}</dd></div>
+                      {typeof selected.sort_order === "number" && <div><dt>정렬 순서</dt><dd>{selected.sort_order}</dd></div>}
+                    </dl>
+                  </details>
                 </>
               ) : selectionError ? (
                 <div role="alert" className="work-panel-error">
@@ -1003,7 +1318,7 @@ export default function ProjectWorkManager({
       )}
       {editTarget && active && canManage && <ProjectWorkFormDialog
         key={editTarget.kind === "phase" ? `phase:${editTarget.phase?.company_project_phase_id ?? "new"}` : `work:${editTarget.item?.company_project_work_item_id ?? `new:${editTarget.parent?.company_project_work_item_id ?? "root"}`}`}
-        target={editTarget} detail={detail} items={tree.items} canManage={canManage}
+        target={editTarget} detail={detail} tree={tree} canManage={canManage}
         onClose={() => setEditTarget(null)} onSaved={() => setEditTarget(null)} />}
       <Dialog
         open={cancelTarget !== null}

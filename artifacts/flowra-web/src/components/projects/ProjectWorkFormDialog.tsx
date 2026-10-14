@@ -1,5 +1,5 @@
 import { useId, useRef, useState, type FormEvent } from "react";
-import { ChevronDown, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, X } from "lucide-react";
 import {
   CompactDateInput,
   CompactTimeInput,
@@ -27,13 +27,16 @@ import {
   useUpdateCompanyProjectPhase,
   useUpdateCompanyProjectWorkItem,
 } from "@/hooks/useCompanyProjects";
+import type { useProjectWorkTree } from "@/hooks/useProjectWorkTree";
+import ProjectLocationPicker, {
+  projectLocationLabel,
+  projectLinkedPhaseLabel,
+} from "./ProjectLocationPicker";
 import { getApiErrorDetails, getErrorMessage } from "@/lib/error";
-import {
-  buildProjectWorkTree,
-  getWorkItemAncestorPath,
-  getWorkItemDepthInfo,
-  MAX_PROJECT_WORK_DEPTH,
-} from "@/lib/projectWorkTree";
+import { getProjectWorkParentError } from "@/lib/projectWorkTree";
+import { applyParentPeriod, isValidProjectDate, parentPeriodOptions, periodWarnings, projectDate } from "@/lib/projectSchedule";
+import { formatProjectDate } from "./ProjectPresentation";
+import { ProjectPeriodWarning } from "./ProjectSchedulePresentation";
 import type {
   CompanyProjectDetailData,
   CompanyProjectPhase,
@@ -63,6 +66,9 @@ const PROGRESS_MODE_OPTIONS = [
   { value: "manual", label: "수동 설정" },
 ] as const;
 const advancedApiFields = [
+  "description",
+  "status",
+  "priority",
   "actual_start_date",
   "actual_end_date",
   "due_datetime",
@@ -84,14 +90,14 @@ function localDatetime(value?: string | null) {
 export default function ProjectWorkFormDialog({
   target,
   detail,
-  items,
+  tree,
   canManage,
   onClose,
   onSaved,
 }: {
   target: ProjectWorkEditTarget;
   detail: CompanyProjectDetailData;
-  items: CompanyProjectWorkItem[];
+  tree: ReturnType<typeof useProjectWorkTree>;
   canManage: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -111,6 +117,8 @@ export default function ProjectWorkFormDialog({
   const lock = useRef(false);
   const fieldsRef = useRef<HTMLFormElement | null>(null);
   const titleRef = useRef<HTMLHeadingElement | null>(null);
+  const [locationOpen, setLocationOpen] = useState(false);
+  const locationRef = useRef<HTMLButtonElement>(null);
   const [portal, setPortal] = useState<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [advancedError, setAdvancedError] = useState(false);
@@ -170,7 +178,22 @@ export default function ProjectWorkFormDialog({
     wbs: target.kind === "work" ? (target.item?.wbs_code ?? "") : "",
   }));
   const [draft, setDraft] = useState(initial);
+  const [periodWarning, setPeriodWarning] = useState<string[] | null>(null);
+  const [periodSourceKey, setPeriodSourceKey] = useState("");
+  const periodOptions = parentPeriodOptions(
+    target.kind === "work" ? draft.parentId : "none",
+    target.kind === "work" ? draft.phaseId : "none",
+    tree.graph, detail.phases, detail.project,
+  );
+  const periodSource = periodOptions.find((option) => option.key === periodSourceKey) ?? periodOptions[0];
+  const canApplyPeriod = !!periodSource && Boolean(
+    (!draft.plannedStart && projectDate(periodSource.planned_start_date)) ||
+    (!draft.plannedEnd && projectDate(periodSource.planned_end_date)),
+  );
   const hasAdvancedValues = Boolean(
+    draft.description ||
+    draft.status !== "todo" ||
+    draft.priority !== "medium" ||
     draft.actualStart ||
     draft.actualEnd ||
     draft.dueDate ||
@@ -182,33 +205,25 @@ export default function ProjectWorkFormDialog({
   const [advancedOpen, setAdvancedOpen] = useState(
     editing && hasAdvancedValues,
   );
-  const graph = buildProjectWorkTree(items, detail.project.company_project_id);
   const itemId =
     target.kind === "work"
       ? target.item?.company_project_work_item_id
       : undefined;
-  const possibleParents = items.filter((item) => {
-    const depth = getWorkItemDepthInfo(
-      graph,
-      item.company_project_work_item_id,
-    );
-    const workDepth = depth.workItemDepth ?? depth.backendDepthLevel;
-    return (
-      workDepth !== null &&
-      workDepth < MAX_PROJECT_WORK_DEPTH &&
-      (itemId === undefined ||
-        !getWorkItemAncestorPath(graph, item.company_project_work_item_id).some(
-          (ancestor) => ancestor.company_project_work_item_id === itemId,
-        ))
-    );
-  });
-  const parentUnavailable =
+  const parentError =
     target.kind === "work" &&
-    !editing &&
     draft.parentId !== "none" &&
-    !possibleParents.some(
-      (item) => String(item.company_project_work_item_id) === draft.parentId,
-    );
+    (!editing || draft.parentId !== initial.parentId)
+      ? getProjectWorkParentError(tree.graph, Number(draft.parentId), itemId)
+      : null;
+  const parentUnavailable = !!parentError;
+  function closeLocation() {
+    setLocationOpen(false);
+    requestAnimationFrame(() => locationRef.current?.focus());
+  }
+  function openLocation() {
+    setLocationOpen(true);
+    requestAnimationFrame(() => titleRef.current?.focus());
+  }
   const fieldsDisabled = pending || uncertain || !canManage;
   function field<K extends keyof typeof draft>(
     key: K,
@@ -217,11 +232,12 @@ export default function ProjectWorkFormDialog({
     setDraft((previous) => ({ ...previous, [key]: value }));
   }
   function close() {
-    if (!pending && !lock.current) onClose();
+    if (locationOpen) closeLocation();
+    else if (!pending && !lock.current) onClose();
   }
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (lock.current || !canManage || uncertain) return;
+  async function submit(event?: FormEvent, periodConfirmed = false) {
+    event?.preventDefault();
+    if (locationOpen || lock.current || !canManage || uncertain) return;
     setError(null);
     setAdvancedError(false);
     function invalid(message: string, advanced = false) {
@@ -236,6 +252,13 @@ export default function ProjectWorkFormDialog({
           ? "단계명은 1~150자로 입력해 주세요."
           : "업무명은 1~200자로 입력해 주세요.",
       );
+      return;
+    }
+    if (
+      (draft.plannedStart && !isValidProjectDate(draft.plannedStart)) ||
+      (draft.plannedEnd && !isValidProjectDate(draft.plannedEnd))
+    ) {
+      invalid("계획 날짜를 유효한 날짜로 입력해 주세요.");
       return;
     }
     if (
@@ -281,11 +304,26 @@ export default function ProjectWorkFormDialog({
       invalid("마감 날짜와 시간을 모두 입력해 주세요.", true);
       return;
     }
-    if (parentUnavailable) {
-      invalid(
-        "선택한 상위 업무의 깊이를 확인할 수 없거나 최대 5단계에 도달했습니다. 다른 상위 업무를 선택해 주세요.",
-      );
+    if (parentError) {
+      invalid(parentError);
       return;
+    }
+    if (!periodConfirmed) {
+      const period = { planned_start_date: draft.plannedStart, planned_end_date: draft.plannedEnd };
+      const messages = periodOptions.flatMap((parent) =>
+        periodWarnings(period, parent).map((message) => `${parent.label} 기준: ${message}`));
+      if (editing && (draft.plannedStart !== initial.plannedStart || draft.plannedEnd !== initial.plannedEnd)) {
+        const children = target.kind === "phase"
+          ? tree.items.filter((item) => item.company_project_phase_id === target.phase?.company_project_phase_id ||
+              tree.hierarchy.displayPhaseByWorkId.get(item.company_project_work_item_id)?.company_project_phase_id === target.phase?.company_project_phase_id)
+          : (tree.children.get(itemId!) ?? []);
+        const outside = children.filter((item) => periodWarnings(item, period).length > 0);
+        if (outside.length) messages.push(`조회된 하위 업무 ${outside.length}건이 변경할 기간을 벗어납니다.`);
+      }
+      if (messages.length) {
+        setPeriodWarning(messages);
+        return;
+      }
     }
     lock.current = true;
     const payload: UpdateCompanyProjectWorkItemRequest &
@@ -423,6 +461,11 @@ export default function ProjectWorkFormDialog({
           titleRef.current?.focus();
         }}
         onEscapeKeyDown={(event) => {
+          if (locationOpen) {
+            event.preventDefault();
+            if (!portal?.querySelector('[role="listbox"]')) closeLocation();
+            return;
+          }
           if (
             pending ||
             lock.current ||
@@ -433,7 +476,7 @@ export default function ProjectWorkFormDialog({
             event.preventDefault();
         }}
         onInteractOutside={(event) => {
-          if (pending || lock.current) event.preventDefault();
+          if (locationOpen || pending || lock.current) event.preventDefault();
         }}
       >
         <FloatingPanelPortalProvider value={portal}>
@@ -443,401 +486,412 @@ export default function ProjectWorkFormDialog({
               tabIndex={-1}
               className="pr-8 leading-6 outline-none"
             >
-              {kindLabel} {editing ? "수정" : "추가"}
+              {locationOpen
+                ? "소속 위치 선택"
+                : `${kindLabel} ${editing ? "수정" : "추가"}`}
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="sr-only">
               {target.kind === "work"
                 ? "기본 정보를 입력하고, 필요할 때 상세 설정을 펼쳐 주세요."
                 : "단계의 상태를 변경해도 소속 업무의 상태는 유지됩니다."}
             </DialogDescription>
           </DialogHeader>
-          <form
-            ref={fieldsRef}
-            id={id}
-            noValidate
-            onSubmit={(event) => void submit(event)}
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-5 sm:px-6"
-            data-project-work-fields
-          >
-            <fieldset disabled={fieldsDisabled} className="min-w-0 space-y-4">
-              <label className="block space-y-1">
-                <span className="text-sm">{kindLabel}명</span>
-                <Input
-                  aria-label={`${kindLabel}명`}
-                  required
-                  maxLength={target.kind === "phase" ? 150 : 200}
-                  className={fieldClass}
-                  value={draft.name}
-                  onChange={(event) => field("name", event.target.value)}
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-sm">설명</span>
-                <Textarea
-                  aria-label={`${kindLabel} 설명`}
-                  rows={2}
-                  className={`${fieldClass} min-h-16 resize-y`}
-                  maxLength={5000}
-                  value={draft.description}
-                  onChange={(event) => field("description", event.target.value)}
-                />
-              </label>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="min-w-0 space-y-1">
-                  <p className="text-sm">상태</p>
-                  <CustomSelect
-                    ariaLabel={`${kindLabel} 상태 선택`}
-                    value={draft.status}
-                    options={WORK_STATUS_OPTIONS}
-                    onChange={(value) => field("status", value)}
-                    disabled={fieldsDisabled}
-                    className={selectClass}
-                    showFallbackMarker={false}
-                    matchTriggerWidth
-                    collisionBoundaryRef={fieldsRef}
-                    contentClassName="border-border bg-popover text-popover-foreground"
-                  />
-                </div>
-                {target.kind === "work" && (
-                  <div className="min-w-0 space-y-1">
-                    <p className="text-sm">우선순위</p>
-                    <CustomSelect
-                      ariaLabel="업무 우선순위 선택"
-                      value={draft.priority}
-                      options={WORK_PRIORITY_OPTIONS}
-                      onChange={(value) => field("priority", value)}
+          {!locationOpen && (
+            <>
+              <form
+                ref={fieldsRef}
+                id={id}
+                noValidate
+                onSubmit={(event) => void submit(event)}
+                className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-5 sm:px-6"
+                data-project-work-fields
+              >
+                <fieldset
+                  disabled={fieldsDisabled}
+                  className="min-w-0 space-y-4"
+                >
+                  <label className="block space-y-1">
+                    <span className="text-sm">{kindLabel}명 <span className="text-primary">*</span></span>
+                    <Input
+                      aria-label={`${kindLabel}명`}
+                      required
+                      maxLength={target.kind === "phase" ? 150 : 200}
+                      className={fieldClass}
+                      value={draft.name}
+                      onChange={(event) => field("name", event.target.value)}
+                    />
+                  </label>
+                  <div className="space-y-1">
+                    <p className="text-sm">소속 위치</p>
+                    {target.kind === "phase" ? (
+                      // TODO: expose phase navigation only when the API supports parent phases.
+                      <div
+                        className="flex items-center gap-2 rounded-xl border border-input px-3 py-3 text-sm"
+                        aria-label="단계 소속 위치"
+                      >
+                        <Folder
+                          aria-hidden
+                          className="h-4 w-4 shrink-0 text-muted-foreground"
+                        />
+                        프로젝트 최상위
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          ref={locationRef}
+                          type="button"
+                          aria-label="소속 위치 선택"
+                          disabled={fieldsDisabled}
+                          onClick={openLocation}
+                          title={projectLocationLabel(tree, draft)}
+                          className="flex w-full items-center gap-2 rounded-xl border border-input bg-background px-3 py-3 text-left text-sm hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-50"
+                        >
+                          <Folder
+                            aria-hidden
+                            className="h-4 w-4 shrink-0 text-muted-foreground"
+                          />
+                          <span className="min-w-0 flex-1 truncate">
+                            {projectLocationLabel(tree, draft)}
+                          </span>
+                          <ChevronRight
+                            aria-hidden
+                            className="h-4 w-4 shrink-0 text-muted-foreground"
+                          />
+                        </button>
+                        <p className="break-words text-xs leading-5 text-muted-foreground" aria-label="선택한 소속 관계">
+                          {draft.parentId !== "none" ? "선택한 업무의 하위" : "상위 업무 없음"}
+                          {detail.project.phase_mode === "phased" && ` · 연결 단계: ${projectLinkedPhaseLabel(tree, draft)}`}
+                        </p>
+                        {parentError && (
+                          <p className="text-xs text-destructive">
+                            {parentError}
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  <div className="space-y-2 rounded-xl border border-border p-3">
+                    {periodOptions.length > 1 && <CustomSelect
+                      ariaLabel="부모 기간 적용 기준"
+                      value={periodSource?.key ?? ""}
+                      options={periodOptions.map((option) => ({ value: option.key, label: option.label }))}
+                      onChange={(value) => setPeriodSourceKey(String(value))}
                       disabled={fieldsDisabled}
                       className={selectClass}
-                      showFallbackMarker={false}
                       matchTriggerWidth
                       collisionBoundaryRef={fieldsRef}
-                      contentClassName="border-border bg-popover text-popover-foreground"
-                    />
-                  </div>
-                )}
-              </div>
-              {target.kind === "work" && (
-                <div className="space-y-2">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="min-w-0 space-y-1">
-                      <p className="text-sm">상위 업무</p>
-                      <CustomSelect
-                        ariaLabel="상위 업무 선택"
-                        value={draft.parentId}
-                        options={[
-                          { value: "none", label: "최상위 업무" },
-                          ...(!possibleParents.some(
-                            (item) =>
-                              String(item.company_project_work_item_id) ===
-                              draft.parentId,
-                          ) && draft.parentId !== "none"
-                            ? [
-                                {
-                                  value: draft.parentId,
-                                  label:
-                                    items.find(
-                                      (item) =>
-                                        String(
-                                          item.company_project_work_item_id,
-                                        ) === draft.parentId,
-                                    )?.title ??
-                                    `현재 상위 업무 ${draft.parentId}`,
-                                },
-                              ]
-                            : []),
-                          ...possibleParents.map((item) => ({
-                            value: String(item.company_project_work_item_id),
-                            label: item.title,
-                          })),
-                        ]}
-                        onChange={(value) => field("parentId", value)}
-                        disabled={fieldsDisabled}
-                        className={selectClass}
-                        showFallbackMarker={false}
-                        matchTriggerWidth
-                        collisionBoundaryRef={fieldsRef}
-                        contentClassName="border-border bg-popover text-popover-foreground"
-                      />
+                    />}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="min-w-0 break-words text-xs text-muted-foreground">
+                        {periodSource?.label ?? "상위 기간 정보 없음"}<br />
+                        {periodSource && `${formatProjectDate(periodSource.planned_start_date)} ~ ${formatProjectDate(periodSource.planned_end_date)}`}
+                      </p>
+                      <Button type="button" variant="outline" size="sm" disabled={fieldsDisabled || !canApplyPeriod}
+                        onClick={() => {
+                          if (!periodSource) return;
+                          const dates = applyParentPeriod({ planned_start_date: draft.plannedStart, planned_end_date: draft.plannedEnd }, periodSource);
+                          setDraft((previous) => ({ ...previous, plannedStart: dates.planned_start_date ?? "", plannedEnd: dates.planned_end_date ?? "" }));
+                        }}>부모 기간 적용</Button>
                     </div>
-                    {detail.project.phase_mode === "phased" && (
-                      <div className="min-w-0 space-y-1">
-                        <p className="text-sm">단계</p>
-                        <CustomSelect
-                          ariaLabel="업무 단계 선택"
-                          value={draft.phaseId}
-                          options={[
-                            { value: "none", label: "단계 미지정" },
-                            ...(!detail.phases.some(
-                              (phase) =>
-                                String(phase.company_project_phase_id) ===
-                                draft.phaseId,
-                            ) && draft.phaseId !== "none"
-                              ? [
-                                  {
-                                    value: draft.phaseId,
-                                    label: `현재 단계 ${draft.phaseId}`,
-                                  },
-                                ]
-                              : []),
-                            ...detail.phases.map((phase) => ({
-                              value: String(phase.company_project_phase_id),
-                              label: phase.name,
-                            })),
-                          ]}
-                          onChange={(value) => field("phaseId", value)}
+                    {periodSource && <p className="text-xs text-muted-foreground">비어 있는 날짜만 채웁니다.</p>}
+                  </div>
+                  <div
+                    className="grid gap-3 sm:grid-cols-2"
+                    role="group"
+                    aria-label="계획 기간"
+                  >
+                    {(
+                      [
+                        ["plannedStart", "계획 시작일"],
+                        ["plannedEnd", "계획 종료일"],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <div key={key} className="min-w-0 space-y-1">
+                        <p className="text-sm">{label} <span className="text-xs text-muted-foreground">(선택)</span></p>
+                        <CompactDateInput
+                          ariaLabel={`${kindLabel} ${label}`}
+                          clearLabel={`${kindLabel} ${label} 지우기`}
+                          value={draft[key]}
+                          onChange={(value) => field(key, value)}
+                          emptyPlaceholder="날짜 선택"
                           disabled={fieldsDisabled}
-                          className={selectClass}
-                          showFallbackMarker={false}
-                          matchTriggerWidth
-                          collisionBoundaryRef={fieldsRef}
-                          contentClassName="border-border bg-popover text-popover-foreground"
+                          className={dateClass}
                         />
                       </div>
-                    )}
+                    ))}
                   </div>
-                  {draft.parentId !== "none" &&
-                    detail.project.phase_mode === "phased" && (
-                      <p className="text-xs text-muted-foreground">
-                        상위 업무와 단계는 각각 선택할 수 있습니다. 상위 업무를
-                        바꿔도 선택한 단계는 유지됩니다.
-                      </p>
-                    )}
-                  {parentUnavailable && (
-                    <p className="text-xs text-destructive">
-                      상위 업무의 깊이를 확인할 수 없거나 최대 5단계에
-                      도달했습니다.
-                    </p>
-                  )}
-                </div>
-              )}
-              <div
-                className="grid gap-3 sm:grid-cols-2"
-                role="group"
-                aria-label="계획 기간"
-              >
-                {(
-                  [
-                    ["plannedStart", "계획 시작일"],
-                    ["plannedEnd", "계획 종료일"],
-                  ] as const
-                ).map(([key, label]) => (
-                  <div key={key} className="min-w-0 space-y-1">
-                    <p className="text-sm">{label}</p>
-                    <CompactDateInput
-                      ariaLabel={`${kindLabel} ${label}`}
-                      clearLabel={`${kindLabel} ${label} 지우기`}
-                      value={draft[key]}
-                      onChange={(value) => field(key, value)}
-                      emptyPlaceholder="날짜 선택"
+                  <div className="rounded-xl border border-border">
+                    <button
+                      type="button"
+                      aria-expanded={advancedOpen}
+                      aria-controls={`${id}-advanced`}
                       disabled={fieldsDisabled}
-                      className={dateClass}
-                    />
-                  </div>
-                ))}
-              </div>
-              <div className="rounded-xl border border-border">
-                <button
-                  type="button"
-                  aria-expanded={advancedOpen}
-                  aria-controls={`${id}-advanced`}
-                  disabled={fieldsDisabled}
-                  onClick={() => setAdvancedOpen((open) => !open)}
-                  className="flex w-full items-center gap-2 rounded-xl px-3 py-3 text-left text-sm font-medium hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-50"
-                >
-                  <ChevronDown
-                    aria-hidden
-                    className={`h-4 w-4 shrink-0 transition-transform ${advancedOpen ? "" : "-rotate-90"}`}
-                  />
-                  <span>상세 설정 (선택)</span>
-                  {advancedError ? (
-                    <span className="ml-auto text-xs text-destructive">
-                      오류 확인
-                    </span>
-                  ) : (
-                    hasAdvancedValues && (
-                      <span className="ml-auto text-xs text-muted-foreground">
-                        설정됨
-                      </span>
-                    )
-                  )}
-                </button>
-                {advancedOpen && (
-                  <div
-                    id={`${id}-advanced`}
-                    className="space-y-4 border-t border-border p-3"
-                  >
-                    <div
-                      className="grid gap-3 sm:grid-cols-2"
-                      role="group"
-                      aria-label="실적 기간"
+                      onClick={() => setAdvancedOpen((open) => !open)}
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-3 text-left text-sm font-medium hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-50"
                     >
-                      {(
-                        [
-                          ["actualStart", "실적 시작일"],
-                          ["actualEnd", "실적 종료일"],
-                        ] as const
-                      ).map(([key, label]) => (
-                        <div key={key} className="min-w-0 space-y-1">
-                          <p className="text-sm">{label}</p>
-                          <CompactDateInput
-                            ariaLabel={`${kindLabel} ${label}`}
-                            clearLabel={`${kindLabel} ${label} 지우기`}
-                            value={draft[key]}
-                            onChange={(value) => field(key, value)}
-                            emptyPlaceholder="날짜 선택"
-                            disabled={fieldsDisabled}
-                            className={dateClass}
+                      <ChevronDown
+                        aria-hidden
+                        className={`h-4 w-4 shrink-0 transition-transform ${advancedOpen ? "" : "-rotate-90"}`}
+                      />
+                      <span>상세 설정 (선택)</span>
+                      {advancedError ? (
+                        <span className="ml-auto text-xs text-destructive">
+                          오류 확인
+                        </span>
+                      ) : (
+                        hasAdvancedValues && (
+                          <span className="ml-auto text-xs text-muted-foreground">
+                            설정됨
+                          </span>
+                        )
+                      )}
+                    </button>
+                    {advancedOpen && (
+                      <div
+                        id={`${id}-advanced`}
+                        className="space-y-4 border-t border-border p-3"
+                      >
+                        <label className="block space-y-1">
+                          <span className="text-sm">설명</span>
+                          <Textarea
+                            aria-label={`${kindLabel} 설명`}
+                            rows={2}
+                            className={`${fieldClass} min-h-16 resize-y`}
+                            maxLength={5000}
+                            value={draft.description}
+                            onChange={(event) =>
+                              field("description", event.target.value)
+                            }
                           />
-                        </div>
-                      ))}
-                    </div>
-                    {target.kind === "work" && (
-                      <>
-                        <div
-                          className="grid gap-3 sm:grid-cols-2"
-                          role="group"
-                          aria-label="마감 일시"
-                        >
+                        </label>
+                        <div className="grid gap-3 sm:grid-cols-2">
                           <div className="min-w-0 space-y-1">
-                            <p className="text-sm">마감 날짜</p>
-                            <CompactDateInput
-                              ariaLabel="업무 마감 날짜"
-                              clearLabel="업무 마감 날짜 지우기"
-                              value={draft.dueDate}
-                              onChange={(value) => field("dueDate", value)}
-                              emptyPlaceholder="날짜 선택"
+                            <p className="text-sm">상태</p>
+                            <CustomSelect
+                              ariaLabel={`${kindLabel} 상태 선택`}
+                              value={draft.status}
+                              options={WORK_STATUS_OPTIONS}
+                              onChange={(value) => field("status", value)}
                               disabled={fieldsDisabled}
-                              className={dateClass}
+                              className={selectClass}
+                              showFallbackMarker={false}
+                              matchTriggerWidth
+                              collisionBoundaryRef={fieldsRef}
+                              contentClassName="project-work-select-menu border-border bg-background text-foreground overscroll-contain"
                             />
                           </div>
-                          <div className="min-w-0 space-y-1">
-                            <p className="text-sm">마감 시간</p>
-                            <div className="relative">
-                              <CompactTimeInput
-                                ariaLabel="업무 마감 시간"
-                                value={draft.dueTime}
-                                onChange={(value) => field("dueTime", value)}
-                                disabled={fieldsDisabled}
-                                className={`${dateClass} pr-10`}
-                                emptyPlaceholder="시간 선택"
-                              />
-                              {draft.dueTime && (
-                                <button
-                                  type="button"
-                                  aria-label="업무 마감 시간 지우기"
-                                  disabled={fieldsDisabled}
-                                  onPointerDown={(event) => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                  }}
-                                  onClick={() => field("dueTime", "")}
-                                  className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/20 disabled:opacity-50"
-                                >
-                                  <X aria-hidden className="h-4 w-4" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <div className="grid gap-3 sm:grid-cols-2">
+                          {target.kind === "work" && (
                             <div className="min-w-0 space-y-1">
-                              <p className="text-sm">진행률 설정</p>
+                              <p className="text-sm">우선순위</p>
                               <CustomSelect
-                                ariaLabel="업무 진행률 설정"
-                                value={draft.progressMode}
-                                options={PROGRESS_MODE_OPTIONS}
-                                onChange={(value) =>
-                                  field("progressMode", value)
-                                }
+                                ariaLabel="업무 우선순위 선택"
+                                value={draft.priority}
+                                options={WORK_PRIORITY_OPTIONS}
+                                onChange={(value) => field("priority", value)}
                                 disabled={fieldsDisabled}
                                 className={selectClass}
                                 showFallbackMarker={false}
                                 matchTriggerWidth
                                 collisionBoundaryRef={fieldsRef}
-                                contentClassName="border-border bg-popover text-popover-foreground"
+                                contentClassName="project-work-select-menu border-border bg-background text-foreground overscroll-contain"
                               />
                             </div>
-                            {draft.progressMode === "manual" && (
-                              <label className="min-w-0 space-y-1">
-                                <span className="text-sm">
-                                  진행률 수동 설정 (%)
-                                </span>
-                                <Input
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  step={1}
-                                  aria-label="업무 진행률"
-                                  className={fieldClass}
-                                  value={draft.progress}
-                                  onChange={(event) =>
-                                    field("progress", event.target.value)
-                                  }
-                                />
-                              </label>
-                            )}
-                          </div>
-                          <p className="text-xs leading-5 text-muted-foreground">
-                            수동 설정은 0%도 지정할 수 있습니다. 자동 계산으로
-                            전환하면 담당자 배정을 기준으로 다시 계산하며,
-                            배정이 없으면 기존 진행률이 유지됩니다.
-                          </p>
+                          )}
                         </div>
+                        <div
+                          className="grid gap-3 sm:grid-cols-2"
+                          role="group"
+                          aria-label="실적 기간"
+                        >
+                          {(
+                            [
+                              ["actualStart", "실적 시작일"],
+                              ["actualEnd", "실적 종료일"],
+                            ] as const
+                          ).map(([key, label]) => (
+                            <div key={key} className="min-w-0 space-y-1">
+                              <p className="text-sm">{label}</p>
+                              <CompactDateInput
+                                ariaLabel={`${kindLabel} ${label}`}
+                                clearLabel={`${kindLabel} ${label} 지우기`}
+                                value={draft[key]}
+                                onChange={(value) => field(key, value)}
+                                emptyPlaceholder="날짜 선택"
+                                disabled={fieldsDisabled}
+                                className={dateClass}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        {target.kind === "work" && (
+                          <>
+                            <div
+                              className="grid gap-3 sm:grid-cols-2"
+                              role="group"
+                              aria-label="마감 일시"
+                            >
+                              <div className="min-w-0 space-y-1">
+                                <p className="text-sm">마감 날짜</p>
+                                <CompactDateInput
+                                  ariaLabel="업무 마감 날짜"
+                                  clearLabel="업무 마감 날짜 지우기"
+                                  value={draft.dueDate}
+                                  onChange={(value) => field("dueDate", value)}
+                                  emptyPlaceholder="날짜 선택"
+                                  disabled={fieldsDisabled}
+                                  className={dateClass}
+                                />
+                              </div>
+                              <div className="min-w-0 space-y-1">
+                                <p className="text-sm">마감 시간</p>
+                                <div className="relative">
+                                  <CompactTimeInput
+                                    ariaLabel="업무 마감 시간"
+                                    value={draft.dueTime}
+                                    onChange={(value) =>
+                                      field("dueTime", value)
+                                    }
+                                    disabled={fieldsDisabled}
+                                    className={`${dateClass} pr-10`}
+                                    emptyPlaceholder="시간 선택"
+                                  />
+                                  {draft.dueTime && (
+                                    <button
+                                      type="button"
+                                      aria-label="업무 마감 시간 지우기"
+                                      disabled={fieldsDisabled}
+                                      onPointerDown={(event) => {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                      }}
+                                      onClick={() => field("dueTime", "")}
+                                      className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/20 disabled:opacity-50"
+                                    >
+                                      <X aria-hidden className="h-4 w-4" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="space-y-2">
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <div className="min-w-0 space-y-1">
+                                  <p className="text-sm">진행률 설정</p>
+                                  <CustomSelect
+                                    ariaLabel="업무 진행률 설정"
+                                    value={draft.progressMode}
+                                    options={PROGRESS_MODE_OPTIONS}
+                                    onChange={(value) =>
+                                      field("progressMode", value)
+                                    }
+                                    disabled={fieldsDisabled}
+                                    className={selectClass}
+                                    showFallbackMarker={false}
+                                    matchTriggerWidth
+                                    collisionBoundaryRef={fieldsRef}
+                                    contentClassName="project-work-select-menu border-border bg-background text-foreground overscroll-contain"
+                                  />
+                                </div>
+                                {draft.progressMode === "manual" && (
+                                  <label className="min-w-0 space-y-1">
+                                    <span className="text-sm">
+                                      진행률 수동 설정 (%)
+                                    </span>
+                                    <Input
+                                      type="number"
+                                      min={0}
+                                      max={100}
+                                      step={1}
+                                      aria-label="업무 진행률"
+                                      className={fieldClass}
+                                      value={draft.progress}
+                                      onChange={(event) =>
+                                        field("progress", event.target.value)
+                                      }
+                                    />
+                                  </label>
+                                )}
+                              </div>
+                              <p className="text-xs leading-5 text-muted-foreground">
+                                수동 설정은 0%도 지정할 수 있습니다. 자동
+                                계산으로 전환하면 담당자 배정을 기준으로 다시
+                                계산하며, 배정이 없으면 기존 진행률이
+                                유지됩니다.
+                              </p>
+                            </div>
+                            <label className="block space-y-1">
+                              <span className="text-sm">WBS 코드</span>
+                              <Input
+                                aria-label="업무 WBS 코드"
+                                maxLength={100}
+                                className={fieldClass}
+                                value={draft.wbs}
+                                onChange={(event) =>
+                                  field("wbs", event.target.value)
+                                }
+                              />
+                            </label>
+                          </>
+                        )}
                         <label className="block space-y-1">
-                          <span className="text-sm">WBS 코드</span>
+                          <span className="text-sm">정렬 순서</span>
                           <Input
-                            aria-label="업무 WBS 코드"
-                            maxLength={100}
+                            type="number"
+                            step={1}
+                            aria-label={`${kindLabel} 정렬 순서`}
                             className={fieldClass}
-                            value={draft.wbs}
+                            value={draft.sortOrder}
                             onChange={(event) =>
-                              field("wbs", event.target.value)
+                              field("sortOrder", event.target.value)
                             }
                           />
                         </label>
-                      </>
+                      </div>
                     )}
-                    <label className="block space-y-1">
-                      <span className="text-sm">정렬 순서</span>
-                      <Input
-                        type="number"
-                        step={1}
-                        aria-label={`${kindLabel} 정렬 순서`}
-                        className={fieldClass}
-                        value={draft.sortOrder}
-                        onChange={(event) =>
-                          field("sortOrder", event.target.value)
-                        }
-                      />
-                    </label>
                   </div>
-                )}
-              </div>
-            </fieldset>
-          </form>
-          {error && (
-            <p
-              role="alert"
-              className="shrink-0 break-words px-5 pb-3 text-sm text-destructive sm:px-6"
-            >
-              {error}
-            </p>
+                </fieldset>
+              </form>
+              {error && (
+                <p
+                  role="alert"
+                  className="shrink-0 break-words px-5 pb-3 text-sm text-destructive sm:px-6"
+                >
+                  {error}
+                </p>
+              )}
+              <DialogFooter className="shrink-0 flex-row flex-wrap justify-end gap-2 border-t border-border px-5 py-3 sm:px-6 sm:space-x-0">
+                <Button variant="outline" onClick={close} disabled={pending}>
+                  닫기
+                </Button>
+                <Button
+                  type="submit"
+                  form={id}
+                  disabled={fieldsDisabled || parentUnavailable}
+                  aria-busy={pending}
+                >
+                  {pending ? "저장 중..." : "저장"}
+                </Button>
+              </DialogFooter>
+            </>
           )}
-          <DialogFooter className="shrink-0 flex-row flex-wrap justify-end gap-2 border-t border-border px-5 py-3 sm:px-6 sm:space-x-0">
-            <Button variant="outline" onClick={close} disabled={pending}>
-              닫기
-            </Button>
-            <Button
-              type="submit"
-              form={id}
-              disabled={fieldsDisabled || parentUnavailable}
-              aria-busy={pending}
-            >
-              {pending ? "저장 중..." : "저장"}
-            </Button>
-          </DialogFooter>
+          {locationOpen && (
+            <ProjectLocationPicker
+              tree={tree}
+              value={{ parentId: draft.parentId, phaseId: draft.phaseId }}
+              editing={editing}
+              itemId={itemId}
+              canManage={!fieldsDisabled}
+              phased={detail.project.phase_mode === "phased"}
+              onCancel={closeLocation}
+              onConfirm={(location) => {
+                setDraft((previous) => ({ ...previous, ...location }));
+                closeLocation();
+              }}
+            />
+          )}
           <div ref={setPortal} />
+          <ProjectPeriodWarning messages={periodWarning} onCancel={() => setPeriodWarning(null)}
+            onConfirm={() => { setPeriodWarning(null); void submit(undefined, true); }} />
         </FloatingPanelPortalProvider>
       </DialogContent>
     </Dialog>

@@ -363,6 +363,27 @@ async function expectProjectMenuInsideFields(page: Page, label: string) {
 
 test.describe("프로젝트 기본 관리 · 가상 API", () => {
   let api: Awaited<ReturnType<typeof installProjectApi>>;
+  test("일정 정책: 프로젝트 기간 축소 시 조회된 하위 기간을 경고하고 프로젝트만 저장한다", async ({ page }) => {
+    api = await installProjectApi(page);
+    const child = { company_project_work_item_id: 501, company_project_id: 901, title: "QA 하위 업무", status: "todo", planned_end_date: "2026-09-30" };
+    api.payloads.set("GET /company-projects/901", {
+      project: api.projects[0], phases: [], work_items: [child], departments: [], assignments: [], dependencies: [],
+      detail_policy: { scale: "small", mode: "full", max_depth: 5, full_load_allowed: true, returned_work_item_count: 1 },
+    });
+    await page.goto("/projects/901");
+    await page.getByRole("button", { name: "프로젝트 수정", exact: true }).click();
+    await fillDate(page, "계획 종료일", "2026-09-20");
+    const form = page.getByRole("dialog", { name: "프로젝트 수정", exact: true });
+    await form.getByRole("button", { name: "저장", exact: true }).click();
+    const warning = page.getByRole("dialog", { name: "상위 일정 범위를 벗어났습니다", exact: true });
+    await expect(warning).toContainText("조회된 단계·업무 1건");
+    expect(api.requests.filter((r) => r.method === "PATCH")).toEqual([]);
+    await warning.getByRole("button", { name: "그대로 저장", exact: true }).click();
+    await expect(form).toHaveCount(0);
+    expect(api.requests.filter((r) => r.method === "PATCH").map((r) => ({ path: r.path, body: r.body })))
+      .toEqual([{ path: "/company-projects/901", body: { planned_end_date: "2026-09-20" } }]);
+    expect(child.planned_end_date).toBe("2026-09-30");
+  });
 
   test.afterEach(async ({}, testInfo) => {
     if (!api) return;

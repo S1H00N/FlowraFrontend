@@ -3,6 +3,7 @@ import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { listCompanyProjectWorkItemChildren } from "@/api/companyProjects";
 import { companyProjectDetailKey, companyProjectWorkItemChildrenKey } from "@/hooks/useCompanyProjects";
 import { buildProjectWorkTree } from "@/lib/projectWorkTree";
+import { buildProjectHierarchy, getCompleteProjectSiblingSets, getProjectWorkSearchScope } from "@/lib/projectHierarchy";
 import type {
   CompanyProjectDetailData,
   CompanyProjectWorkItem,
@@ -118,8 +119,11 @@ export function useProjectWorkTree(
   for (const [parentId, ids] of graph.childrenByParent) {
     if (parentId !== null) children.set(parentId, ids.map((id) => byId.get(id)!));
   }
-  const completeDetail = detail.detail_policy?.mode === "full";
-  const mayBePartial = !completeDetail;
+  const completeSiblingSets = getCompleteProjectSiblingSets(graph, detail.detail_policy,
+    activeRequested.filter((id) => queryById.get(id)?.isSuccess));
+  const hierarchy = buildProjectHierarchy(graph, detail.phases, detail.project.phase_mode === "phased", completeSiblingSets);
+  const searchScope = getProjectWorkSearchScope(graph, completeSiblingSets, detail.summary?.work_item_count, detail);
+  const mayBePartial = searchScope !== "complete";
   const relationships = useMemo(() => {
     const snapshots = queries.filter((query) => query.data && !query.isError)
       .sort((left, right) => left.dataUpdatedAt - right.dataUpdatedAt)
@@ -164,16 +168,9 @@ export function useProjectWorkTree(
 
   function needsChildren(item: CompanyProjectWorkItem) {
     const id = item.company_project_work_item_id;
-    // This response belongs to the current detail snapshot and is authoritative,
-    // even when an earlier rollup count disagrees. Avoid automatic refetch loops.
-    if (queryById.get(id)?.isSuccess) return false;
-    // Full detail contains every depth and deliberately has no rollup rows.
-    if (completeDetail) return false;
-    const count = item.rollup?.child_count;
-    if (typeof count === "number" && Number.isFinite(count) && count >= 0) {
-      return count > (children.get(id)?.length ?? 0);
-    }
-    return true;
+    // A successful empty branch is complete, even if a rollup disagrees.
+    // Conversely, child_count=0 must not block explicit exploration.
+    return !completeSiblingSets.has(id);
   }
   function hasChildren(item: CompanyProjectWorkItem) {
     return Boolean(children.get(item.company_project_work_item_id)?.length) || needsChildren(item) ||
@@ -204,8 +201,8 @@ export function useProjectWorkTree(
       .map((item) => item.company_project_work_item_id)));
   }
   return {
-    items, byId, graph, children, expanded, queryById, needsChildren, hasChildren,
-    loadChildren, toggle, expandLoaded, collapseAll: () => setExpanded(new Set<number>()), mayBePartial,
+    items, byId, graph, hierarchy, completeSiblingSets, children, expanded, queryById, needsChildren, hasChildren,
+    loadChildren, toggle, expandLoaded, collapseAll: () => setExpanded(new Set<number>()), searchScope, mayBePartial,
     ...relationships,
   };
 }

@@ -156,22 +156,86 @@
 .project-row-action {
   justify-self: end;
 }
-.projects-detail-header,
 .projects-overview {
   padding: 24px;
 }
+.projects-detail-header {
+  padding: 16px 20px;
+}
+.projects-work-page.flowra-page-stack {
+  gap: 12px;
+}
+.projects-detail-workspace {
+  width: 100%;
+  min-width: 0;
+}
+.projects-detail-workspace[data-work-panel-docked="true"] {
+  padding-right: var(--project-work-dock-space);
+}
+.projects-work-page > .projects-detail-header {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+.projects-work-page > .projects-detail-tabs,
+.projects-work-page > [role="tabpanel"] {
+  margin-top: -4px;
+}
 .projects-detail-title {
-  align-items: flex-start;
+  align-items: center;
 }
 .projects-detail-title > div {
   min-width: 0;
 }
+.projects-detail-title > button {
+  flex-shrink: 0;
+}
+.projects-detail-name {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .projects-detail-title h2 {
-  margin: 12px 0 0;
-  font-size: 25px;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  font-size: 22px;
   line-height: 1.4;
   font-weight: 700;
   overflow-wrap: anywhere;
+}
+.projects-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 8px;
+  color: var(--flowra-text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.projects-detail-period {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.projects-detail-period > span:first-child {
+  white-space: nowrap;
+}
+.projects-detail-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid var(--flowra-border-soft);
+  padding-bottom: 4px;
+}
+.projects-work-page > .projects-detail-tabs {
+  padding-bottom: 0;
+}
+.projects-detail-tabs button[aria-selected="true"] {
+  background: var(--flowra-surface-muted);
+  color: var(--flowra-accent-text);
 }
 .projects-detail-description {
   margin: 20px 0 0;
@@ -231,15 +295,17 @@
     grid-column: 2;
     grid-row: 2;
   }
-  .projects-detail-header,
   .projects-overview {
     padding: 18px;
   }
+  .projects-detail-header {
+    padding: 16px;
+  }
   .projects-detail-title {
-    flex-wrap: wrap;
+    gap: 12px;
   }
   .projects-detail-title h2 {
-    font-size: 22px;
+    font-size: 20px;
   }
   .projects-overview-fields {
     gap: 20px 16px;

@@ -35,10 +35,15 @@ function belongsToProject(item: CompanyProjectWorkItem, projectId?: number) {
   return projectId === undefined || item.company_project_id === undefined || item.company_project_id === projectId;
 }
 
-function compareWorkItems(left: CompanyProjectWorkItem, right: CompanyProjectWorkItem) {
-  const leftOrder = typeof left.sort_order === "number" && Number.isFinite(left.sort_order) ? left.sort_order : Number.MAX_SAFE_INTEGER;
-  const rightOrder = typeof right.sort_order === "number" && Number.isFinite(right.sort_order) ? right.sort_order : Number.MAX_SAFE_INTEGER;
-  return leftOrder - rightOrder || left.company_project_work_item_id - right.company_project_work_item_id;
+/** Display-only fallback, shared by Phase and Work. Never persisted. */
+export function compareProjectOrder(leftOrder: unknown, leftId: number, rightOrder: unknown, rightId: number) {
+  const left = typeof leftOrder === "number" && Number.isFinite(leftOrder) ? leftOrder : 0;
+  const right = typeof rightOrder === "number" && Number.isFinite(rightOrder) ? rightOrder : 0;
+  return left - right || leftId - rightId;
+}
+
+export function compareWorkItems(left: CompanyProjectWorkItem, right: CompanyProjectWorkItem) {
+  return compareProjectOrder(left.sort_order, left.company_project_work_item_id, right.sort_order, right.company_project_work_item_id);
 }
 
 /** Merge route-scoped responses by resource ID without duplicating a row. */
@@ -167,4 +172,27 @@ export function getWorkItemDepthInfo(tree: ProjectWorkTree, itemId: number) {
 /** Null means ancestry is incomplete and creation needs further verification. */
 export function getWorkItemUiDepth(tree: ProjectWorkTree, itemId: number): number | null {
   return getWorkItemDepthInfo(tree, itemId).uiDepth;
+}
+
+/** Validate known relationships; the server also validates unloaded descendants. */
+export function getProjectWorkParentError(tree: ProjectWorkTree, parentId: number, itemId?: number): string | null {
+  if (!tree.nodes.has(parentId)) return "상위 업무를 아직 확인할 수 없습니다.";
+  const path = getWorkItemAncestorPath(tree, parentId);
+  if (itemId !== undefined && path.some((item) => item.company_project_work_item_id === itemId)) {
+    return "자기 자신이나 하위 업무를 상위 업무로 지정할 수 없습니다.";
+  }
+  const info = getWorkItemDepthInfo(tree, parentId);
+  const depth = info.workItemDepth ?? info.backendDepthLevel;
+  if (depth === null) return "상위 업무의 깊이를 확인할 수 없습니다.";
+  let height = 1;
+  if (itemId !== undefined) {
+    for (const id of tree.nodes.keys()) {
+      const descendants = getWorkItemAncestorPath(tree, id);
+      const index = descendants.findIndex((item) => item.company_project_work_item_id === itemId);
+      if (index !== -1) height = Math.max(height, descendants.length - index);
+    }
+  }
+  return depth + height > MAX_PROJECT_WORK_DEPTH
+    ? "업무 계층은 최대 5단계입니다. 다른 위치를 선택해 주세요."
+    : null;
 }

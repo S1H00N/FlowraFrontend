@@ -24,6 +24,8 @@ import {
 } from "@/hooks/useCompanyProjects";
 import { getApiErrorDetails, getErrorCode, getErrorMessage } from "@/lib/error";
 import { registerProjectHistoryGuard } from "@/lib/projectNavigationGuard";
+import { isValidProjectDate, periodWarnings, type PlannedPeriod } from "@/lib/projectSchedule";
+import { ProjectPeriodWarning } from "./ProjectSchedulePresentation";
 import type {
   CompanyMembership,
   CompanyProject,
@@ -39,6 +41,7 @@ interface ProjectFormDialogProps {
   onOpenChange: (open: boolean) => void;
   membership: CompanyMembership;
   project?: CompanyProject;
+  knownChildren?: readonly PlannedPeriod[];
   onSaved: (project: CompanyProject) => void;
 }
 
@@ -87,16 +90,7 @@ function initialDraft(project?: CompanyProject): ProjectDraft {
 }
 
 function isValidDate(value: string) {
-  if (!value) return true;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const [year, month, day] = value.split("-").map(Number);
-  const date = new Date(`${value}T00:00:00Z`);
-  return (
-    year > 0 &&
-    date.getUTCFullYear() === year &&
-    date.getUTCMonth() + 1 === month &&
-    date.getUTCDate() === day
-  );
+  return !value || isValidProjectDate(value);
 }
 
 function hasDraftChanges(value: ProjectDraft, initial: ProjectDraft) {
@@ -179,12 +173,14 @@ function ProjectFormSession({
   onOpenChange,
   membership,
   project,
+  knownChildren = [],
   onSaved,
 }: ProjectFormDialogProps) {
   const formId = useId();
   const [initial] = useState(() => initialDraft(project));
   const [draft, setDraft] = useState(initial);
   const [error, setError] = useState<string | null>(null);
+  const [periodWarning, setPeriodWarning] = useState<string[] | null>(null);
   const [nameInvalid, setNameInvalid] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [creationUncertain, setCreationUncertain] = useState(false);
@@ -381,8 +377,8 @@ function ProjectFormSession({
     return null;
   }
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function submit(event?: FormEvent<HTMLFormElement>, periodConfirmed = false) {
+    event?.preventDefault();
     if (submissionLock.current || pending || creationUncertain) return;
     const validationError = validate();
     if (validationError) {
@@ -390,6 +386,14 @@ function ProjectFormSession({
       return;
     }
     if (project && !dirty) return;
+    if (!periodConfirmed && project && (draft.startDate !== initial.startDate || draft.endDate !== initial.endDate)) {
+      const period = { planned_start_date: draft.startDate, planned_end_date: draft.endDate };
+      const outside = knownChildren.filter((child) => periodWarnings(child, period).length > 0);
+      if (outside.length) {
+        setPeriodWarning([`조회된 단계·업무 ${outside.length}건이 변경할 프로젝트 기간을 벗어납니다.`]);
+        return;
+      }
+    }
     if (
       project &&
       draft.status !== initial.status &&
@@ -710,6 +714,8 @@ function ProjectFormSession({
             </Button>
           </DialogFooter>
           <div ref={setPortal} />
+          <ProjectPeriodWarning messages={periodWarning} onCancel={() => setPeriodWarning(null)}
+            onConfirm={() => { setPeriodWarning(null); void submit(undefined, true); }} />
         </FloatingPanelPortalProvider>
       </DialogContent>
     </Dialog>
