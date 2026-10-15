@@ -589,6 +589,67 @@ body:has(.project-work-panel[aria-modal="true"]) #root {
   line-height: 1.5;
   color: var(--flowra-text-muted);
 }
+.work-assignment-list, .work-assignment-candidates {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+}
+.work-assignment-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 0;
+}
+.work-assignment-person {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.work-assignment-person small {
+  display: block;
+  color: var(--flowra-text-muted);
+  font-size: 11px;
+}
+.work-assignment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.work-assignment-form {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  margin-top: 8px;
+  border: 1px solid var(--flowra-border-soft);
+  border-radius: 8px;
+}
+.work-assignment-candidates {
+  max-height: 220px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.work-assignment-candidate {
+  width: 100%;
+  justify-content: space-between;
+  height: auto;
+  min-height: 36px;
+  white-space: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.work-assignment-candidate small {
+  color: var(--flowra-text-muted);
+}
+.work-assignment-candidate[aria-pressed="true"] {
+  background: var(--flowra-accent-bg);
+  color: var(--flowra-accent-text);
+}
 .work-panel-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

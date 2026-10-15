@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import EmptyState from "@/components/ui/EmptyState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
+import ProjectMembersDialog, { ProjectMembersAction } from "@/components/projects/ProjectMembersDialog";
 import ProjectWorkManager from "@/components/projects/ProjectWorkManager";
 import { isTransientApiReadError } from "@/lib/error";
 import { ProjectScheduleLabel, useProjectToday } from "@/components/projects/ProjectSchedulePresentation";
@@ -58,9 +59,11 @@ export default function ProjectDetail() {
     (item) => item.company_id === project?.company_id,
   );
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [membersOpen, setMembersOpen] = useState(false);
   const [tab, setTab] = useState<"overview" | "work">("work");
   const [panelLayout, setPanelLayout] = useState({ overlay: false, docked: false, width: 0, right: 0 });
   useEffect(() => setEditingId(null), [id, membership?.company_member_id]);
+  useEffect(() => setMembersOpen(false), [id, membership?.company_member_id]);
   useEffect(() => setTab("work"), [id]);
   useEffect(() => setPanelLayout({ overlay: false, docked: false, width: 0, right: 0 }), [id, membership?.company_member_id]);
   const listCompany = requestedMembership?.company_id ?? membership?.company_id;
@@ -154,11 +157,14 @@ export default function ProjectDetail() {
                   <h2>{project.name}</h2>
                   <ProjectStatusBadge status={project.status} />
                 </div>
-                <ProjectEditAction
-                  project={project}
-                  membership={membership}
-                  onEdit={() => setEditingId(project.company_project_id)}
-                />
+                <div className="projects-detail-actions">
+                  <ProjectMembersAction project={project} membership={membership} onOpen={() => setMembersOpen(true)} />
+                  <ProjectEditAction
+                    project={project}
+                    membership={membership}
+                    onEdit={() => setEditingId(project.company_project_id)}
+                  />
+                </div>
               </div>
               <div className="projects-detail-meta">
                 <span>
@@ -242,6 +248,7 @@ export default function ProjectDetail() {
                   membership={membership}
                   active={tab === "work"}
                   onPanelLayoutChange={setPanelLayout}
+                  onManageMembers={() => setMembersOpen(true)}
                 />
               )}
             </div>
@@ -333,6 +340,12 @@ export default function ProjectDetail() {
                 onSaved={() => setEditingId(null)}
               />
             )}
+            {membersOpen && <ProjectMembersDialog
+              open
+              onOpenChange={setMembersOpen}
+              project={project}
+              membership={membership}
+            />}
           </>
         ) : (
           <EmptyState

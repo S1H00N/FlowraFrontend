@@ -3,6 +3,11 @@ import {
   cancelCompanyProjectPhase,
   cancelCompanyProjectWorkItem,
   createCompanyProject,
+  createCompanyProjectMember,
+  updateCompanyProjectMember,
+  removeCompanyProjectMember,
+  createCompanyProjectAssignment,
+  updateManagedCompanyProjectAssignment,
   createCompanyProjectPhase,
   updateCompanyProjectPhase,
   createCompanyProjectWorkItem,
@@ -20,11 +25,18 @@ import {
   updateCompanyProjectWorkAssignment,
   updateCompanyProject,
 } from "@/api/companyProjects";
+import { listCompanyAdminMembers } from "@/api/companyAdmin";
 import { COMPANY_SCHEDULES_QUERY_KEY } from "@/hooks/useCompanySchedules";
 import { TODAY_BRIEFING_QUERY_KEY } from "@/hooks/useTodayBriefing";
 import { TODAY_HOME_QUERY_KEY } from "@/hooks/useTodayHome";
 import type {
   CompanyProject,
+  CompanyProjectAssignment,
+  CompanyAdminMember,
+  CreateCompanyProjectMemberRequest,
+  UpdateCompanyProjectMemberRequest,
+  CreateCompanyProjectAssignmentRequest,
+  UpdateManagedCompanyProjectAssignmentRequest,
   CompanyProjectMember,
   CompanyProjectPhase,
   CompanyProjectWorkItem,
@@ -52,6 +64,26 @@ import type {
 } from "@/types";
 
 export const COMPANY_PROJECTS_QUERY_KEY = ["company-projects"] as const;
+
+function confirmedProjectMember(member: CompanyProjectMember | undefined, companyMemberId?: string | number, projectMemberId?: number) {
+  const id = member?.company_project_member_id ?? member?.project_member_id;
+  if (!member || !Number.isSafeInteger(id) || Number(id) <= 0 ||
+    !Number.isSafeInteger(member.company_member_id) || member.company_member_id <= 0 || typeof member.role !== "string" ||
+    (companyMemberId !== undefined && member.company_member_id !== Number(companyMemberId)) ||
+    (projectMemberId !== undefined && id !== projectMemberId))
+    throw new Error("프로젝트 구성원 변경 결과를 확인할 수 없습니다. 최신 목록을 확인해 주세요.");
+  return member;
+}
+
+function confirmedProjectAssignment(assignment: CompanyProjectAssignment | undefined, workItemId: number, assignmentId?: number, memberId?: number) {
+  const id = assignment?.company_project_work_assignment_id ?? assignment?.assignment_id;
+  if (!assignment || !Number.isSafeInteger(id) || Number(id) <= 0 ||
+    (assignmentId !== undefined && id !== assignmentId) ||
+    (assignment.company_project_work_item_id !== undefined && assignment.company_project_work_item_id !== workItemId) ||
+    (memberId !== undefined && assignment.assignee_company_member_id !== memberId))
+    throw new Error("담당자 배정 결과를 확인할 수 없습니다. 최신 목록을 확인해 주세요.");
+  return assignment;
+}
 
 export function companyProjectsListKey(query: CompanyProjectsQuery = {}) {
   return [...COMPANY_PROJECTS_QUERY_KEY, "list", query] as const;
@@ -108,10 +140,12 @@ export function companyProjectWorkRemindersKey(
 function useInvalidateCompanyProjectSurfaces() {
   const queryClient = useQueryClient();
   return () => {
-    void queryClient.invalidateQueries({ queryKey: COMPANY_PROJECTS_QUERY_KEY });
-    void queryClient.invalidateQueries({ queryKey: COMPANY_SCHEDULES_QUERY_KEY });
-    void queryClient.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY });
-    void queryClient.invalidateQueries({ queryKey: TODAY_BRIEFING_QUERY_KEY });
+    return Promise.all([
+      queryClient.invalidateQueries({ queryKey: COMPANY_PROJECTS_QUERY_KEY }),
+      queryClient.invalidateQueries({ queryKey: COMPANY_SCHEDULES_QUERY_KEY }),
+      queryClient.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY }),
+      queryClient.invalidateQueries({ queryKey: TODAY_BRIEFING_QUERY_KEY }),
+    ]);
   };
 }
 
@@ -157,6 +191,84 @@ export function useCompanyProjectMembers(
       )) throw new Error("프로젝트 멤버 응답 형식을 확인할 수 없습니다.");
       return res.data.members;
     },
+  });
+}
+
+export function useCompanyProjectDirectory(companyId: number, options: { enabled?: boolean } = {}) {
+  return useQuery<CompanyAdminMember[]>({
+    queryKey: [...COMPANY_PROJECTS_QUERY_KEY, "directory", companyId],
+    enabled: companyId > 0 && (options.enabled ?? true),
+    retry: false,
+    queryFn: async ({ signal }) => {
+      const res = await listCompanyAdminMembers(companyId, { signal });
+      if (!res.success) throw new Error(res.message || "회사 구성원을 불러오지 못했습니다.");
+      return res.data.members;
+    },
+  });
+}
+
+export function useCreateCompanyProjectMember() {
+  const invalidate = useInvalidateCompanyProjectSurfaces();
+  return useMutation({
+    mutationFn: async ({ companyProjectId, payload }: { companyProjectId: number; payload: CreateCompanyProjectMemberRequest }) => {
+      const res = await createCompanyProjectMember(companyProjectId, payload);
+      if (!res.success) throw new Error(res.message || "프로젝트 구성원을 추가하지 못했습니다.");
+      return confirmedProjectMember(res.data?.member, payload.company_member_id);
+    },
+    onSettled: invalidate,
+    meta: { successMessage: "프로젝트 구성원을 추가했습니다.", errorMessage: "프로젝트 구성원을 추가하지 못했습니다." },
+  });
+}
+
+export function useUpdateCompanyProjectMember() {
+  const invalidate = useInvalidateCompanyProjectSurfaces();
+  return useMutation({
+    mutationFn: async ({ companyProjectId, projectMemberId, payload }: { companyProjectId: number; projectMemberId: number; payload: UpdateCompanyProjectMemberRequest }) => {
+      const res = await updateCompanyProjectMember(companyProjectId, projectMemberId, payload);
+      if (!res.success) throw new Error(res.message || "프로젝트 구성원을 변경하지 못했습니다.");
+      return confirmedProjectMember(res.data?.member, undefined, projectMemberId);
+    },
+    onSettled: invalidate,
+    meta: { successMessage: "프로젝트 구성원을 변경했습니다.", errorMessage: "프로젝트 구성원을 변경하지 못했습니다." },
+  });
+}
+
+export function useRemoveCompanyProjectMember() {
+  const invalidate = useInvalidateCompanyProjectSurfaces();
+  return useMutation({
+    mutationFn: async ({ companyProjectId, projectMemberId }: { companyProjectId: number; projectMemberId: number }) => {
+      const res = await removeCompanyProjectMember(companyProjectId, projectMemberId);
+      if (!res.success) throw new Error(res.message || "프로젝트 구성원을 제외하지 못했습니다.");
+      return confirmedProjectMember(res.data?.member, undefined, projectMemberId);
+    },
+    onSettled: invalidate,
+    meta: { successMessage: "프로젝트 구성원을 제외했습니다.", errorMessage: "프로젝트 구성원을 제외하지 못했습니다." },
+  });
+}
+
+export function useCreateCompanyProjectAssignment() {
+  const invalidate = useInvalidateCompanyProjectSurfaces();
+  return useMutation({
+    mutationFn: async ({ companyProjectId, workItemId, payload }: { companyProjectId: number; workItemId: number; payload: CreateCompanyProjectAssignmentRequest }) => {
+      const res = await createCompanyProjectAssignment(companyProjectId, workItemId, payload);
+      if (!res.success) throw new Error(res.message || "담당자를 배정하지 못했습니다.");
+      return confirmedProjectAssignment(res.data?.assignment, workItemId, undefined, payload.assignee_company_member_id);
+    },
+    onSettled: invalidate,
+    meta: { successMessage: "담당자를 배정했습니다.", errorMessage: "담당자를 배정하지 못했습니다." },
+  });
+}
+
+export function useUpdateManagedCompanyProjectAssignment() {
+  const invalidate = useInvalidateCompanyProjectSurfaces();
+  return useMutation({
+    mutationFn: async ({ companyProjectId, workItemId, assignmentId, payload }: { companyProjectId: number; workItemId: number; assignmentId: number; payload: UpdateManagedCompanyProjectAssignmentRequest }) => {
+      const res = await updateManagedCompanyProjectAssignment(companyProjectId, workItemId, assignmentId, payload);
+      if (!res.success) throw new Error(res.message || "담당자 배정을 변경하지 못했습니다.");
+      return confirmedProjectAssignment(res.data?.assignment, workItemId, assignmentId, payload.assignee_company_member_id);
+    },
+    onSettled: invalidate,
+    meta: { successMessage: "담당자 배정을 변경했습니다.", errorMessage: "담당자 배정을 변경하지 못했습니다." },
   });
 }
 

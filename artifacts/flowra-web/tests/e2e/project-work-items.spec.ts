@@ -163,6 +163,13 @@ async function installWorkApi(page: Page, options: Options = {}) {
       json: { success: true, message: "OK", data: { items: [membership] } },
     }),
   );
+  await page.route("**/api/v1/companies/71/org-chart", (route) => route.fulfill({
+    json: { success: true, message: "OK", data: { company: membership.company,
+      departments: [{ ...membership.department, members: [{
+        company_member_id: membership.company_member_id, name: membership.name,
+        email: membership.email, user_public_uid: membership.user_public_uid, status: "active",
+      }], children: [] }], unassigned_members: [] } },
+  }));
   await page.route("**/api/v1/company-schedules**", async (route) => {
     if (
       route.request().method() === "GET" &&
@@ -1991,7 +1998,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     if (page.viewportSize()!.width <= 700)
       await attachLayout(page, testInfo, "selected-parent");
     await expect(
-      panel(page).getByText("구성원 171", { exact: true }),
+      panel(page).getByText(QA_USER.name, { exact: true }),
     ).toBeVisible();
     if (page.viewportSize()!.width <= 700) {
       await panel(page)

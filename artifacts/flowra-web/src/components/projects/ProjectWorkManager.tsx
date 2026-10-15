@@ -58,9 +58,12 @@ import {
   useCancelCompanyProjectPhase,
   useCancelCompanyProjectWorkItem,
   useCompanyProjectMembers,
+  useCompanyProjectDirectory,
 } from "@/hooks/useCompanyProjects";
 import { useProjectWorkTree } from "@/hooks/useProjectWorkTree";
 import ProjectWorkFormDialog, { type ProjectWorkEditTarget } from "./ProjectWorkFormDialog";
+import ProjectAssignments from "./ProjectAssignments";
+import { activeProjectMember, projectAssigneeSummary } from "@/lib/projectMembers";
 import { getErrorMessage, isTransientApiReadError } from "@/lib/error";
 import { projectHierarchyTitle, workKey, type ProjectHierarchyKey } from "@/lib/projectHierarchy";
 import {
@@ -120,12 +123,14 @@ export default function ProjectWorkManager({
   membership,
   active,
   onPanelLayoutChange,
+  onManageMembers,
 }: {
   detail: CompanyProjectDetailData;
   detailUpdatedAt: number;
   membership: CompanyMembership;
   active: boolean;
   onPanelLayoutChange?: (layout: { overlay: boolean; docked: boolean; width: number; right: number }) => void;
+  onManageMembers?: () => void;
 }) {
   const project = detail.project;
   const tree = useProjectWorkTree(detail, detailUpdatedAt);
@@ -146,6 +151,10 @@ export default function ProjectWorkManager({
           (!member.status || member.status === "active"),
       ),
     );
+  const canManageMembers = canManage && Boolean(permission.data?.some((member) =>
+    member.company_member_id === membership.company_member_id && member.role === "owner" && activeProjectMember(member)));
+  const directoryQuery = useCompanyProjectDirectory(project.company_id, { enabled: canManage });
+  const directory = directoryQuery.isError || !canManage ? [] : directoryQuery.data ?? [];
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [priority, setPriority] = useState("all");
@@ -171,9 +180,29 @@ export default function ProjectWorkManager({
     .filter((query) => query !== undefined);
   const selectionError = selectionQueries.find((query) => query.isError);
   const selectionLoading = selectionQueries.some((query) => query.isFetching);
+  const selectedChildrenLoading = Boolean(selectedId !== null && tree.queryById.get(selectedId)?.isFetching);
   const panelRef = useRef<HTMLElement>(null);
   const panelTitleRef = useRef<HTMLHeadingElement>(null);
   const panelContentRef = useRef<HTMLDivElement>(null);
+  const [assignmentRefresh, setAssignmentRefresh] = useState<{ id: number; scroll: number; restoreFocus: boolean; complete: boolean } | null>(null);
+  function beginAssignmentRefresh() {
+    const snapshot = { id: selectedId!, scroll: panelContentRef.current?.scrollTop ?? 0,
+      restoreFocus: Boolean(panelRef.current?.contains(document.activeElement)), complete: false };
+    setAssignmentRefresh(snapshot);
+    return () => {
+      if (panelRef.current?.isConnected)
+        setAssignmentRefresh((current) => current === snapshot ? { ...snapshot, complete: true } : current);
+    };
+  }
+  useLayoutEffect(() => {
+    if (!assignmentRefresh) return;
+    if (assignmentRefresh.id !== selectedId || !active) { setAssignmentRefresh(null); return; }
+    if (!assignmentRefresh.complete || !selected || selectionLoading || selectedChildrenLoading) return;
+    if (panelContentRef.current) panelContentRef.current.scrollTop = assignmentRefresh.scroll;
+    if (assignmentRefresh.restoreFocus && (document.activeElement === document.body || panelRef.current?.contains(document.activeElement)))
+      (panelRef.current?.querySelector<HTMLButtonElement>('[aria-label="업무 담당자"] button') ?? panelTitleRef.current)?.focus({ preventScroll: true });
+    setAssignmentRefresh(null);
+  }, [assignmentRefresh, selectedId, selected, selectionLoading, selectedChildrenLoading, active]);
   const editorReturnFocusRef = useRef<HTMLElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const scopeToolbarRef = useRef<HTMLDivElement>(null);
@@ -227,22 +256,21 @@ export default function ProjectWorkManager({
     });
   }
   const assigneesByWorkId = useMemo(() => {
-    const grouped = new Map<number, Set<number>>();
+    const grouped = new Map<number, typeof tree.assignments>();
     for (const assignment of tree.assignments) {
       const workId = assignment.company_project_work_item_id;
-      const memberId = assignment.assignee_company_member_id;
-      if (typeof workId !== "number" || typeof memberId !== "number") continue;
-      const members = grouped.get(workId) ?? new Set<number>();
-      members.add(memberId);
-      grouped.set(workId, members);
+      if (typeof workId !== "number") continue;
+      const assignments = grouped.get(workId) ?? [];
+      assignments.push(assignment);
+      grouped.set(workId, assignments);
     }
     return new Map(
-      [...grouped].map(([id, members]) => [
+      [...grouped].map(([id, assignments]) => [
         id,
-        [...members].map((memberId) => memberId === 0 ? "담당자 정보 비공개" : `구성원 ${memberId}`).join(", "),
+        projectAssigneeSummary(assignments, directory, membership),
       ]),
     );
-  }, [tree.assignments]);
+  }, [tree.assignments, directory, membership]);
   function displayedPhaseId(item: CompanyProjectWorkItem) {
     return item.company_project_phase_id ?? null;
   }
@@ -495,7 +523,7 @@ export default function ProjectWorkManager({
   }
   function assignees(item: CompanyProjectWorkItem) {
     // Display only identifiers explicitly returned by the authorized detail API.
-    return assigneesByWorkId.get(item.company_project_work_item_id) ?? "—";
+    return assigneesByWorkId.get(item.company_project_work_item_id) ?? "미배정";
   }
   function beginCancel(target: CancelTarget) {
     setCancelError(null);
@@ -1213,12 +1241,16 @@ export default function ProjectWorkManager({
                           <WorkProgress item={selected} label="진행률" />
                         </dd>
                       </div>
-                      <div>
-                          <dt>담당자</dt>
-                          <dd>{assignees(selected)}</dd>
-                      </div>
                     </dl>
                   </section>
+                  <ProjectAssignments key={`assignments:${selected.company_project_work_item_id}`}
+                    companyProjectId={project.company_project_id} workItemId={selected.company_project_work_item_id}
+                    assignments={tree.assignments.filter((assignment) => assignment.company_project_work_item_id === selected.company_project_work_item_id)}
+                    members={permission.isError ? [] : permission.data ?? []} directory={directory} membership={membership}
+                    canManage={canManage} canManageMembers={canManageMembers} onManageMembers={onManageMembers}
+                    onMutationStart={beginAssignmentRefresh}
+                    directoryError={directoryQuery.error} directoryLoading={directoryQuery.isLoading}
+                    onRetryDirectory={() => void directoryQuery.refetch()} />
                   <section aria-label="업무 설명">
                     <h4>설명</h4>
                     <p className={selected.description ? "work-description" : "work-panel-empty"}>

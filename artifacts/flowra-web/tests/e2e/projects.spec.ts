@@ -105,6 +105,16 @@ async function installProjectApi(
       },
     });
   });
+  await page.route("**/api/v1/companies/*/org-chart", (route) => {
+    const companyId = Number(new URL(route.request().url()).pathname.split("/")[4]);
+    const own = memberships.find((membership) => membership.company_id === companyId);
+    return route.fulfill({ json: { success: true, message: "OK", data: {
+      company: own?.company, departments: [], unassigned_members: own ? [{
+        company_member_id: own.company_member_id, name: own.name, email: own.email,
+        user_public_uid: own.user_public_uid, status: "active",
+      }] : [],
+    } } });
+  });
   await page.route("**/api/v1/company-schedules**", async (route) => {
     if (
       route.request().method() === "GET" &&

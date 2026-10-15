@@ -314,14 +314,37 @@ async function getFallbackDepartmentId() {
     : null;
 }
 
-async function getCompanyOrgChart() {
-  const companyId = await getFallbackCompanyId();
+function validateCompanyOrgChart(data: unknown, companyId: number) {
+  const validId = (value: unknown) => Number.isSafeInteger(value) && Number(value) > 0;
+  const optionalString = (value: unknown) => value == null || typeof value === "string";
+  const validLabels = (value: Record<string, unknown>) => optionalString(value.name) && optionalString(value.status);
+  const validMember = (value: unknown) => isRecord(value) && validId(value.company_member_id) &&
+    validLabels(value) && (value.department_id == null || validId(value.department_id)) &&
+    (value.department == null || (isRecord(value.department) && validLabels(value.department) &&
+      (value.department.department_id == null || validId(value.department.department_id))));
+  const validDepartment = (value: unknown): boolean => isRecord(value) && validId(value.department_id) &&
+    validLabels(value) &&
+    (value.members === undefined || (Array.isArray(value.members) && value.members.every(validMember))) &&
+    (value.children === undefined || (Array.isArray(value.children) && value.children.every(validDepartment)));
+  if (!isRecord(data) || !Array.isArray(data.departments) || !Array.isArray(data.unassigned_members) ||
+    !data.departments.every(validDepartment) || !data.unassigned_members.every(validMember) ||
+    (data.company !== undefined && (!isRecord(data.company) ||
+      (data.company.company_id !== undefined && data.company.company_id !== companyId)))) {
+    throw new Error("회사 구성원 응답 형식을 확인할 수 없습니다.");
+  }
+}
+
+async function getCompanyOrgChart(requestedCompanyId?: number, signal?: AbortSignal) {
+  const companyId = requestedCompanyId ?? await getFallbackCompanyId();
   if (!companyId) return null;
 
   const res = await apiClient.get<ApiResponse<CompanyOrgChartData>>(
     `/companies/${companyId}/org-chart`,
+    { signal },
   );
 
+  if (!res.data.success) throw new Error(res.data.message || "회사 구성원을 불러오지 못했습니다.");
+  if (requestedCompanyId !== undefined) validateCompanyOrgChart(res.data.data, requestedCompanyId);
   return res.data.data;
 }
 
@@ -334,8 +357,8 @@ async function listCompanyDepartmentsFromOrgChart() {
   );
 }
 
-async function listCompanyMembersFromOrgChart() {
-  const orgChart = await getCompanyOrgChart();
+async function listCompanyMembersFromOrgChart(companyId?: number, signal?: AbortSignal) {
+  const orgChart = await getCompanyOrgChart(companyId, signal);
   if (!orgChart) return [];
 
   const departments = extractList<CompanyOrgChartDepartment>(orgChart, [
@@ -547,7 +570,14 @@ export async function listCompanyAdminDepartments() {
   }
 }
 
-export async function listCompanyAdminMembers() {
+export async function listCompanyAdminMembers(companyId?: number, options: { signal?: AbortSignal } = {}) {
+  // Project directories must stay within the explicitly selected company. Do
+  // not fall back to the first membership or suppress a denied directory read.
+  if (companyId !== undefined) {
+    if (!Number.isSafeInteger(companyId) || companyId <= 0) throw new Error("회사 정보를 확인해 주세요.");
+    const members = await listCompanyMembersFromOrgChart(companyId, options.signal);
+    return { success: true, message: "", data: { members, pagination: undefined } };
+  }
   try {
     const members = await listCompanyMembersFromOrgChart();
 

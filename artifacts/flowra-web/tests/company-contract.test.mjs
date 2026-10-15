@@ -10,13 +10,14 @@ const require = createRequire(new URL("../package.json", import.meta.url));
 const ts = require("typescript");
 let response = {};
 let rejection;
+let responseSuccess = true;
 const calls = [];
 const invalidations = [];
 const client = Object.fromEntries(
   ["get", "post", "patch", "delete"].map((method) => [method, async (...args) => {
     calls.push({ method, args });
     if (rejection) throw rejection;
-    return { data: { success: true, message: "OK", data: response } };
+    return { data: { success: responseSuccess, message: "OK", data: response } };
   }]),
 );
 const queryClient = {
@@ -56,6 +57,8 @@ const schedules = load("api/companySchedules");
 const approvals = load("api/companyScheduleApprovals");
 const invites = load("api/companyInvites");
 const projects = load("api/companyProjects");
+const companyDirectory = load("api/companyAdmin");
+const projectMembers = load("lib/projectMembers");
 const approvalHooks = load("hooks/useCompanyScheduleApprovals");
 const inviteHooks = load("hooks/useCompanyInvites");
 const adminHooks = load("hooks/useCompanyAdmin");
@@ -119,6 +122,142 @@ test("project permissions reject damaged member rows and refresh lists even afte
   invalidations.length = 0;
   projectHooks.useCreateCompanyProject().onSettled(undefined, new Error("response lost"));
   assert.ok(invalidations.some((key) => JSON.stringify(key) === '["company-projects"]'));
+});
+
+test("explicit company directory reads only that company and collects nested and unassigned members", async () => {
+  const controller = new AbortController();
+  const nestedMember = { company_member_id: 302, name: "Nested", user_public_uid: "linked-public-uid" };
+  const unassignedMember = { company_member_id: 303, name: "Unassigned", department_id: null };
+  response = { company: { company_id: 22 }, departments: [{ department_id: 8, name: "Design", members: [
+    { company_member_id: 301, name: "Designer" },
+  ], children: [{ department_id: 9, name: "Product", members: [nestedMember] }] }],
+  unassigned_members: [unassignedMember, { company_member_id: 301, name: "Duplicate" }] };
+  const start = calls.length;
+  const result = await companyDirectory.listCompanyAdminMembers(22, { signal: controller.signal });
+  assert.deepEqual(calls.slice(start), [{ method: "get", args: ["/companies/22/org-chart", { signal: controller.signal }] }]);
+  assert.deepEqual(result.data.members.map((member) => member.company_member_id), [301, 302, 303]);
+  assert.equal(result.data.members[0].department.name, "Design");
+  assert.equal(result.data.members[1].department_id, 9);
+  assert.equal(result.data.members[1].department.name, "Product");
+  assert.equal(result.data.members[1].user_public_uid, "linked-public-uid");
+  assert.equal(result.data.members[2].department_id, null);
+  assert.equal(result.data.pagination, undefined);
+});
+
+test("explicit company directory access failures are not retried or replaced with a different membership", async () => {
+  for (const status of [403, 500]) {
+    const start = calls.length;
+    const failure = { response: { status } };
+    rejection = failure;
+    try {
+      await assert.rejects(() => companyDirectory.listCompanyAdminMembers(22), (error) => error === failure);
+    } finally {
+      rejection = undefined;
+    }
+    assert.equal(calls.length, start + 1);
+    assert.equal(calls.at(-1).args[0], "/companies/22/org-chart");
+  }
+  const start = calls.length;
+  responseSuccess = false;
+  response = { departments: [], unassigned_members: [] };
+  try {
+    await assert.rejects(() => companyDirectory.listCompanyAdminMembers(22), /OK/);
+  } finally {
+    responseSuccess = true;
+  }
+  assert.equal(calls.length, start + 1);
+  for (const invalid of [0, -1, 1.5, NaN]) {
+    await assert.rejects(() => companyDirectory.listCompanyAdminMembers(invalid), /회사/);
+  }
+  assert.equal(calls.length, start + 1);
+});
+
+test("explicit company directory rejects incomplete, malformed and cross-company organization data", async () => {
+  const valid = { departments: [], unassigned_members: [] };
+  for (const malformed of [
+    null,
+    { unexpected: [] },
+    { departments: [] },
+    { ...valid, departments: {} },
+    { ...valid, unassigned_members: [null] },
+    { ...valid, unassigned_members: [{ company_member_id: 0 }] },
+    { ...valid, unassigned_members: [{ company_member_id: 302, department_id: -1 }] },
+    { ...valid, unassigned_members: [{ company_member_id: 302, name: 123 }] },
+    { ...valid, unassigned_members: [{ company_member_id: 302, status: true }] },
+    { ...valid, unassigned_members: [{ company_member_id: 302, department: [] }] },
+    { ...valid, unassigned_members: [{ company_member_id: 302, department: { department_id: -1 } }] },
+    { ...valid, unassigned_members: [{ company_member_id: 302, department: { name: 123 } }] },
+    { ...valid, unassigned_members: [{ company_member_id: 302, department: { status: {} } }] },
+    { ...valid, departments: [{ department_id: 0 }] },
+    { ...valid, departments: [{ department_id: 8, name: 123 }] },
+    { ...valid, departments: [{ department_id: 8, status: [] }] },
+    { ...valid, departments: [{ department_id: 8, members: {} }] },
+    { ...valid, departments: [{ department_id: 8, members: [{ company_member_id: -1 }] }] },
+    { ...valid, departments: [{ department_id: 8, children: {} }] },
+    { ...valid, departments: [{ department_id: 8, children: [{ department_id: 9, members: [null] }] }] },
+    { ...valid, company: { company_id: 7 } },
+  ]) {
+    response = malformed;
+    const start = calls.length;
+    await assert.rejects(() => companyDirectory.listCompanyAdminMembers(22), /회사 구성원 응답/);
+    assert.equal(calls.length, start + 1);
+    assert.equal(calls.at(-1).args[0], "/companies/22/org-chart");
+  }
+  response = { company: { company_id: 22 }, ...valid };
+  assert.deepEqual((await companyDirectory.listCompanyAdminMembers(22)).data.members, []);
+  response = { departments: [{ department_id: 8, members: [{ company_member_id: 301 }], children: [] }],
+    unassigned_members: [{ company_member_id: 302, name: null, status: null, department: { name: null, status: null } }] };
+  assert.deepEqual((await companyDirectory.listCompanyAdminMembers(22)).data.members.map((member) => member.company_member_id), [301, 302]);
+});
+
+test("project directories and project-member queries keep company and project cache scopes separate", async () => {
+  const first = projectHooks.useCompanyProjectDirectory(7);
+  const second = projectHooks.useCompanyProjectDirectory(22);
+  assert.deepEqual(first.queryKey, ["company-projects", "directory", 7]);
+  assert.deepEqual(second.queryKey, ["company-projects", "directory", 22]);
+  assert.notDeepEqual(first.queryKey, second.queryKey);
+  assert.equal(first.retry, false);
+  assert.equal(first.placeholderData, undefined);
+  assert.equal(projectHooks.useCompanyProjectDirectory(7, { enabled: false }).enabled, false);
+  assert.equal(projectHooks.useCompanyProjectDirectory(0).enabled, false);
+  assert.deepEqual(projectHooks.useCompanyProjectMembers(51).queryKey, ["company-projects", "members", 51]);
+  assert.notDeepEqual(projectHooks.useCompanyProjectMembers(51).queryKey, projectHooks.useCompanyProjectMembers(52).queryKey);
+  response = { company: { company_id: 22 }, departments: [], unassigned_members: [{ company_member_id: 303, name: "Second company" }] };
+  const controller = new AbortController();
+  assert.equal((await second.queryFn({ signal: controller.signal }))[0].name, "Second company");
+  assert.deepEqual(calls.at(-1).args, ["/companies/22/org-chart", { signal: controller.signal }]);
+});
+
+test("project identity labels preserve privacy masks and do not display internal identifiers", () => {
+  const directory = [
+    { company_member_id: 0, name: "Must stay hidden", department: { name: "Secret department" } },
+    { company_member_id: 302, name: "Directory name", department: { name: "Product" } },
+  ];
+  const membership = { company_member_id: 301, company_id: 22, name: "Current member", department: { name: "Design" } };
+  assert.equal(projectMembers.projectMemberName({ company_member_id: 0 }, directory, { ...membership, company_member_id: 0 }), "담당자 정보 비공개");
+  assert.equal(projectMembers.projectMemberDepartment({ company_member_id: 0 }, directory, membership), "");
+  assert.equal(projectMembers.projectMemberName({ company_member_id: 301 }, directory, membership), "Current member");
+  assert.equal(projectMembers.projectMemberDepartment({ company_member_id: 301 }, directory, membership), "Design");
+  assert.equal(projectMembers.projectMemberName({ company_member_id: 302 }, directory, membership), "Directory name");
+  assert.equal(projectMembers.projectMemberDepartment({ company_member_id: 302 }, directory, membership), "Product");
+  const unavailable = projectMembers.projectMemberName({ company_member_id: 987654 }, directory, membership);
+  assert.equal(unavailable, "이름 정보 없음");
+  assert.equal(unavailable.includes("987654"), false);
+});
+
+test("assignment summary excludes cancelled history, deduplicates people and keeps masked names private", () => {
+  const membership = { company_member_id: 301, company_id: 22, name: "Current member" };
+  const directory = [{ company_member_id: 302, name: "Directory name" }, { company_member_id: 0, name: "Hidden name" }];
+  const assignment = (memberId, status = "todo") => ({ assignee_company_member_id: memberId, status });
+  assert.equal(projectMembers.projectAssigneeSummary([
+    assignment(302, "cancelled"), assignment(301), assignment(301), assignment(0), assignment(null),
+  ], directory, membership), "Current member, 담당자 정보 비공개");
+  assert.equal(projectMembers.projectAssigneeSummary([assignment(302, "cancelled")], directory, membership), "미배정");
+  assert.equal(projectMembers.projectAssigneeSummary([assignment(987654)], directory, membership), "이름 정보 없음");
+  assert.equal(projectMembers.projectAssignmentId({ company_project_work_assignment_id: 20, assignment_id: 99 }), 20);
+  assert.equal(projectMembers.projectAssignmentId({ assignment_id: 99 }), 99);
+  assert.equal(projectMembers.activeProjectMember({ status: "inactive" }), false);
+  assert.equal(projectMembers.activeProjectMember({ status: "active" }), true);
 });
 
 test("company schedule creation and editing serialize offset times as UTC, preserving null clearing", async () => {
@@ -207,6 +346,81 @@ test("project member management distinguishes company member and project member 
     await assert.rejects(() => projects.removeCompanyProjectMember(5, 17), (error) => error === rejection);
   } finally {
     rejection = undefined;
+  }
+});
+
+test("project member hooks use documented roles and membership IDs without creating invitation states", async () => {
+  const create = projectHooks.useCreateCompanyProjectMember();
+  for (const role of ["owner", "manager", "member", "viewer"]) {
+    response = { member: { company_member_id: 302, company_project_member_id: 17, role, status: "active" } };
+    const result = await create.mutationFn({ companyProjectId: 51, payload: { company_member_id: 302, role } });
+    assert.equal(result.status, "active");
+    assert.deepEqual(calls.at(-1), { method: "post", args: ["/company-projects/51/members", { company_member_id: "302", role }] });
+  }
+  response = { member: { company_member_id: 302, company_project_member_id: 17, role: "member", status: "inactive" } };
+  await projectHooks.useUpdateCompanyProjectMember().mutationFn({ companyProjectId: 51, projectMemberId: 17, payload: { status: "inactive" } });
+  assert.deepEqual(calls.at(-1), { method: "patch", args: ["/company-projects/51/members/17", { status: "inactive" }] });
+  await projectHooks.useRemoveCompanyProjectMember().mutationFn({ companyProjectId: 51, projectMemberId: 17 });
+  assert.deepEqual(calls.at(-1), { method: "delete", args: ["/company-projects/51/members/17"] });
+});
+
+test("managed assignment hooks create, replace and cancel through the documented assignment routes", async () => {
+  response = { assignment: { company_project_work_assignment_id: 20, company_project_work_item_id: 10, assignee_company_member_id: 302, status: "todo" } };
+  const created = await projectHooks.useCreateCompanyProjectAssignment().mutationFn({ companyProjectId: 51, workItemId: 10,
+    payload: { assignee_company_member_id: 302, department_id: null, role: "reviewer" } });
+  assert.equal(created.company_project_work_assignment_id, 20);
+  assert.deepEqual(calls.at(-1), { method: "post", args: ["/company-projects/51/work-items/10/assignments", { assignee_company_member_id: 302, department_id: null, role: "reviewer" }] });
+  const update = projectHooks.useUpdateManagedCompanyProjectAssignment();
+  response = { assignment: { ...response.assignment, assignee_company_member_id: 303 } };
+  await update.mutationFn({ companyProjectId: 51, workItemId: 10, assignmentId: 20, payload: { assignee_company_member_id: 303, department_id: null } });
+  assert.deepEqual(calls.at(-1), { method: "patch", args: ["/company-projects/51/work-items/10/assignments/20", { assignee_company_member_id: 303, department_id: null }] });
+  response = { assignment: { ...response.assignment, status: "cancelled" } };
+  await update.mutationFn({ companyProjectId: 51, workItemId: 10, assignmentId: 20, payload: { status: "cancelled" } });
+  assert.deepEqual(calls.at(-1), { method: "patch", args: ["/company-projects/51/work-items/10/assignments/20", { status: "cancelled" }] });
+});
+
+test("member and assignment mutations reject missing results or identities belonging to another resource", async () => {
+  const member = { company_member_id: 302, company_project_member_id: 17, role: "member", status: "active" };
+  for (const malformed of [undefined, {}, { member: null }, { member: { ...member, company_member_id: 303 } }, { member: { ...member, company_project_member_id: 0 } }]) {
+    response = malformed;
+    await assert.rejects(() => projectHooks.useCreateCompanyProjectMember().mutationFn({ companyProjectId: 51, payload: { company_member_id: 302 } }), /변경 결과/);
+  }
+  response = { member: { ...member, company_project_member_id: 18 } };
+  for (const mutation of [projectHooks.useUpdateCompanyProjectMember(), projectHooks.useRemoveCompanyProjectMember()]) {
+    await assert.rejects(() => mutation.mutationFn({ companyProjectId: 51, projectMemberId: 17, payload: { role: "manager" } }), /변경 결과/);
+  }
+  const assignment = { company_project_work_assignment_id: 20, company_project_work_item_id: 10, assignee_company_member_id: 302 };
+  for (const malformed of [undefined, {}, { assignment: null }, { assignment: { ...assignment, company_project_work_assignment_id: 0 } },
+    { assignment: { ...assignment, company_project_work_item_id: 11 } }, { assignment: { ...assignment, assignee_company_member_id: 303 } }]) {
+    response = malformed;
+    await assert.rejects(() => projectHooks.useCreateCompanyProjectAssignment().mutationFn({ companyProjectId: 51, workItemId: 10, payload: { assignee_company_member_id: 302 } }), /배정 결과/);
+  }
+  response = { assignment: { ...assignment, company_project_work_assignment_id: 21 } };
+  await assert.rejects(() => projectHooks.useUpdateManagedCompanyProjectAssignment().mutationFn({ companyProjectId: 51, workItemId: 10, assignmentId: 20, payload: { status: "cancelled" } }), /배정 결과/);
+});
+
+test("member and managed-assignment failures retain server errors and refresh related server data", async () => {
+  const failure = { response: { status: 409, data: { error: { code: "PROJECT_LAST_OWNER_REQUIRED" } } } };
+  for (const [mutation, args] of [
+    [projectHooks.useCreateCompanyProjectMember(), { companyProjectId: 51, payload: { company_member_id: 302 } }],
+    [projectHooks.useUpdateCompanyProjectMember(), { companyProjectId: 51, projectMemberId: 17, payload: { role: "manager" } }],
+    [projectHooks.useRemoveCompanyProjectMember(), { companyProjectId: 51, projectMemberId: 17 }],
+    [projectHooks.useCreateCompanyProjectAssignment(), { companyProjectId: 51, workItemId: 10, payload: { assignee_company_member_id: 302 } }],
+    [projectHooks.useUpdateManagedCompanyProjectAssignment(), { companyProjectId: 51, workItemId: 10, assignmentId: 20, payload: { status: "cancelled" } }],
+  ]) {
+    const start = calls.length;
+    invalidations.length = 0;
+    rejection = failure;
+    try {
+      await assert.rejects(() => mutation.mutationFn(args), (error) => error === failure);
+      mutation.onSettled(undefined, failure, args);
+    } finally {
+      rejection = undefined;
+    }
+    assert.equal(calls.length, start + 1);
+    for (const key of [["company-projects"], ["company-schedules"], ["home", "today"], ["briefings", "today"]]) {
+      assert.ok(invalidations.some((value) => JSON.stringify(value) === JSON.stringify(key)), `missing ${key}`);
+    }
   }
 });
 
