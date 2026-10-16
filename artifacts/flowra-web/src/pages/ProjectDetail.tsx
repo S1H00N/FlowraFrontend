@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import EmptyState from "@/components/ui/EmptyState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import ProjectFormDialog from "@/components/projects/ProjectFormDialog";
-import ProjectMembersDialog, { ProjectMembersAction } from "@/components/projects/ProjectMembersDialog";
+import ProjectMembersDialog, { ProjectMembersPanel } from "@/components/projects/ProjectMembersDialog";
 import ProjectWorkManager from "@/components/projects/ProjectWorkManager";
 import { isTransientApiReadError } from "@/lib/error";
 import { ProjectScheduleLabel, useProjectToday } from "@/components/projects/ProjectSchedulePresentation";
@@ -25,6 +25,12 @@ import {
   useCompanyProject,
 } from "@/hooks/useCompanyProjects";
 import "./Projects.css";
+
+const DETAIL_TABS = [
+  { value: "overview", label: "개요" },
+  { value: "work", label: "업무 목록" },
+  { value: "members", label: "구성원" },
+] as const;
 
 export default function ProjectDetail() {
   const queryClient = useQueryClient();
@@ -60,7 +66,8 @@ export default function ProjectDetail() {
   );
   const [editingId, setEditingId] = useState<number | null>(null);
   const [membersOpen, setMembersOpen] = useState(false);
-  const [tab, setTab] = useState<"overview" | "work">("work");
+  const [tab, setTab] = useState<(typeof DETAIL_TABS)[number]["value"]>("work");
+  const [membersBusy, setMembersBusy] = useState(false);
   const [panelLayout, setPanelLayout] = useState({ overlay: false, docked: false, width: 0, right: 0 });
   useEffect(() => setEditingId(null), [id, membership?.company_member_id]);
   useEffect(() => setMembersOpen(false), [id, membership?.company_member_id]);
@@ -98,6 +105,7 @@ export default function ProjectDetail() {
             aria-label="프로젝트 새로고침"
             disabled={
               detail.isFetching ||
+              membersBusy ||
               id === null ||
               !companyAccessible ||
               activeMemberships.length === 0
@@ -158,7 +166,6 @@ export default function ProjectDetail() {
                   <ProjectStatusBadge status={project.status} />
                 </div>
                 <div className="projects-detail-actions">
-                  <ProjectMembersAction project={project} membership={membership} onOpen={() => setMembersOpen(true)} />
                   <ProjectEditAction
                     project={project}
                     membership={membership}
@@ -187,52 +194,26 @@ export default function ProjectDetail() {
               role="tablist"
               aria-label="프로젝트 상세 탐색"
             >
-              <Button
-                id="project-overview-tab"
+              {DETAIL_TABS.map(({ value, label }, index) => <Button
+                key={value}
+                id={`project-${value}-tab`}
                 role="tab"
                 variant="ghost"
-                aria-selected={tab === "overview"}
-                aria-controls="project-overview-panel"
-                tabIndex={tab === "overview" ? 0 : -1}
-                onClick={() => setTab("overview")}
+                disabled={membersBusy}
+                aria-selected={tab === value}
+                aria-controls={`project-${value}-panel`}
+                tabIndex={tab === value ? 0 : -1}
+                onClick={() => setTab(value)}
                 onKeyDown={(event) => {
-                  if (
-                    ["ArrowLeft", "ArrowRight", "Home", "End"].includes(
-                      event.key,
-                    )
-                  ) {
-                    event.preventDefault();
-                    const nextTab = event.key === "Home" ? "overview" : "work";
-                    setTab(nextTab);
-                    document.getElementById(`project-${nextTab}-tab`)?.focus();
-                  }
+                  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                  event.preventDefault();
+                  const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? DETAIL_TABS.length - 1
+                    : (index + (event.key === "ArrowRight" ? 1 : -1) + DETAIL_TABS.length) % DETAIL_TABS.length;
+                  const nextTab = DETAIL_TABS[nextIndex].value;
+                  setTab(nextTab);
+                  document.getElementById(`project-${nextTab}-tab`)?.focus();
                 }}
-              >
-                개요
-              </Button>
-              <Button
-                id="project-work-tab"
-                role="tab"
-                variant="ghost"
-                aria-selected={tab === "work"}
-                aria-controls="project-work-panel"
-                tabIndex={tab === "work" ? 0 : -1}
-                onClick={() => setTab("work")}
-                onKeyDown={(event) => {
-                  if (
-                    ["ArrowLeft", "ArrowRight", "Home", "End"].includes(
-                      event.key,
-                    )
-                  ) {
-                    event.preventDefault();
-                    const nextTab = event.key === "End" ? "work" : "overview";
-                    setTab(nextTab);
-                    document.getElementById(`project-${nextTab}-tab`)?.focus();
-                  }
-                }}
-              >
-                업무 목록
-              </Button>
+              >{label}</Button>)}
             </div>
             <div
               id="project-work-panel"
@@ -326,6 +307,9 @@ export default function ProjectDetail() {
                   <p className="projects-note">취소된 항목을 포함한 전체 건수입니다. 배정 건수는 담당자 인원 수와 다를 수 있습니다.</p>
                 </>}
               </section>
+            </div>
+            <div id="project-members-panel" role="tabpanel" aria-labelledby="project-members-tab" hidden={tab !== "members"}>
+              {tab === "members" && <ProjectMembersPanel project={project} membership={membership} onBusyChange={setMembersBusy} />}
             </div>
             {editingId === project.company_project_id && (
               <ProjectFormDialog
