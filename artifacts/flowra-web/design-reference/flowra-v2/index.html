@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Flowra · 프로젝트 관리 통합 UI/UX v2</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="v2.css">
+</head>
+<body>
+<div class="app">
+ <aside class="rail" id="rail"><div class="rail-logo" title="Flowra">✦</div>
+  <button class="navbtn" data-nav="home" title="홈"><span data-icon="layout"></span></button>
+  <button class="navbtn" data-nav="calendar" title="캘린더"><span data-icon="calendar"></span></button>
+  <button class="navbtn" data-nav="todo" title="할 일"><span data-icon="check"></span></button>
+  <button class="navbtn active" data-nav="projects" title="프로젝트"><span data-icon="folder"></span></button>
+  <button class="navbtn" data-nav="notes" title="메모"><span data-icon="file"></span></button>
+  <div class="rail-sep"></div>
+  <button class="navbtn" data-nav="admin" title="회사 관리자"><span data-icon="building"></span></button>
+  <div class="rail-spacer"></div><button class="navbtn" title="설정" data-nav="settings"><span data-icon="settings"></span></button><div class="avatar">JD</div>
+ </aside>
+ <main class="shell" id="shell">
+  <header class="topbar"><div><h1 id="top-title">프로젝트</h1><p id="top-description">회사 프로젝트의 계획과 진행 상태를 관리합니다.</p></div><div class="top-actions"><div class="top-search"><span data-icon="search"></span> 전체 검색</div><button class="iconbtn" title="알림"><span data-icon="bell"></span></button><div class="top-user"><div class="avatar">JD</div><div><strong style="font-size:12px">최고관리자</strong><small>john.doe@flowra.com</small></div></div></div></header>
+  <div class="workspace" id="workspace">
+   <section class="screen" id="screen-projects"></section>
+   <section class="screen active" id="screen-detail">
+    <div class="bread"><button id="back-projects">〈 프로젝트 목록</button><span> / </span><span>111</span><div style="flex:1"></div><button title="새로고침" id="refresh"><span data-icon="refresh"></span></button></div>
+    <div class="card project-intro"><div><h2>111 <span class="badge draft">초안</span></h2><div class="meta"><span>엑스이소프트 · 기업1팀</span><span>2026.10.13 ~ 2026.10.31</span></div></div><button class="btn" id="project-edit"><span data-icon="edit"></span> 프로젝트 수정</button></div>
+    <div class="tabs" id="detail-tabs"><button class="tab" data-tab="overview"><span data-icon="layout"></span>개요</button><button class="tab active" data-tab="tasks"><span data-icon="list"></span>업무 목록</button><button class="tab" data-tab="gantt"><span data-icon="gantt"></span>간트 차트</button><button class="tab" data-tab="members"><span data-icon="users"></span>구성원</button></div>
+    <div id="detail-content"></div>
+   </section>
+   <section class="screen" id="screen-admin"></section>
+  </div>
+ </main>
+ <aside class="drawer" id="drawer" aria-label="업무 상세"><div class="drawer-head"><div class="drawer-crumb" id="drawer-bread"></div><div class="drawer-title"><h2 id="drawer-task-title">업무 상세</h2><div class="drawer-actions"><button class="iconbtn" title="업무 수정" id="drawer-edit"><span data-icon="edit"></span></button><button class="iconbtn" title="상세 패널 고정" id="drawer-pin"><span data-icon="pin"></span></button><button class="iconbtn" title="닫기" id="drawer-close"><span data-icon="x"></span></button></div></div></div><div class="drawer-body" id="drawer-body"></div></aside><div class="panel-backdrop" id="panel-backdrop"></div>
+</div>
+<div class="modal-layer" id="modal-layer"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-header"><h2 id="modal-title"></h2><button class="iconbtn" id="modal-close"><span data-icon="x"></span></button></div><div class="modal-body" id="modal-body"></div><div class="modal-footer" id="modal-footer"></div></section></div>
+<div class="toast" id="toast" role="status"></div>
+<script src="app.js"></script>
+<script src="v2.js"></script>
+</body>
+</html>
