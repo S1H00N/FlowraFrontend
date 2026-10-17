@@ -1,4 +1,58 @@
-import type { CompanyProjectWorkItem } from "@/types";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { projectActiveAssignees, projectAssigneeSummary, projectAssignmentId, projectMemberName } from "@/lib/projectMembers";
+import type { CompanyAdminMember, CompanyMembership, CompanyProjectAssignment, CompanyProjectWorkItem } from "@/types";
+
+interface WorkAssigneesProps {
+  assignments: CompanyProjectAssignment[];
+  directory: CompanyAdminMember[];
+  membership: CompanyMembership;
+  known?: boolean;
+  compact?: boolean;
+}
+
+function WorkAssigneeIdentity({ assignment, directory, membership }: Pick<WorkAssigneesProps, "directory" | "membership"> & {
+  assignment: CompanyProjectAssignment;
+}) {
+  const id = assignment.assignee_company_member_id;
+  const name = typeof id === "number" && id >= 0
+    ? projectMemberName({ company_member_id: id }, directory, membership) : "담당자 정보 확인 필요";
+  return <span className="work-assignee-identity">
+    <Avatar className="h-6 w-6 shrink-0" aria-hidden="true"><AvatarFallback className="bg-accent text-[10px] text-accent-foreground">
+      {typeof id === "number" && id > 0 ? name.slice(0, 1) : "·"}
+    </AvatarFallback></Avatar>
+    <span className="work-assignee-name">{name}</span>
+  </span>;
+}
+
+export function WorkAssignees({ assignments, directory, membership, known = true, compact = false }: WorkAssigneesProps) {
+  const current = projectActiveAssignees(assignments);
+  const identitiesVisible = current.every((assignment) => typeof assignment.assignee_company_member_id === "number" && assignment.assignee_company_member_id > 0);
+  const summary = projectAssigneeSummary(assignments, directory, membership, known);
+  if (!known || !current.length) return <span className="work-assignee-empty">{summary}</span>;
+  const displayed = compact ? current.slice(0, 1) : current.slice(0, 3);
+  return <span className={`work-assignee-summary${compact ? " work-assignee-compact" : ""}`} title={compact ? undefined : summary}>
+    {displayed.map((assignment, index) => <WorkAssigneeIdentity key={projectAssignmentId(assignment) ?? index}
+      assignment={assignment} directory={directory} membership={membership} />)}
+    {current.length > displayed.length && <span className="work-assignee-count">{identitiesVisible
+      ? `+${current.length - displayed.length}`
+      : "추가 배정"}</span>}
+  </span>;
+}
+
+export function WorkAssigneeDetails({ assignments, directory, membership, known = true, canManage = false }: WorkAssigneesProps & { canManage?: boolean }) {
+  const current = projectActiveAssignees(assignments);
+  const identitiesVisible = current.every((assignment) => typeof assignment.assignee_company_member_id === "number" && assignment.assignee_company_member_id > 0);
+  return <>
+    <p className="work-assignee-tooltip-heading">{known && identitiesVisible ? `담당자 ${current.length}명` : "담당자 정보 확인 필요"}</p>
+    {known && current.length > 0 ? <ul className="work-assignee-tooltip-list">
+      {current.map((assignment, index) => <li key={projectAssignmentId(assignment) ?? index}>
+        <WorkAssigneeIdentity assignment={assignment} directory={directory} membership={membership} />
+      </li>)}
+    </ul> : <p>{known ? "미배정" : "담당자 정보를 아직 확인하지 못했습니다."}</p>}
+    {known && !identitiesVisible && <p>비공개·미확인 배정은 인원 수를 확인할 수 없습니다.</p>}
+    <p className="work-assignee-tooltip-hint">{canManage ? "클릭하여 담당자 관리" : "클릭하여 업무 상세에서 담당자 확인"}</p>
+  </>;
+}
 
 export const WORK_STATUS_OPTIONS = [
   { value: "todo", label: "대기" },

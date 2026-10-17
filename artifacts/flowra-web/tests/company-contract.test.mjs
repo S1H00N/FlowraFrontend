@@ -13,6 +13,8 @@ let rejection;
 let responseSuccess = true;
 const calls = [];
 const invalidations = [];
+const invalidationFilters = [];
+const cancellations = [];
 const client = Object.fromEntries(
   ["get", "post", "patch", "delete"].map((method) => [method, async (...args) => {
     calls.push({ method, args });
@@ -21,10 +23,13 @@ const client = Object.fromEntries(
   }]),
 );
 const queryClient = {
-  invalidateQueries: ({ queryKey }) => { invalidations.push(queryKey); return Promise.resolve(); },
+  invalidateQueries: (filter) => { invalidations.push(filter.queryKey); invalidationFilters.push(filter); return Promise.resolve(); },
+  cancelQueries: (filter) => { cancellations.push(filter); return Promise.resolve(); },
+  getQueryData: () => ({ project: sampleProject }),
   getQueryCache: () => ({ findAll: () => [{ queryKey: ["company-schedules", "list", {}] }] }),
   setQueryData: (...args) => { calls.push({ method: "setQueryData", args }); },
 };
+let activeQueryClient = queryClient;
 const cache = new Map();
 function loadSource(source) {
   const filename = [source, `${source}.ts`, path.join(source, "index.ts")].find(
@@ -43,7 +48,7 @@ function loadSource(source) {
   }).outputText;
   const importModule = (specifier) => {
     if (specifier === "@tanstack/react-query") {
-      return { useMutation: (options) => options, useQuery: (options) => options, useQueryClient: () => queryClient };
+      return { useMutation: (options) => options, useQuery: (options) => options, useQueryClient: () => activeQueryClient };
     }
     if (specifier.startsWith("@/")) return loadSource(path.join(webRoot, "src", specifier.slice(2)));
     if (specifier.startsWith(".")) return loadSource(path.resolve(path.dirname(filename), specifier));
@@ -64,6 +69,7 @@ const inviteHooks = load("hooks/useCompanyInvites");
 const adminHooks = load("hooks/useCompanyAdmin");
 const membershipHooks = load("hooks/useCompanyMemberships");
 const projectHooks = load("hooks/useCompanyProjects");
+const projectTree = load("hooks/useProjectWorkTree");
 const body = () => JSON.parse(JSON.stringify(calls.at(-1).args[1]));
 
 const sampleProject = {
@@ -251,7 +257,7 @@ test("assignment summary excludes cancelled history, deduplicates people and kee
   const assignment = (memberId, status = "todo") => ({ assignee_company_member_id: memberId, status });
   assert.equal(projectMembers.projectAssigneeSummary([
     assignment(302, "cancelled"), assignment(301), assignment(301), assignment(0), assignment(null),
-  ], directory, membership), "Current member, 담당자 정보 비공개");
+  ], directory, membership), "Current member, 담당자 정보 비공개, 담당자 정보 확인 필요");
   assert.equal(projectMembers.projectAssigneeSummary([assignment(302, "cancelled")], directory, membership), "미배정");
   assert.equal(projectMembers.projectAssigneeSummary([assignment(987654)], directory, membership), "이름 정보 없음");
   assert.equal(projectMembers.projectAssignmentId({ company_project_work_assignment_id: 20, assignment_id: 99 }), 20);
@@ -413,15 +419,172 @@ test("member and managed-assignment failures retain server errors and refresh re
     rejection = failure;
     try {
       await assert.rejects(() => mutation.mutationFn(args), (error) => error === failure);
-      mutation.onSettled(undefined, failure, args);
+      await mutation.onSettled(undefined, failure, args);
     } finally {
       rejection = undefined;
     }
     assert.equal(calls.length, start + 1);
-    for (const key of [["company-projects"], ["company-schedules"], ["home", "today"], ["briefings", "today"]]) {
+    const expected = [["company-projects"], ["company-schedules"], ["home", "today"], ["briefings", "today"]];
+    for (const key of expected) {
       assert.ok(invalidations.some((value) => JSON.stringify(value) === JSON.stringify(key)), `missing ${key}`);
     }
   }
+});
+
+test("assignment filters distinguish unknown, private, cancelled and multiple active people", () => {
+  const membership = { company_member_id: 301, company_id: 7, name: "Current member" };
+  const rows = [
+    { assignment_id: 1, assignee_company_member_id: 301, status: "in_progress" },
+    { assignment_id: 2, assignee_company_member_id: 301, status: "todo" },
+    { assignment_id: 3, assignee_company_member_id: 302, status: "cancelled" },
+    { assignment_id: 4, assignee_company_member_id: 0 },
+    { assignment_id: 5, assignee_company_member_id: 0 },
+    { assignment_id: 6, assignee_company_member_id: null },
+  ];
+  assert.equal(projectMembers.projectActiveAssignees(rows).length, 4);
+  assert.equal(projectMembers.projectAssigneeSummary([], [], membership, false), "담당자 정보 확인 필요");
+  assert.equal(projectMembers.projectAssigneeSummary(rows, [], membership, false), "담당자 정보 확인 필요");
+  assert.equal(projectMembers.projectAssigneeSummary([rows[2]], [], membership, true), "미배정");
+  for (const assignments of [[rows[3]], [rows[5]], rows])
+    assert.equal(projectMembers.matchesProjectAssigneeFilter(assignments, true, "all", true), false);
+  assert.equal(projectMembers.matchesProjectAssigneeFilter([], false, "all", true), false);
+  assert.equal(projectMembers.matchesProjectAssigneeFilter([rows[2]], true, "all", true), true);
+  assert.equal(projectMembers.matchesProjectAssigneeFilter(rows, true, "301", false), true);
+  assert.equal(projectMembers.matchesProjectAssigneeFilter(rows, false, "301", false), false);
+  assert.equal(projectMembers.matchesProjectAssigneeFilter(rows, false, "all", false), true);
+  assert.equal(projectMembers.matchesProjectAssigneeFilter(rows, true, "302", false), false);
+  assert.equal(projectMembers.matchesProjectAssigneeFilter(rows, true, "0", false), false);
+  assert.equal(projectMembers.matchesProjectAssigneeFilter(rows, true, "301", true), false);
+});
+
+test("managed assignment reconciliation scopes projects and project calendar feeds while retaining unrelated company data", async () => {
+  invalidationFilters.length = 0;
+  cancellations.length = 0;
+  const mutation = projectHooks.useUpdateManagedCompanyProjectAssignment();
+  assert.equal(mutation.retry, false);
+  assert.equal(projectHooks.useCreateCompanyProjectAssignment().retry, false);
+  await mutation.onSettled(undefined, new Error("response lost"), { companyProjectId: 51, workItemId: 10 });
+  const projectFilter = invalidationFilters.find((filter) => filter.queryKey[0] === "company-projects");
+  assert.equal(cancellations.length, 2);
+  for (const key of [
+    ["company-projects", "detail", 51], ["company-projects", "members", 51],
+    ["company-projects", "work-item-children", 51, 10, { depth: 1 }, "tree-snapshot", 3],
+    ["company-projects", "gantt", 51, {}], ["company-projects", "list", { company_id: 7 }],
+    ["company-projects", "my-work-items", {}], ["company-projects", "my-calendar-items", { project_id: "51" }],
+  ]) {
+    assert.equal(projectFilter.predicate({ queryKey: key }), true, `must refresh ${JSON.stringify(key)}`);
+    assert.equal(cancellations[0].predicate({ queryKey: key }), true);
+  }
+  for (const key of [
+    ["company-projects", "detail", 52], ["company-projects", "members", 52],
+    ["company-projects", "work-item-children", 52, 10], ["company-projects", "directory", 7],
+    ["company-projects", "list", { company_id: 22 }], ["company-projects", "my-work-items", { project_id: 52 }],
+    ["company-projects", "work-reminders", {}], ["company-schedules", "list", {}],
+  ]) assert.equal(projectFilter.predicate({ queryKey: key }), false, `must retain ${JSON.stringify(key)}`);
+  const feedFilter = invalidationFilters.find((filter) => filter.queryKey[0] === "company-schedules");
+  for (const filter of invalidationFilters.filter((entry) => entry !== projectFilter && entry !== feedFilter)) {
+    assert.equal(filter.predicate({ queryKey: [...filter.queryKey, { company_id: 7 }] }), true);
+    assert.equal(filter.predicate({ queryKey: [...filter.queryKey, { company_id: 22 }] }), false);
+  }
+  for (const key of [
+    ["company-schedules", "feed", {}],
+    ["company-schedules", "feed", { company_id: 7, include_project_work_items: true, project_id: "51" }],
+  ]) assert.equal(feedFilter.predicate({ queryKey: key }), true);
+  for (const key of [
+    ["company-schedules", "list", {}], ["company-schedules", "detail", 51],
+    ["company-schedules", "approval-status", 51], ["company-schedules", "feed", { include_project_work_items: false }],
+    ["company-schedules", "feed", { company_id: 22 }], ["company-schedules", "feed", { project_id: 52 }],
+  ]) assert.equal(feedFilter.predicate({ queryKey: key }), false);
+});
+
+test("a late initial detail response cannot overwrite assignment reconciliation or manual zero", async () => {
+  const { QueryClient } = require("@tanstack/react-query");
+  const realClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  activeQueryClient = realClient;
+  const mutation = projectHooks.useCreateCompanyProjectAssignment();
+  activeQueryClient = queryClient;
+  const key = projectHooks.companyProjectDetailKey(51);
+  let resolveOld;
+  const oldRequest = realClient.fetchQuery({ queryKey: key, queryFn: () => new Promise((resolve) => { resolveOld = resolve; }) }).catch(() => undefined);
+  await mutation.onSettled(undefined, new Error("response lost"), { companyProjectId: 51, workItemId: 10 });
+  const latest = { project: sampleProject, work_items: [{ company_project_work_item_id: 10, status: "todo", progress_percent: 0, progress_override_percent: 0 }], assignments: [{ assignment_id: 20 }] };
+  await realClient.fetchQuery({ queryKey: key, queryFn: async () => latest });
+  resolveOld({ project: sampleProject, work_items: [], assignments: [] });
+  await oldRequest;
+  assert.deepEqual(realClient.getQueryData(key), latest);
+  assert.equal(realClient.getQueryData(key).work_items[0].progress_override_percent, 0);
+  assert.equal(realClient.getQueryData(key).work_items[0].status, "todo");
+  realClient.clear();
+});
+
+test("assignment completeness survives normalization and equal empty-array query refreshes", async () => {
+  const { QueryClient } = require("@tanstack/react-query");
+  const realClient = new QueryClient();
+  const options = projectHooks.useCompanyProject(51);
+  assert.equal(options.structuralSharing, false);
+  assert.equal(projectHooks.useCompanyProjectWorkItemChildren(51, 10).structuralSharing, false);
+  const item = { company_project_work_item_id: 10, company_project_id: 51, parent_work_item_id: null, title: "Work", status: "todo" };
+  response = { project: sampleProject, work_items: [item], assignments: [] };
+  const known = await realClient.fetchQuery({ ...options, staleTime: 0 });
+  assert.equal(projects.hasCompanyProjectAssignmentCoverage(known), true);
+  response = { project: sampleProject, work_items: [item] };
+  const unknown = await realClient.fetchQuery({ ...options, staleTime: 0 });
+  assert.deepEqual(unknown.assignments, []);
+  assert.equal(projects.hasCompanyProjectAssignmentCoverage(unknown), false);
+  assert.equal(projects.hasCompanyProjectAssignmentCoverage(realClient.getQueryData(options.queryKey)), false);
+  response = { project: sampleProject, work_items: [item], assignments: [{ assignment_id: 1, assignee_company_member_id: 0 }] };
+  assert.equal(projects.hasCompanyProjectAssignmentCoverage((await projects.getCompanyProject(51)).data), false);
+  realClient.clear();
+});
+
+test("a committed assignment followed by a failed detail read cannot reuse its old assignee coverage", async () => {
+  const { QueryClient, QueryObserver } = require("@tanstack/react-query");
+  const realClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const item = { company_project_work_item_id: 10, company_project_id: 51, parent_work_item_id: null, title: "Work", status: "todo", progress_percent: 0, progress_override_percent: 0 };
+  response = { project: sampleProject, work_items: [item], assignments: [] };
+  activeQueryClient = realClient;
+  const options = projectHooks.useCompanyProject(51);
+  const mutation = projectHooks.useCreateCompanyProjectAssignment();
+  activeQueryClient = queryClient;
+  const detail = await realClient.fetchQuery({ ...options, staleTime: Infinity, retry: false });
+  const observer = new QueryObserver(realClient, { ...options, staleTime: Infinity, retry: false });
+  const unsubscribe = observer.subscribe(() => {});
+  response = { assignment: { assignment_id: 20, company_project_work_item_id: 10, assignee_company_member_id: 302, status: "todo" } };
+  const variables = { companyProjectId: 51, workItemId: 10, payload: { assignee_company_member_id: 302 } };
+  const committed = await mutation.mutationFn(variables);
+  rejection = { response: { status: 500 } };
+  try { await mutation.onSettled(committed, null, variables); }
+  finally { rejection = undefined; unsubscribe(); }
+  const state = realClient.getQueryState(options.queryKey);
+  assert.equal(state.status, "error");
+  assert.equal(state.data, detail);
+  assert.equal(projects.hasCompanyProjectAssignmentCoverage(state.data), true);
+  const tree = projectTree.mergeProjectWorkRelationships(state.data, [], state.data.work_items, state.status !== "error");
+  assert.deepEqual(tree.assignments, []);
+  assert.equal(tree.assignmentKnownIds.has(10), false);
+  assert.equal(projectMembers.matchesProjectAssigneeFilter(tree.assignments, tree.assignmentKnownIds.has(10), "all", true), false);
+  assert.equal(state.data.work_items[0].progress_override_percent, 0);
+  assert.equal(state.data.work_items[0].status, "todo");
+  realClient.clear();
+});
+
+test("children assignment snapshots replace only returned items and cannot erase their parent's assignments", async () => {
+  const parent = { company_project_work_item_id: 10, company_project_id: 51, parent_work_item_id: null, title: "Parent", status: "todo" };
+  const child = { ...parent, company_project_work_item_id: 11, parent_work_item_id: 10, title: "Child" };
+  const parentAssignment = { assignment_id: 1, company_project_work_item_id: 10, assignee_company_member_id: 301, status: "todo" };
+  const childAssignment = { assignment_id: 2, company_project_work_item_id: 11, assignee_company_member_id: 302, status: "todo" };
+  response = { project: sampleProject, work_items: [parent, child], assignments: [parentAssignment, childAssignment] };
+  const detail = (await projects.getCompanyProject(51)).data;
+  response = { parent, items: [child], assignments: [{ ...parentAssignment, status: "cancelled" }] };
+  const snapshot = (await projects.listCompanyProjectWorkItemChildren(51, 10, { depth: 1 })).data;
+  const merged = projectTree.mergeProjectWorkRelationships(detail, [snapshot], [parent, child]);
+  assert.deepEqual(merged.assignments, [parentAssignment]);
+  assert.deepEqual([...merged.assignmentKnownIds].sort(), [10, 11]);
+  response = { parent, items: [child] };
+  const unknown = (await projects.listCompanyProjectWorkItemChildren(51, 10, { depth: 1 })).data;
+  const incomplete = projectTree.mergeProjectWorkRelationships(detail, [unknown], [parent, child]);
+  assert.deepEqual(incomplete.assignments, [parentAssignment]);
+  assert.deepEqual([...incomplete.assignmentKnownIds], [10]);
 });
 
 test("creating a pending collaboration does not insert an unapproved event into calendar list caches", () => {

@@ -224,7 +224,7 @@
   width: 5.5rem;
 }
 .work-tree-table th:nth-child(4) {
-  width: 7rem;
+  width: 11rem;
 }
 .work-tree-table th:nth-child(5) {
   width: 12rem;
@@ -329,7 +329,115 @@
   white-space: nowrap;
 }
 .work-mobile-status {
+  display: none;
   margin-top: 4px;
+}
+.work-assignee-button {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  text-align: left;
+  color: var(--flowra-text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.work-assignee-button:focus-visible {
+  outline: 2px solid var(--flowra-primary);
+  outline-offset: 2px;
+}
+.work-assignee-summary {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  max-width: 100%;
+  min-width: 0;
+  font-size: 12px;
+}
+.work-assignee-compact {
+  display: flex;
+  flex: 1;
+  flex-wrap: nowrap;
+  gap: 4px;
+  white-space: nowrap;
+}
+.work-assignee-compact .work-assignee-identity {
+  flex: 1 1 auto;
+}
+.work-assignee-identity {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  gap: 5px;
+}
+.work-assignee-name,
+.work-assignee-empty {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-assignee-count {
+  flex-shrink: 0;
+  color: var(--flowra-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.work-assignee-empty {
+  color: var(--flowra-text-muted);
+  font-size: 12px;
+}
+.work-assignee-tooltip {
+  display: grid;
+  gap: 8px;
+  width: max-content;
+  max-width: min(20rem, calc(100vw - 24px));
+  max-height: var(--radix-tooltip-content-available-height);
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--flowra-border);
+  background: var(--flowra-surface);
+  color: var(--flowra-text-strong);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  overflow-wrap: anywhere;
+}
+.work-assignee-tooltip p {
+  margin: 0;
+}
+.work-assignee-tooltip-heading {
+  font-weight: 600;
+}
+.work-assignee-tooltip-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.work-assignee-tooltip .work-assignee-name {
+  overflow: visible;
+  white-space: normal;
+}
+.work-assignee-tooltip-hint {
+  border-top: 1px solid var(--flowra-border-soft);
+  padding-top: 8px;
+  color: var(--flowra-text-muted);
+}
+.work-filter-content .work-unassigned-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  cursor: pointer;
+}
+.work-unassigned-filter input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--flowra-primary);
 }
 .work-title-button:focus-visible {
   outline: 2px solid var(--flowra-primary);
@@ -571,6 +679,11 @@ body:has(.project-work-panel[aria-modal="true"]) #root {
 .work-panel-content section {
   padding-top: 12px;
 }
+.work-panel-content section[tabindex="-1"]:focus-visible {
+  outline: 2px solid var(--flowra-primary);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
 .work-panel-content section + section {
   margin-top: 12px;
   border-top: 1px solid var(--flowra-border-soft);
@@ -601,6 +714,88 @@ body:has(.project-work-panel[aria-modal="true"]) #root {
   justify-content: space-between;
   gap: 6px;
   padding: 6px 0;
+}
+.work-assignment-dialog-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 20px 20px;
+}
+.work-assignment-list > li.work-assignment-current {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px 60px;
+  gap: 8px;
+  min-width: 0;
+  border-bottom: 1px solid var(--flowra-border-soft);
+  padding: 10px 0;
+}
+.work-assignment-role {
+  min-width: 0;
+}
+.work-assignment-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.work-assignment-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 20px 8px 12px;
+  text-align: center;
+}
+@media (max-width: 639px) {
+  .work-assignment-list > li.work-assignment-current {
+    grid-template-columns: minmax(0, 1fr) 92px 60px;
+    gap: 4px;
+  }
+  .work-assignment-current .work-assignment-person {
+    gap: 6px;
+  }
+  .work-assignment-avatar {
+    width: 24px;
+    height: 24px;
+  }
+}
+.work-assignment-advanced {
+  min-width: 0;
+  margin-top: 8px;
+  border-top: 1px solid var(--flowra-border-soft);
+  padding-top: 8px;
+  font-size: 12px;
+}
+.work-assignment-advanced summary {
+  cursor: pointer;
+  color: var(--flowra-text-muted);
+  padding: 4px 0;
+}
+.work-assignment-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.work-assignment-fields > * {
+  min-width: 0;
+}
+.work-assignment-fields label {
+  display: grid;
+  gap: 6px;
+}
+.work-assignment-fields input {
+  min-width: 0;
+  width: 100%;
+}
+.work-assignment-candidate-identity {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.work-assignment-refresh {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 12px;
 }
 .work-assignment-person {
   display: flex;
@@ -829,6 +1024,12 @@ body:has(.project-work-panel[aria-modal="true"]) #root {
   }
 }
 @container work-list (max-width: 760px) {
+  .work-mobile-status {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
   .work-tree-table {
     min-width: 0;
     --work-indent-step: 12px;
@@ -853,6 +1054,14 @@ body:has(.project-work-panel[aria-modal="true"]) #root {
     display: none;
   }
 }
+@container work-list (max-width: 360px) {
+  .work-mobile-status .work-assignee-name {
+    display: none;
+  }
+  .work-mobile-status .work-assignee-compact .work-assignee-identity {
+    flex: 0 0 auto;
+  }
+}
 @container (max-width: 680px) {
   .work-heading,
   .work-tree-toolbar {
@@ -875,6 +1084,12 @@ body:has(.project-work-panel[aria-modal="true"]) #root {
   }
 }
 @media (max-width: 700px) {
+  .work-mobile-status {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
   html:has(.projects-work-page),
   body:has(.projects-work-page) {
     /* Horizontal scrolling belongs to the table, not the mobile page viewport. */
@@ -961,5 +1176,10 @@ body:has(.project-work-panel[aria-modal="true"]) #root {
   .work-tree-toolbar {
     flex-wrap: wrap;
     padding: 0 12px 12px 16px;
+  }
+}
+@media (max-width: 390px) {
+  .work-assignment-fields {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

@@ -149,6 +149,47 @@ function useInvalidateCompanyProjectSurfaces() {
   };
 }
 
+function useInvalidateCompanyProjectAssignments() {
+  const queryClient = useQueryClient();
+  return async (companyProjectId: number) => {
+    const companyId = queryClient.getQueryData<CompanyProjectDetailData>(companyProjectDetailKey(companyProjectId))?.project.company_id;
+    const matchesCompany = (filter: unknown) => {
+      if (!filter || typeof filter !== "object" || !("company_id" in filter)) return true;
+      return companyId === undefined || filter.company_id === undefined || Number(filter.company_id) === companyId;
+    };
+    const relatedProjectQuery = ({ queryKey }: { queryKey: readonly unknown[] }) => {
+      if (queryKey[0] !== COMPANY_PROJECTS_QUERY_KEY[0]) return false;
+      const kind = queryKey[1];
+      if (kind === "detail" || kind === "work-item-children" || kind === "gantt" || kind === "members")
+        return queryKey[2] === companyProjectId;
+      if (kind === "list") return matchesCompany(queryKey[2]);
+      if (kind === "my-work-items" || kind === "my-calendar-items") {
+        const filter = queryKey[2] as { project_id?: string | number } | undefined;
+        return filter?.project_id === undefined || Number(filter.project_id) === companyProjectId;
+      }
+      return false;
+    };
+    const relatedCompanyFeed = ({ queryKey }: { queryKey: readonly unknown[] }) => {
+      if (queryKey[1] !== "feed") return false;
+      const filter = queryKey[2] as { include_project_work_items?: boolean; project_id?: string | number } | undefined;
+      return filter?.include_project_work_items !== false && matchesCompany(filter) &&
+        (filter?.project_id === undefined || Number(filter.project_id) === companyProjectId);
+    };
+    // Cancel even an initial detail/children request with no cached data.
+    // invalidateQueries alone can otherwise reuse a pre-mutation response.
+    await Promise.all([
+      queryClient.cancelQueries({ queryKey: COMPANY_PROJECTS_QUERY_KEY, predicate: relatedProjectQuery }),
+      queryClient.cancelQueries({ queryKey: COMPANY_SCHEDULES_QUERY_KEY, predicate: relatedCompanyFeed }),
+    ]);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: COMPANY_PROJECTS_QUERY_KEY, predicate: relatedProjectQuery }),
+      queryClient.invalidateQueries({ queryKey: COMPANY_SCHEDULES_QUERY_KEY, predicate: relatedCompanyFeed }),
+      queryClient.invalidateQueries({ queryKey: TODAY_HOME_QUERY_KEY, predicate: ({ queryKey }) => matchesCompany(queryKey[2]) }),
+      queryClient.invalidateQueries({ queryKey: TODAY_BRIEFING_QUERY_KEY, predicate: ({ queryKey }) => matchesCompany(queryKey[2]) }),
+    ]);
+  };
+}
+
 export function useCompanyProjects(
   query: CompanyProjectsQuery = {},
   options: { enabled?: boolean; keepPreviousData?: boolean } = {},
@@ -247,27 +288,29 @@ export function useRemoveCompanyProjectMember() {
 }
 
 export function useCreateCompanyProjectAssignment() {
-  const invalidate = useInvalidateCompanyProjectSurfaces();
+  const invalidate = useInvalidateCompanyProjectAssignments();
   return useMutation({
+    retry: false,
     mutationFn: async ({ companyProjectId, workItemId, payload }: { companyProjectId: number; workItemId: number; payload: CreateCompanyProjectAssignmentRequest }) => {
       const res = await createCompanyProjectAssignment(companyProjectId, workItemId, payload);
       if (!res.success) throw new Error(res.message || "담당자를 배정하지 못했습니다.");
       return confirmedProjectAssignment(res.data?.assignment, workItemId, undefined, payload.assignee_company_member_id);
     },
-    onSettled: invalidate,
+    onSettled: (_data, _error, variables) => invalidate(variables.companyProjectId),
     meta: { successMessage: "담당자를 배정했습니다.", errorMessage: "담당자를 배정하지 못했습니다." },
   });
 }
 
 export function useUpdateManagedCompanyProjectAssignment() {
-  const invalidate = useInvalidateCompanyProjectSurfaces();
+  const invalidate = useInvalidateCompanyProjectAssignments();
   return useMutation({
+    retry: false,
     mutationFn: async ({ companyProjectId, workItemId, assignmentId, payload }: { companyProjectId: number; workItemId: number; assignmentId: number; payload: UpdateManagedCompanyProjectAssignmentRequest }) => {
       const res = await updateManagedCompanyProjectAssignment(companyProjectId, workItemId, assignmentId, payload);
       if (!res.success) throw new Error(res.message || "담당자 배정을 변경하지 못했습니다.");
       return confirmedProjectAssignment(res.data?.assignment, workItemId, assignmentId, payload.assignee_company_member_id);
     },
-    onSettled: invalidate,
+    onSettled: (_data, _error, variables) => invalidate(variables.companyProjectId),
     meta: { successMessage: "담당자 배정을 변경했습니다.", errorMessage: "담당자 배정을 변경하지 못했습니다." },
   });
 }
@@ -279,6 +322,8 @@ export function useCompanyProject(
   return useQuery<CompanyProjectDetailData>({
     queryKey: companyProjectDetailKey(companyProjectId),
     enabled: companyProjectId !== null && (options.enabled ?? true),
+    // Preserve the response-local assignment completeness bookkeeping.
+    structuralSharing: false,
     queryFn: async ({ signal }) => {
       const res = await getCompanyProject(companyProjectId as number, { signal });
       if (!res.success) {
@@ -324,6 +369,7 @@ export function useCompanyProjectWorkItemChildren(
       companyProjectId !== null &&
       workItemId !== null &&
       (options.enabled ?? true),
+    structuralSharing: false,
     queryFn: async ({ signal }) => {
       const res = await listCompanyProjectWorkItemChildren(
         companyProjectId as number,

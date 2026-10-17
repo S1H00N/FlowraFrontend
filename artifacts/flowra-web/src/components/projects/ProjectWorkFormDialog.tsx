@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from "react";
-import { ChevronDown, Folder, X } from "lucide-react";
+import { Check, ChevronDown, Folder, X } from "lucide-react";
 import {
   CompactDateInput,
   CompactTimeInput,
@@ -25,6 +25,7 @@ import {
 import {
   useCreateCompanyProjectPhase,
   useCreateCompanyProjectWorkItem,
+  useCreateCompanyProjectAssignment,
   useUpdateCompanyProjectPhase,
   useUpdateCompanyProjectWorkItem,
 } from "@/hooks/useCompanyProjects";
@@ -36,10 +37,14 @@ import ProjectLocationPicker, {
 import { getApiErrorDetails, getErrorMessage } from "@/lib/error";
 import { registerProjectHistoryGuard } from "@/lib/projectNavigationGuard";
 import { getProjectWorkParentError } from "@/lib/projectWorkTree";
+import { activeProjectMember, projectMemberDepartment, projectMemberName } from "@/lib/projectMembers";
 import { applyParentPeriod, isValidProjectDate, parentPeriodOptions, periodWarnings, projectDate } from "@/lib/projectSchedule";
 import { ProjectPeriodWarning } from "./ProjectSchedulePresentation";
 import type {
   CompanyProjectDetailData,
+  CompanyAdminMember,
+  CompanyMembership,
+  CompanyProjectMember,
   CompanyProjectPhase,
   CompanyProjectWorkItem,
   CompanyProjectWorkItemStatus,
@@ -94,6 +99,12 @@ export default function ProjectWorkFormDialog({
   detail,
   tree,
   canManage,
+  members,
+  directory,
+  membership,
+  directoryLoading,
+  directoryError,
+  onRetryDirectory,
   onClose,
   onSaved,
   onCloseAutoFocus,
@@ -104,8 +115,14 @@ export default function ProjectWorkFormDialog({
   detail: CompanyProjectDetailData;
   tree: ReturnType<typeof useProjectWorkTree>;
   canManage: boolean;
+  members: CompanyProjectMember[];
+  directory: CompanyAdminMember[];
+  membership: CompanyMembership;
+  directoryLoading: boolean;
+  directoryError?: unknown;
+  onRetryDirectory: () => void;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (createdWork?: CompanyProjectWorkItem) => void;
   onCloseAutoFocus?: (event: Event) => void;
   onRetryPermission?: () => void;
   permissionRetrying?: boolean;
@@ -116,12 +133,30 @@ export default function ProjectWorkFormDialog({
   const createPhase = useCreateCompanyProjectPhase();
   const updatePhase = useUpdateCompanyProjectPhase();
   const createWork = useCreateCompanyProjectWorkItem();
+  const createAssignment = useCreateCompanyProjectAssignment();
   const updateWork = useUpdateCompanyProjectWorkItem();
+  const [submitting, setSubmitting] = useState(false);
   const pending =
+    submitting ||
     createPhase.isPending ||
     updatePhase.isPending ||
     createWork.isPending ||
-    updateWork.isPending;
+    updateWork.isPending ||
+    createAssignment.isPending;
+  const [selectedAssignees, setSelectedAssignees] = useState<number[]>([]);
+  const [assigneeSearch, setAssigneeSearch] = useState("");
+  const [assigneeLimit, setAssigneeLimit] = useState(10);
+  const [createdWork, setCreatedWork] = useState<CompanyProjectWorkItem | null>(null);
+  const availableAssignees = members.filter(activeProjectMember).filter((member) => member.company_member_id > 0 && (
+    directory.some((entry) => entry.company_member_id === member.company_member_id && (!entry.status || entry.status === "active")) ||
+    member.company_member_id === membership.company_member_id));
+  const assigneeCandidates = availableAssignees.filter((member) =>
+    [projectMemberName(member, directory, membership), projectMemberDepartment(member, directory, membership)]
+      .some((value) => value.toLocaleLowerCase().includes(assigneeSearch.trim().toLocaleLowerCase())));
+  const assignmentContext = useRef({ canManage, availableAssignees, directoryLoading, directoryError });
+  assignmentContext.current = { canManage, availableAssignees, directoryLoading, directoryError };
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const lock = useRef(false);
   const saved = useRef(false);
   const discardAction = useRef<(() => void) | null>(null);
@@ -246,7 +281,8 @@ export default function ProjectWorkFormDialog({
   }
   const draftValues = comparableDraft(draft);
   const initialValues = comparableDraft(initial);
-  const dirty = (Object.keys(initial) as DraftField[]).some((key) => draftValues[key] !== initialValues[key]);
+  const dirty = !createdWork && (selectedAssignees.length > 0 ||
+    (Object.keys(initial) as DraftField[]).some((key) => draftValues[key] !== initialValues[key]));
   const navigationGuard = useRef({ dirty, pending, onClose });
   navigationGuard.current = { dirty, pending, onClose };
 
@@ -397,7 +433,7 @@ export default function ProjectWorkFormDialog({
     setLocationOpen(true);
     requestAnimationFrame(() => titleRef.current?.focus());
   }
-  const fieldsDisabled = pending || uncertain || !canManage;
+  const fieldsDisabled = pending || uncertain || Boolean(createdWork) || !canManage;
   function field<K extends keyof typeof draft>(
     key: K,
     value: (typeof draft)[K],
@@ -463,7 +499,7 @@ export default function ProjectWorkFormDialog({
   }, [locationOpen]);
   async function submit(event?: FormEvent, periodConfirmed = false) {
     event?.preventDefault();
-    if (locationOpen || lock.current || !canManage || uncertain) return;
+    if (locationOpen || lock.current || !canManage || uncertain || createdWork) return;
     setError(null);
     setAdvancedError(false);
     setFieldErrors({});
@@ -540,6 +576,11 @@ export default function ProjectWorkFormDialog({
     }
     if (parentError) {
       invalid("parentId", parentError);
+      return;
+    }
+    if (selectedAssignees.length && (directoryLoading || directoryError || selectedAssignees.some((memberId) =>
+      !availableAssignees.some((member) => member.company_member_id === memberId)))) {
+      setError("선택한 담당자의 참여 상태를 확인할 수 없습니다. 구성원 정보를 다시 확인하거나 선택을 해제해 주세요.");
       return;
     }
     if (editing && !dirty) {
@@ -620,6 +661,9 @@ export default function ProjectWorkFormDialog({
       onClose();
       return;
     }
+    let newWork: CompanyProjectWorkItem | undefined;
+    let assignedCount = 0;
+    setSubmitting(true);
     try {
       const companyProjectId = detail.project.company_project_id;
       if (target.kind === "phase") {
@@ -640,14 +684,36 @@ export default function ProjectWorkFormDialog({
           workItemId: target.item.company_project_work_item_id,
           payload,
         });
-      } else
-        await createWork.mutateAsync({
+      } else {
+        newWork = await createWork.mutateAsync({
           companyProjectId,
           payload: { ...payload, title: name },
         });
+        if (selectedAssignees.length) {
+          if (!newWork || !Number.isSafeInteger(newWork.company_project_work_item_id) || newWork.company_project_work_item_id <= 0)
+            throw new Error("추가된 업무 정보를 확인할 수 없습니다.");
+          for (const memberId of selectedAssignees) {
+            const context = assignmentContext.current;
+            if (!alive.current || !context.canManage || context.directoryLoading || context.directoryError ||
+              !context.availableAssignees.some((member) => member.company_member_id === memberId))
+              throw new Error("담당자를 배정할 권한이나 구성원 상태를 다시 확인해 주세요.");
+            await createAssignment.mutateAsync({ companyProjectId, workItemId: newWork.company_project_work_item_id,
+              payload: { assignee_company_member_id: memberId } });
+            assignedCount += 1;
+          }
+        }
+      }
       saved.current = true;
       onSaved();
     } catch (caught) {
+      if (newWork && Number.isSafeInteger(newWork.company_project_work_item_id) && newWork.company_project_work_item_id > 0) {
+        // Creation and assignment are separate writes. Never repeat creation or
+        // an uncertain assignment; the existing detail panel can review both.
+        saved.current = true;
+        setCreatedWork(newWork);
+        setError(`업무는 추가되었지만 담당자 배정을 완료하지 못했습니다 (${assignedCount}/${selectedAssignees.length}명 확인). 업무 상세에서 배정 상태를 확인해 주세요. ${getErrorMessage(caught)}`);
+        return;
+      }
       const apiError = getApiErrorDetails(caught);
       const status = apiError?.status;
       const uncertainCreation =
@@ -714,6 +780,7 @@ export default function ProjectWorkFormDialog({
       }
     } finally {
       lock.current = false;
+      setSubmitting(false);
     }
   }
   const kindLabel = target.kind === "phase" ? "단계" : "업무";
@@ -893,6 +960,44 @@ export default function ProjectWorkFormDialog({
                       {periodHelp}
                     </p>
                   </div>
+                  {!editing && target.kind === "work" && <section className="space-y-2" aria-label="담당자 선택">
+                    <p className="text-sm font-medium">담당자 <span className="text-xs font-normal text-muted-foreground">(선택)</span></p>
+                    <Input aria-label="프로젝트 구성원 검색" placeholder="이름 또는 부서 검색" value={assigneeSearch}
+                      className={fieldClass} disabled={fieldsDisabled}
+                      onChange={(event) => { setAssigneeSearch(event.target.value); setAssigneeLimit(10); }} />
+                    {directoryLoading && <p role="status" className="projects-note">구성원을 불러오는 중...</p>}
+                    {Boolean(directoryError) && <div role="alert" className="space-y-2">
+                      <p className="projects-note">구성원 정보를 불러오지 못했습니다. 담당자를 선택하지 않고 업무를 추가할 수 있습니다.</p>
+                      <Button type="button" size="sm" variant="outline" disabled={fieldsDisabled} onClick={onRetryDirectory}>구성원 정보 다시 시도</Button>
+                    </div>}
+                    <ul className="work-assignment-candidates" aria-label="프로젝트 구성원 선택">
+                      {assigneeCandidates.slice(0, assigneeLimit).map((member) => <li key={member.company_member_id}>
+                        <Button type="button" variant="ghost" className="work-assignment-candidate"
+                          aria-pressed={selectedAssignees.includes(member.company_member_id)}
+                          disabled={fieldsDisabled || directoryLoading || Boolean(directoryError)}
+                          onClick={() => setSelectedAssignees((previous) => previous.includes(member.company_member_id)
+                            ? previous.filter((memberId) => memberId !== member.company_member_id) : [...previous, member.company_member_id])}>
+                          <span className="work-assignment-candidate-identity" title={projectMemberName(member, directory, membership)}>{projectMemberName(member, directory, membership)}</span>
+                          <small className="ml-auto">{projectMemberDepartment(member, directory, membership) || "부서 미지정"}</small>
+                          {selectedAssignees.includes(member.company_member_id) && <Check aria-hidden className="h-4 w-4 shrink-0" />}
+                        </Button>
+                      </li>)}
+                    </ul>
+                    {!directoryLoading && !directoryError && !assigneeCandidates.length && <p className="projects-note">{assigneeSearch.trim() ? "검색 결과가 없습니다." : "배정 가능한 프로젝트 구성원이 없습니다."}</p>}
+                    {assigneeCandidates.length > assigneeLimit && <Button type="button" size="sm" variant="ghost" disabled={fieldsDisabled}
+                      onClick={() => setAssigneeLimit((value) => value + 25)}>더 보기 ({assigneeCandidates.length - assigneeLimit}명)</Button>}
+                    {selectedAssignees.length > 0 && <div className="flex flex-wrap gap-1" aria-label="선택한 담당자">
+                      {selectedAssignees.map((company_member_id) => {
+                        const name = projectMemberName({ company_member_id }, directory, membership);
+                        return <Button key={company_member_id} type="button" size="sm" variant="outline" className="min-w-0 max-w-full"
+                          aria-label={`${name} 담당자 선택 해제`} disabled={fieldsDisabled}
+                          onClick={() => setSelectedAssignees((previous) => previous.filter((memberId) => memberId !== company_member_id))}>
+                          <span className="truncate">{name}</span><X aria-hidden className="h-3 w-3 shrink-0" />
+                        </Button>;
+                      })}
+                    </div>}
+                    <p className="projects-note">{selectedAssignees.length ? `${selectedAssignees.length}명 선택 · ` : "미배정 · "}현재 프로젝트의 활성 구성원을 여러 명 선택할 수 있습니다.</p>
+                  </section>}
                   <div>
                     <button
                       type="button"
@@ -1145,16 +1250,16 @@ export default function ProjectWorkFormDialog({
               )}
               <DialogFooter className="shrink-0 flex-row flex-wrap justify-end gap-2 border-t border-border px-5 py-3 sm:px-6 sm:space-x-0">
                 <Button variant="outline" onClick={close} disabled={pending}>
-                  취소
+                  {createdWork ? "닫기" : "취소"}
                 </Button>
-                <Button
+                {createdWork ? <Button onClick={() => onSaved(createdWork)} disabled={pending}>업무 상세에서 확인</Button> : <Button
                   type="submit"
                   form={id}
                   disabled={fieldsDisabled || parentUnavailable}
                   aria-busy={pending}
                 >
                   {pending ? "저장 중..." : editing ? "저장" : `${kindLabel} 추가`}
-                </Button>
+                </Button>}
               </DialogFooter>
             </>
           )}

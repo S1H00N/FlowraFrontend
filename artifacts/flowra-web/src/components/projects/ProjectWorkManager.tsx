@@ -18,8 +18,6 @@ import {
   Loader2,
   MoreHorizontal,
   Pencil,
-  Pin,
-  PinOff,
   Search,
   SlidersHorizontal,
   X,
@@ -50,6 +48,8 @@ import {
 import {
   WORK_PRIORITY_OPTIONS,
   WORK_STATUS_OPTIONS,
+  WorkAssignees,
+  WorkAssigneeDetails,
   WorkPriorityBadge,
   WorkProgress,
   WorkStatusBadge,
@@ -63,7 +63,7 @@ import {
 import { useProjectWorkTree } from "@/hooks/useProjectWorkTree";
 import ProjectWorkFormDialog, { type ProjectWorkEditTarget } from "./ProjectWorkFormDialog";
 import ProjectAssignments from "./ProjectAssignments";
-import { activeProjectMember, projectAssigneeSummary } from "@/lib/projectMembers";
+import { activeProjectMember, matchesProjectAssigneeFilter, projectAssigneeSummary, projectMemberName } from "@/lib/projectMembers";
 import { getErrorMessage, isTransientApiReadError } from "@/lib/error";
 import { projectHierarchyTitle, workKey, type ProjectHierarchyKey } from "@/lib/projectHierarchy";
 import {
@@ -94,17 +94,8 @@ interface WorkSelection {
   ancestorIds: number[];
 }
 
-type WorkPanelMode = "docked" | "floating" | "fullscreen";
-const panelLayoutStorageKey = "flowra-project-work-panel-layout";
+type WorkPanelMode = "docked" | "fullscreen";
 const panelWidth = 380;
-
-function initialPanelPreference(): "docked" | "floating" {
-  try {
-    return window.localStorage.getItem(panelLayoutStorageKey) === "floating" ? "floating" : "docked";
-  } catch {
-    return "docked";
-  }
-}
 
 function WorkPanelPortal({ children }: { children: ReactNode }) {
   return createPortal(children, document.body);
@@ -159,11 +150,16 @@ export default function ProjectWorkManager({
   const [status, setStatus] = useState("all");
   const [priority, setPriority] = useState("all");
   const [phaseFilter, setPhaseFilter] = useState("all");
+  const [assigneeFilter, setAssigneeFilter] = useState("all");
+  const [unassignedOnly, setUnassignedOnly] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [collapsedPhases, setCollapsedPhases] = useState<Set<ProjectHierarchyKey>>(() => new Set());
   // Retain navigation context through a refresh, never the old item fields.
   const [selection, setSelection] = useState<WorkSelection | null>(null);
   const [panelVisible, setPanelVisible] = useState(false);
+  const [assigneeFocusRequest, setAssigneeFocusRequest] = useState<number | null>(null);
+  const [assignmentWorkId, setAssignmentWorkId] = useState<number | null>(null);
+  const assignmentReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const [selectedPhase, setSelectedPhase] = useState<ProjectHierarchyKey | null>(null);
   const selectedId = selection?.id ?? null;
   const panelOpen = active && panelVisible && selection !== null;
@@ -205,17 +201,12 @@ export default function ProjectWorkManager({
   }, [assignmentRefresh, selectedId, selected, selectionLoading, selectedChildrenLoading, active]);
   const editorReturnFocusRef = useRef<HTMLElement | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
-  const scopeToolbarRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const filterButtonRef = useRef<HTMLButtonElement>(null);
   const filterDoneRef = useRef<HTMLButtonElement>(null);
-  const [panelPreference, setPanelPreference] = useState(initialPanelPreference);
-  const panelScrollBeforeDockRef = useRef<number | null>(null);
-  const [panelLayout, setPanelLayout] = useState<{
-    mode: WorkPanelMode; canDock: boolean; width: number; top: number; right: number;
-  }>({ mode: "fullscreen", canDock: false, width: panelWidth, top: 0, right: 0 });
-  const fullscreenPanel = panelLayout.mode === "fullscreen";
-  const panelDocked = panelLayout.mode === "docked";
+  const [panelMode, setPanelMode] = useState<WorkPanelMode>("fullscreen");
+  const fullscreenPanel = panelMode === "fullscreen";
+  const panelDocked = panelMode === "docked";
   const [mobile, setMobile] = useState(
     () => window.matchMedia("(max-width: 700px)").matches,
   );
@@ -225,10 +216,10 @@ export default function ProjectWorkManager({
     Boolean(search.trim()) ||
     status !== "all" ||
     priority !== "all" ||
-    phaseFilter !== "all";
+    phaseFilter !== "all" || assigneeFilter !== "all" || unassignedOnly;
   const phases = tree.hierarchy.phases;
   const filterCount = Number(status !== "all") + Number(priority !== "all") +
-    Number(phased && phaseFilter !== "all");
+    Number(phased && phaseFilter !== "all") + Number(assigneeFilter !== "all") + Number(unassignedOnly);
   function restoreFilterFocus() {
     requestAnimationFrame(() => {
       const target = [filterOpen ? filterDoneRef.current : searchRef.current, filterButtonRef.current]
@@ -245,6 +236,8 @@ export default function ProjectWorkManager({
     setStatus("all");
     setPriority("all");
     setPhaseFilter("all");
+    setAssigneeFilter("all");
+    setUnassignedOnly(false);
     restoreFilterFocus();
   }
   function togglePhase(key: ProjectHierarchyKey) {
@@ -264,13 +257,17 @@ export default function ProjectWorkManager({
       assignments.push(assignment);
       grouped.set(workId, assignments);
     }
-    return new Map(
-      [...grouped].map(([id, assignments]) => [
-        id,
-        projectAssigneeSummary(assignments, directory, membership),
-      ]),
-    );
-  }, [tree.assignments, directory, membership]);
+    return grouped;
+  }, [tree.assignments]);
+  const assigneeOptions = useMemo(() => {
+    const ids = new Set([
+      ...(permission.isError ? [] : permission.data ?? []).filter(activeProjectMember).map((member) => member.company_member_id),
+      ...tree.assignments.filter((assignment) => assignment.status !== "cancelled").map((assignment) => assignment.assignee_company_member_id),
+    ].filter((id): id is number => typeof id === "number" && id > 0));
+    return [...ids].filter((id) => id === membership.company_member_id || directory.some((member) => member.company_member_id === id))
+      .map((id) => ({ value: String(id), label: projectMemberName({ company_member_id: id }, directory, membership) }))
+      .sort((a, b) => a.label.localeCompare(b.label, "ko"));
+  }, [permission.data, permission.isError, tree.assignments, directory, membership]);
   function displayedPhaseId(item: CompanyProjectWorkItem) {
     return item.company_project_phase_id ?? null;
   }
@@ -280,7 +277,18 @@ export default function ProjectWorkManager({
     return workDepth !== null && workDepth < MAX_PROJECT_WORK_DEPTH;
   }
 
-  function select(item: CompanyProjectWorkItem) {
+  function select(item: CompanyProjectWorkItem, focusAssignees = false) {
+    // A newly created child may not be included in a summary detail response.
+    // Load its parent branch and keep that request in the panel's loading path.
+    const unloadedParent = !tree.byId.has(item.company_project_work_item_id) && item.parent_work_item_id
+      ? tree.byId.get(item.parent_work_item_id) : undefined;
+    const ancestorIds = unloadedParent
+      ? getWorkItemAncestorPath(tree.graph, unloadedParent.company_project_work_item_id)
+        .map((ancestor) => ancestor.company_project_work_item_id)
+      : getWorkItemAncestorPath(tree.graph, item.company_project_work_item_id)
+        .slice(0, -1).map((ancestor) => ancestor.company_project_work_item_id);
+    if (unloadedParent) tree.loadChildren(unloadedParent);
+    setAssigneeFocusRequest(focusAssignees ? item.company_project_work_item_id : null);
     setFilterOpen(false);
     setSelectedPhase(null);
     setPanelVisible(true);
@@ -288,12 +296,7 @@ export default function ProjectWorkManager({
       id: item.company_project_work_item_id,
       title: item.title,
       path: workPath(item),
-      ancestorIds: getWorkItemAncestorPath(
-        tree.graph,
-        item.company_project_work_item_id,
-      )
-        .slice(0, -1)
-        .map((ancestor) => ancestor.company_project_work_item_id),
+      ancestorIds,
     });
     tree.loadChildren(item);
   }
@@ -335,39 +338,29 @@ export default function ProjectWorkManager({
       setPanelVisible(false);
       setEditTarget(null);
       setFilterOpen(false);
+      setAssignmentWorkId(null);
     }
   }, [active]);
   useEffect(() => {
     // An explicit permission denial closes the editor and releases the panel.
     if (!canManage && !transientPermissionError) setEditTarget(null);
+    if (!canManage) setAssignmentWorkId(null);
   }, [canManage, transientPermissionError]);
   useLayoutEffect(() => {
     const workspace = workspaceRef.current;
-    const toolbar = scopeToolbarRef.current;
-    if (!workspace || !toolbar || !active) return;
+    if (!workspace || !active) return;
     // Measure before the parent reserves sidebar space to avoid docking oscillation.
     const boundary = workspace.closest<HTMLElement>(".projects-detail-workspace") ?? workspace;
     let frame = 0;
     function measure() {
       frame = 0;
-      if (!workspace || !toolbar) return;
       const bounds = boundary.getBoundingClientRect();
       if (!bounds.width) return;
       const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
       const viewport = window.visualViewport;
       const height = viewport?.height ?? window.innerHeight;
-      const header = document.querySelector<HTMLElement>(".flowra-app-shell header");
-      const headerBottom = Math.ceil(header?.getBoundingClientRect().bottom ?? 64);
-      const canDock = bounds.width >= 28 * rem + panelWidth + 16 && height >= 18 * rem;
-      const docked = panelPreference === "docked" && canDock;
-      const top = docked ? 0 : Math.ceil(Math.max(headerBottom + 8,
-        toolbar.getBoundingClientRect().bottom + 8));
-      const width = panelWidth;
-      const right = docked ? 0 : Math.max(16, Math.ceil(window.innerWidth - workspace.getBoundingClientRect().right));
-      const fullscreen = bounds.width < 20 * rem + width + 16 || height - top - (docked ? 0 : 16) < 18 * rem;
-      const mode: WorkPanelMode = fullscreen ? "fullscreen" : docked ? "docked" : "floating";
-      setPanelLayout((previous) => previous.mode === mode && previous.canDock === canDock && previous.width === width &&
-        previous.top === top && previous.right === right ? previous : { mode, canDock, width, top, right });
+      const fullscreen = bounds.width < 20 * rem + panelWidth + 16 || height < 18 * rem;
+      setPanelMode(fullscreen ? "fullscreen" : "docked");
     }
     function scheduleMeasure() {
       if (!frame) frame = requestAnimationFrame(measure);
@@ -376,38 +369,19 @@ export default function ProjectWorkManager({
     const observer = new ResizeObserver(scheduleMeasure);
     observer.observe(boundary);
     observer.observe(workspace);
-    observer.observe(toolbar);
     window.addEventListener("resize", scheduleMeasure);
-    window.addEventListener("scroll", scheduleMeasure, true);
     window.visualViewport?.addEventListener("resize", scheduleMeasure);
     return () => {
       observer.disconnect();
       cancelAnimationFrame(frame);
       window.removeEventListener("resize", scheduleMeasure);
-      window.removeEventListener("scroll", scheduleMeasure, true);
       window.visualViewport?.removeEventListener("resize", scheduleMeasure);
     };
-  }, [active, panelPreference]);
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(panelLayoutStorageKey, panelPreference);
-    } catch {
-      // Keep the in-memory choice when browser storage is unavailable.
-    }
-  }, [panelPreference]);
-  function togglePanelDock() {
-    panelScrollBeforeDockRef.current = panelContentRef.current?.scrollTop ?? null;
-    setPanelPreference((previous) => previous === "docked" ? "floating" : "docked");
-  }
-  useLayoutEffect(() => {
-    if (panelScrollBeforeDockRef.current === null || !panelContentRef.current) return;
-    panelContentRef.current.scrollTop = panelScrollBeforeDockRef.current;
-    panelScrollBeforeDockRef.current = null;
-  }, [panelLayout.mode]);
+  }, [active]);
   useEffect(() => {
     onPanelLayoutChange?.({ overlay: panelOpen && !fullscreenPanel, docked: panelOpen && panelDocked,
-      width: panelLayout.width, right: panelLayout.right });
-  }, [panelOpen, fullscreenPanel, panelDocked, panelLayout.width, panelLayout.right, onPanelLayoutChange]);
+      width: panelWidth, right: 0 });
+  }, [panelOpen, fullscreenPanel, panelDocked, onPanelLayoutChange]);
   useEffect(() => () => {
     onPanelLayoutChange?.({ overlay: false, docked: false, width: 0, right: 0 });
   }, [onPanelLayoutChange]);
@@ -426,6 +400,16 @@ export default function ProjectWorkManager({
   useEffect(() => {
     if (panelOpen && panelContentRef.current) panelContentRef.current.scrollTop = 0;
   }, [selectedId, panelOpen]);
+  useEffect(() => {
+    if (assigneeFocusRequest === null) return;
+    if (panelOpen && selectedId === assigneeFocusRequest) {
+      const target = panelRef.current?.querySelector<HTMLElement>('[aria-label="업무 담당자"]');
+      const content = panelContentRef.current;
+      target?.focus({ preventScroll: true });
+      if (target && content) content.scrollTop += target.getBoundingClientRect().top - content.getBoundingClientRect().top;
+    }
+    setAssigneeFocusRequest(null);
+  }, [assigneeFocusRequest, panelOpen, selectedId]);
   useEffect(() => {
     if (!panelOpen) return;
     function escape(event: globalThis.KeyboardEvent) {
@@ -479,6 +463,8 @@ export default function ProjectWorkManager({
         continue;
       if (status !== "all" && item.status !== status) continue;
       if (priority !== "all" && item.priority !== priority) continue;
+      const workId = item.company_project_work_item_id;
+      if (!matchesProjectAssigneeFilter(assigneesByWorkId.get(workId) ?? [], tree.assignmentKnownIds.has(workId), assigneeFilter, unassignedOnly)) continue;
       if (
         phased &&
         phaseFilter !== "all" &&
@@ -496,7 +482,7 @@ export default function ProjectWorkManager({
       }
     }
     return included;
-  }, [tree.items, tree.byId, search, status, priority, phaseFilter, phased]);
+  }, [tree.items, tree.byId, tree.assignmentKnownIds, assigneesByWorkId, search, status, priority, phaseFilter, phased, assigneeFilter, unassignedOnly]);
 
   function workPath(item: CompanyProjectWorkItem) {
     const path: string[] = [];
@@ -523,7 +509,33 @@ export default function ProjectWorkManager({
   }
   function assignees(item: CompanyProjectWorkItem) {
     // Display only identifiers explicitly returned by the authorized detail API.
-    return assigneesByWorkId.get(item.company_project_work_item_id) ?? "미배정";
+    const id = item.company_project_work_item_id;
+    return projectAssigneeSummary(assigneesByWorkId.get(id) ?? [], directory, membership, tree.assignmentKnownIds.has(id));
+  }
+  function assigneeDisplay(item: CompanyProjectWorkItem) {
+    const id = item.company_project_work_item_id;
+    const assignments = assigneesByWorkId.get(id) ?? [];
+    const known = tree.assignmentKnownIds.has(id);
+    const canManageAssignments = canManage && known;
+    return <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button type="button" className="work-assignee-button" aria-label={`${item.title} 담당자 ${canManageAssignments ? "관리" : "확인"}`}
+            aria-description={assignees(item)} onClick={(event) => {
+              event.stopPropagation();
+              if (canManageAssignments) {
+                assignmentReturnFocusRef.current = event.currentTarget;
+                setAssignmentWorkId(id);
+              } else select(item, true);
+            }}>
+            <WorkAssignees assignments={assignments} directory={directory} membership={membership} known={known} compact />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="work-assignee-tooltip" side="bottom" align="start" collisionPadding={12}>
+          <WorkAssigneeDetails assignments={assignments} directory={directory} membership={membership} known={known} canManage={canManageAssignments} />
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>;
   }
   function beginCancel(target: CancelTarget) {
     setCancelError(null);
@@ -702,7 +714,7 @@ export default function ProjectWorkManager({
               {number !== undefined && <span className="work-wbs-number">{title.slice(0, prefixLength)}</span>}
               <span className="work-title-text">{title.slice(prefixLength)}</span>
             </button>
-            {mobile && <div className="work-mobile-status"><WorkStatusBadge status={item.status} /></div>}
+            <div className="work-mobile-status">{mobile && <WorkStatusBadge status={item.status} />}{assigneeDisplay(item)}</div>
             </div>
             {childCount > 0 && (
               <span className="work-child-count" title={childCountDescription} aria-description={childCountDescription}>
@@ -717,8 +729,8 @@ export default function ProjectWorkManager({
         <td>
           <WorkPriorityBadge priority={item.priority} />
         </td>
-        <td className="work-assignees" title={assignees(item)}>
-          {assignees(item)}
+        <td className="work-assignees">
+          {assigneeDisplay(item)}
         </td>
         <td className="work-dates">
           <span>{item.planned_start_date || item.planned_end_date
@@ -1045,6 +1057,15 @@ export default function ProjectWorkManager({
                     contentClassName="project-work-select-menu project-work-filter-menu"
                   />
                 )}
+                <CustomSelect fieldLabel="담당자" ariaLabel="업무 담당자 필터" value={assigneeFilter}
+                  onChange={(value) => setAssigneeFilter(String(value))}
+                  options={[{ value: "all", label: "전체 담당자" }, ...assigneeOptions]}
+                  contentClassName="project-work-select-menu project-work-filter-menu" />
+                <label className="work-unassigned-filter">
+                  <input type="checkbox" checked={unassignedOnly} onChange={(event) => setUnassignedOnly(event.target.checked)} />
+                  <span>미배정 업무만 보기</span>
+                </label>
+                <p className="projects-note">담당자 정보가 확인된 업무를 기준으로 필터합니다. 조건은 즉시 적용됩니다.</p>
                 <div className="work-filter-footer">
                   <Button variant="ghost" size="sm" onClick={() => resetFilters()} disabled={!filtering}>
                     초기화
@@ -1088,10 +1109,16 @@ export default function ProjectWorkManager({
             {phased && phaseFilter !== "all" && <Button variant="ghost" size="sm" aria-label="단계 필터 해제" onClick={() => clearFilter(() => setPhaseFilter("all"))}>
               <span>단계: {phases.find((phase) => String(phase.company_project_phase_id) === phaseFilter)?.name ?? "단계 미지정"}</span><X aria-hidden="true" />
             </Button>}
+            {assigneeFilter !== "all" && <Button variant="ghost" size="sm" aria-label="담당자 필터 해제" onClick={() => clearFilter(() => setAssigneeFilter("all"))}>
+              <span>담당자: {assigneeOptions.find((option) => option.value === assigneeFilter)?.label ?? "담당자 정보 확인 필요"}</span><X aria-hidden="true" />
+            </Button>}
+            {unassignedOnly && <Button variant="ghost" size="sm" aria-label="미배정 필터 해제" onClick={() => clearFilter(() => setUnassignedOnly(false))}>
+              <span>미배정 업무만</span><X aria-hidden="true" />
+            </Button>}
             <Button className="work-filter-reset" variant="ghost" size="sm" aria-label="업무 필터 초기화" onClick={() => resetFilters()}>초기화</Button>
           </div>}
         </div>
-        <div ref={scopeToolbarRef} className="work-tree-toolbar">
+        <div className="work-tree-toolbar">
           <p>
             {tree.searchScope === "complete" ? "전체 업무명에서 검색·필터합니다." : "불러온 업무명에서 검색·필터합니다."}
             {tree.searchScope === "loaded" && (tree.items.some((item) => tree.needsChildren(item))
@@ -1145,11 +1172,9 @@ export default function ProjectWorkManager({
           <aside
             ref={panelRef}
             className="project-work-panel flowra-surface"
-            data-panel-mode={panelLayout.mode}
+            data-panel-mode={panelMode}
             style={fullscreenPanel ? undefined : {
-              "--work-panel-top": `${panelLayout.top}px`,
-              "--work-panel-width": `${panelLayout.width}px`,
-              "--work-panel-right": `${panelLayout.right}px`,
+              "--work-panel-width": `${panelWidth}px`,
             } as CSSProperties}
             aria-label="업무 상세"
             role={fullscreenPanel ? "dialog" : "complementary"}
@@ -1194,19 +1219,6 @@ export default function ProjectWorkManager({
                 <Button
                   variant="ghost"
                   size="icon"
-                  aria-label={panelDocked ? "업무 상세 도킹 해제" : "업무 상세 도킹"}
-                  aria-pressed={panelDocked}
-                  aria-description={!panelLayout.canDock ? "목록과 상세를 함께 표시할 화면 공간이 부족합니다." : undefined}
-                  className={panelDocked ? "text-primary" : undefined}
-                  disabled={!panelLayout.canDock}
-                  title={panelLayout.canDock ? panelDocked ? "상세 패널 고정 해제" : "상세 패널 고정" : "화면 공간이 확보되면 도킹할 수 있습니다."}
-                  onClick={togglePanelDock}
-                >
-                  {panelDocked ? <PinOff aria-hidden="true" /> : <Pin aria-hidden="true" />}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
                   aria-label="업무 상세 닫기"
                   onClick={closePanel}
                 >
@@ -1243,14 +1255,20 @@ export default function ProjectWorkManager({
                       </div>
                     </dl>
                   </section>
-                  <ProjectAssignments key={`assignments:${selected.company_project_work_item_id}`}
-                    companyProjectId={project.company_project_id} workItemId={selected.company_project_work_item_id}
-                    assignments={tree.assignments.filter((assignment) => assignment.company_project_work_item_id === selected.company_project_work_item_id)}
-                    members={permission.isError ? [] : permission.data ?? []} directory={directory} membership={membership}
-                    canManage={canManage} canManageMembers={canManageMembers} onManageMembers={onManageMembers}
-                    onMutationStart={beginAssignmentRefresh}
-                    directoryError={directoryQuery.error} directoryLoading={directoryQuery.isLoading}
-                    onRetryDirectory={() => void directoryQuery.refetch()} />
+                </>
+              ) : null}
+              <ProjectAssignments key={`assignments:${selectedId}`}
+                companyProjectId={project.company_project_id} workItemId={selectedId!}
+                assignments={tree.assignments.filter((assignment) => assignment.company_project_work_item_id === selectedId)}
+                assignmentsKnown={tree.assignmentKnownIds.has(selectedId!)}
+                onRetryAssignments={tree.refreshAssignments}
+                members={permission.isError ? [] : permission.data ?? []} directory={directory} membership={membership}
+                canManage={canManage} canManageMembers={canManageMembers} onManageMembers={onManageMembers}
+                onMutationStart={beginAssignmentRefresh}
+                directoryError={directoryQuery.error} directoryLoading={directoryQuery.isLoading}
+                onRetryDirectory={() => void directoryQuery.refetch()} />
+              {selected ? (
+                <>
                   <section aria-label="업무 설명">
                     <h4>설명</h4>
                     <p className={selected.description ? "work-description" : "work-panel-empty"}>
@@ -1417,13 +1435,34 @@ export default function ProjectWorkManager({
           </aside>
         </WorkPanelPortal>
       )}
+      {assignmentWorkId !== null && active && canManage && <ProjectAssignments
+        key={`assignment-dialog:${assignmentWorkId}`} dialogOnly
+        companyProjectId={project.company_project_id} workItemId={assignmentWorkId}
+        assignments={assigneesByWorkId.get(assignmentWorkId) ?? []}
+        assignmentsKnown={tree.assignmentKnownIds.has(assignmentWorkId)} onRetryAssignments={tree.refreshAssignments}
+        members={permission.data ?? []} directory={directory} membership={membership}
+        canManage={canManage} canManageMembers={canManageMembers} onManageMembers={onManageMembers}
+        directoryError={directoryQuery.error} directoryLoading={directoryQuery.isLoading}
+        onRetryDirectory={() => void directoryQuery.refetch()}
+        onClose={() => setAssignmentWorkId(null)}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          requestAnimationFrame(() => {
+            const target = [assignmentReturnFocusRef.current, panelOpen ? panelTitleRef.current : null, searchRef.current]
+              .find((element) => canFocus(element));
+            target?.focus({ preventScroll: true });
+          });
+        }} />}
       {editTarget && active && (canManage || transientPermissionError) && <ProjectWorkFormDialog
         key={editTarget.kind === "phase" ? `phase:${editTarget.phase?.company_project_phase_id ?? "new"}` : `work:${editTarget.item?.company_project_work_item_id ?? `new:${editTarget.parent?.company_project_work_item_id ?? "root"}`}`}
         target={editTarget} detail={detail} tree={tree} canManage={canManage}
+        members={permission.isError ? [] : permission.data ?? []} directory={directory} membership={membership}
+        directoryLoading={directoryQuery.isLoading} directoryError={directoryQuery.error}
+        onRetryDirectory={() => void directoryQuery.refetch()}
         onRetryPermission={transientPermissionError ? () => void permission.refetch() : undefined}
         permissionRetrying={permission.isFetching}
         onCloseAutoFocus={restoreEditorFocus}
-        onClose={() => setEditTarget(null)} onSaved={() => setEditTarget(null)} />}
+        onClose={() => setEditTarget(null)} onSaved={(createdWork) => { setEditTarget(null); if (createdWork) select(createdWork, true); }} />}
       <Dialog
         open={cancelTarget !== null}
         onOpenChange={(open) => {

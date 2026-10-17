@@ -49,6 +49,14 @@ type CompanyProjectWorkReminderData =
   | CompanyProjectWorkReminder
   | { reminder: CompanyProjectWorkReminder };
 
+// Keep transport completeness outside the public DTO. A missing relationship
+// array is normalized for existing consumers, but cannot prove "unassigned".
+const assignmentCoverage = new WeakSet<object>();
+
+export function hasCompanyProjectAssignmentCoverage(data: object) {
+  return assignmentCoverage.has(data);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -327,19 +335,19 @@ export async function getCompanyProject(
     !hasValidAssignments(assignments) || !hasValidDependencies(dependencies)) {
     throw new Error("프로젝트 업무 응답 형식을 확인할 수 없습니다. 다시 조회해 주세요.");
   }
-  return {
-    ...res.data,
-    data: {
-      project: unwrapProject(res.data.data.project),
-      phases,
-      work_items: workItems,
-      departments: res.data.data.departments ?? [],
-      assignments,
-      dependencies,
-      summary: res.data.data.summary,
-      detail_policy: res.data.data.detail_policy,
-    } satisfies CompanyProjectDetailData,
+  const data: CompanyProjectDetailData = {
+    project: unwrapProject(res.data.data.project),
+    phases,
+    work_items: workItems,
+    departments: res.data.data.departments ?? [],
+    assignments,
+    dependencies,
+    summary: res.data.data.summary,
+    detail_policy: res.data.data.detail_policy,
   };
+  if (Array.isArray(res.data.data.assignments) && assignments.every((assignment) =>
+    Number.isSafeInteger(assignment.company_project_work_item_id) && Number(assignment.company_project_work_item_id) > 0)) assignmentCoverage.add(data);
+  return { ...res.data, data };
 }
 
 export async function createCompanyProjectPhase(companyProjectId: number, payload: CreateCompanyProjectPhaseRequest) {
@@ -534,16 +542,12 @@ export async function listCompanyProjectWorkItemChildren(
     !Array.isArray(departments) || !hasValidAssignments(assignments) || !hasValidDependencies(dependencies)) {
     throw new Error("하위 업무 응답 형식을 확인할 수 없습니다. 다시 조회해 주세요.");
   }
-  return {
-    ...res.data,
-    data: {
-      parent,
-      items,
-      departments,
-      assignments,
-      dependencies,
-    } satisfies CompanyProjectWorkItemChildrenData,
+  const data: CompanyProjectWorkItemChildrenData = {
+    parent, items, departments, assignments, dependencies,
   };
+  if (Array.isArray(res.data.data.assignments) && assignments.every((assignment) =>
+    Number.isSafeInteger(assignment.company_project_work_item_id) && Number(assignment.company_project_work_item_id) > 0)) assignmentCoverage.add(data);
+  return { ...res.data, data };
 }
 
 export async function listMyCompanyProjectWorkItems(
