@@ -342,14 +342,13 @@ export function useCompanyProjectGantt(
   return useQuery<CompanyProjectGanttData>({
     queryKey: companyProjectGanttKey(companyProjectId, query),
     enabled: companyProjectId !== null && (options.enabled ?? true),
-    queryFn: async () => {
-      const res = await getCompanyProjectGantt(companyProjectId as number, query);
+    queryFn: async ({ signal }) => {
+      const res = await getCompanyProjectGantt(companyProjectId as number, query, { signal });
       if (!res.success) {
         throw new Error(res.message || "프로젝트 간트를 불러오지 못했습니다.");
       }
       return res.data;
     },
-    placeholderData: (previousData) => previousData,
   });
 }
 

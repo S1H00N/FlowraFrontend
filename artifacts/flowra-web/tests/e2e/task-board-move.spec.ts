@@ -216,11 +216,23 @@ test("독립 할 일 생성 시 날짜를 지정하고 수정·제거 후에도 
     .getByRole("textbox", { name: "새 할 일", exact: true })
     .fill("날짜 있는 독립 할 일");
   await independent
+    .getByRole("button", { name: "날짜·시간 설정", exact: true })
+    .click();
+  await independent
     .getByLabel("새 할 일 마감일", { exact: true })
     .fill("2026-09-12");
   await independent
+    .getByLabel("새 할 일 마감일", { exact: true })
+    .press("Enter");
+  await independent
     .getByLabel("새 할 일 마감 시간", { exact: true })
     .fill("14:30");
+  await independent
+    .getByLabel("새 할 일 마감 시간", { exact: true })
+    .press("Enter");
+  await independent
+    .getByRole("textbox", { name: "새 할 일", exact: true })
+    .focus();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(page.viewportSize()!.width);
@@ -254,7 +266,7 @@ test("독립 할 일 생성 시 날짜를 지정하고 수정·제거 후에도 
   await page.locator(`#task-${id}`).getByLabel("마감 날짜 선택").press("Tab");
   await page
     .locator(`#task-${id}`)
-    .getByLabel("마감 시간 선택")
+    .getByLabel("마감 시간 선택", { exact: true })
     .press("Escape");
   await page
     .locator(`#task-${id}`)
@@ -367,6 +379,9 @@ test("제거된 자체 순서 API가 없어도 이동과 날짜 입력을 제공
   expect(api.requests.some((r) => r.path === "/tasks/order")).toBe(false);
   await independent
     .getByRole("button", { name: "할 일 추가", exact: true })
+    .click();
+  await independent
+    .getByRole("button", { name: "날짜·시간 설정", exact: true })
     .click();
   await expect(
     independent.getByLabel("새 할 일 마감일", { exact: true }),

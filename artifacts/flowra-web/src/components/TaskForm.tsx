@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useCreateTask } from "@/hooks/useTasks";
@@ -7,10 +14,17 @@ import {
   useClassificationSettings,
 } from "@/lib/classificationSettings";
 import { taskSchema, type TaskFormValues } from "@/lib/schemas";
-import { Plus, X } from "lucide-react";
+import { CalendarDays, ChevronDown, Plus, X } from "lucide-react";
 import { getErrorMessage } from "@/lib/error";
 import { localInputToOffsetISOString } from "@/utils/dateUtils";
 import { useTaskComposer } from "@/components/tasks/TaskComposerContext";
+import {
+  CompactDateInput,
+  CompactTimeInput,
+  localInputWithDateKey,
+  localInputWithTime,
+} from "@/components/CompactDateTimeInputs";
+import { FloatingPanelPortalProvider } from "@/components/ui/FloatingPanelPortal";
 import type { Task } from "@/types";
 
 const defaults: TaskFormValues = {
@@ -43,6 +57,8 @@ export default function TaskForm({
     [defaultDueDate],
   );
   const [localAdding, setLocalAdding] = useState(false);
+  const [showDateTime, setShowDateTime] = useState(false);
+  const dateTimeId = useId();
   const composer = useTaskComposer();
   const quickAddScheduleId = defaultScheduleId ?? null;
   const adding = composer
@@ -51,7 +67,9 @@ export default function TaskForm({
     : localAdding;
   const [error, setError] = useState<string | null>(null);
   const addButton = useRef<HTMLButtonElement>(null);
-  const quickAddForm = useRef<HTMLFormElement>(null);
+  const [quickAddForm, setQuickAddForm] = useState<HTMLFormElement | null>(
+    null,
+  );
   const submitting = useRef(false);
   const createMutation = useCreateTask();
   const classificationSettings = useClassificationSettings();
@@ -82,16 +100,16 @@ export default function TaskForm({
           title: values.title,
           priority: values.priority,
           status: values.status,
-          schedule_id: defaultScheduleId != null
-            ? String(defaultScheduleId)
-            : undefined,
+          schedule_id:
+            defaultScheduleId != null ? String(defaultScheduleId) : undefined,
           due_datetime: values.due_datetime
             ? localInputToOffsetISOString(values.due_datetime)
             : undefined,
         });
         onCreated?.(createdTask);
         reset(formDefaults);
-        if (compact) setFocus("title");
+        setShowDateTime(false);
+        if (compact) requestAnimationFrame(() => setFocus("title"));
       } catch (err) {
         setError(getErrorMessage(err, "할 일 추가에 실패했습니다."));
       } finally {
@@ -113,6 +131,7 @@ export default function TaskForm({
     (restoreFocus: boolean) => {
       if (submitting.current) return;
       reset(formDefaults);
+      setShowDateTime(false);
       setError(null);
       if (composer) {
         composer.setActive((current) =>
@@ -132,18 +151,19 @@ export default function TaskForm({
   useEffect(() => {
     if (!compact || !adding) return;
     const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!quickAddForm.current?.contains(event.target as Node)) {
+      if (!quickAddForm?.contains(event.target as Node)) {
         closeQuickAdd(false);
       }
     };
     document.addEventListener("pointerdown", closeOnOutsidePointer);
-    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
-  }, [compact, adding, closeQuickAdd]);
+    return () =>
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [compact, adding, closeQuickAdd, quickAddForm]);
 
   if (compact) {
     return adding ? (
       <form
-        ref={quickAddForm}
+        ref={setQuickAddForm}
         className="tasks-quick-add"
         aria-label="빠른 할 일 추가"
         onSubmit={handleSubmit(onSubmit)}
@@ -152,8 +172,27 @@ export default function TaskForm({
             if (event.key === "Enter") event.preventDefault();
             return;
           }
+          if (
+            event.key === "Enter" &&
+            event.target instanceof HTMLInputElement &&
+            (event.target.name === "title" ||
+              ((event.target.name === "flowra_date_input" ||
+                event.target.name === "flowra_time_input") &&
+                event.target.getAttribute("aria-expanded") !== "true"))
+          ) {
+            event.preventDefault();
+            if (!event.repeat) event.currentTarget.requestSubmit();
+            return;
+          }
+          if (event.defaultPrevented) return;
           if (event.key === "Escape") {
             event.stopPropagation();
+            if (
+              event.target instanceof HTMLInputElement &&
+              (event.target.name === "flowra_date_input" ||
+                event.target.name === "flowra_time_input")
+            )
+              return;
             closeQuickAdd(true);
           }
         }}
@@ -163,6 +202,7 @@ export default function TaskForm({
             autoFocus
             aria-label="새 할 일"
             placeholder="할 일을 입력하세요..."
+            enterKeyHint="done"
             maxLength={100}
             readOnly={createMutation.isPending}
             aria-invalid={!!errors.title}
@@ -185,19 +225,95 @@ export default function TaskForm({
             <X />
           </button>
         </div>
-        <p className="tasks-quick-add-hint">
-          Enter로 추가 · Esc로 닫기
-        </p>
-        {defaultScheduleId == null && <Controller control={control} name="due_datetime" render={({ field }) => {
-          const [date = "", time = ""] = (field.value || "").split("T");
-          return <div className="tasks-quick-add-date">
-            <label>마감일 (선택)<input type="date" aria-label="새 할 일 마감일" value={date} disabled={createMutation.isPending}
-              onChange={(event) => field.onChange(event.target.value ? `${event.target.value}T${time || "09:00"}` : "")} /></label>
-            <label>시간<input type="time" aria-label="새 할 일 마감 시간" value={time} disabled={!date || createMutation.isPending}
-              onChange={(event) => field.onChange(`${date}T${event.target.value || "09:00"}`)} /></label>
-            {date && <button type="button" className="tasks-more" aria-label="새 할 일 마감일 제거" onClick={() => field.onChange("")}><X /></button>}
-          </div>;
-        }} />}
+        <p className="tasks-quick-add-hint">Enter로 추가 · Esc로 닫기</p>
+        {defaultScheduleId == null && (
+          <FloatingPanelPortalProvider value={quickAddForm}>
+            <Controller
+              control={control}
+              name="due_datetime"
+              render={({ field }) => {
+                const dueValue = field.value || "";
+                const [date = "", time = ""] = dueValue.split("T");
+                return (
+                  <>
+                    <button
+                      type="button"
+                      className="tasks-completed-toggle tasks-quick-add-date-toggle"
+                      aria-label="날짜·시간 설정"
+                      aria-expanded={showDateTime}
+                      aria-controls={dateTimeId}
+                      disabled={createMutation.isPending}
+                      onClick={() => setShowDateTime((current) => !current)}
+                    >
+                      <CalendarDays
+                        aria-hidden="true"
+                        className="h-3.5 w-3.5 shrink-0"
+                      />
+                      <span>
+                        {date
+                          ? `${date.replaceAll("-", ".")} ${time}`
+                          : "날짜·시간 설정 (선택)"}
+                      </span>
+                      <ChevronDown
+                        aria-hidden="true"
+                        className={`tasks-chevron${showDateTime ? " tasks-chevron-open" : ""}`}
+                      />
+                    </button>
+                    <div id={dateTimeId} hidden={!showDateTime}>
+                      {showDateTime && (
+                        <div className="tasks-quick-add-date">
+                          <div className="min-w-0">
+                            <span className="tasks-quick-add-date-label">
+                              마감일 (선택)
+                            </span>
+                            <CompactDateInput
+                              value={date}
+                              emptyPlaceholder="날짜 선택"
+                              ariaLabel="새 할 일 마감일"
+                              disabled={createMutation.isPending}
+                              onChange={(nextDate) =>
+                                field.onChange(
+                                  localInputWithDateKey(dueValue, nextDate),
+                                )
+                              }
+                              className="w-full"
+                            />
+                          </div>
+                          <div className="min-w-0">
+                            <span className="tasks-quick-add-date-label">
+                              시간
+                            </span>
+                            <CompactTimeInput
+                              value={time}
+                              ariaLabel="새 할 일 마감 시간"
+                              disabled={!date || createMutation.isPending}
+                              onChange={(nextTime) =>
+                                field.onChange(
+                                  localInputWithTime(dueValue, nextTime),
+                                )
+                              }
+                            />
+                          </div>
+                          {date && (
+                            <button
+                              type="button"
+                              className="tasks-more"
+                              aria-label="새 할 일 마감일 제거"
+                              disabled={createMutation.isPending}
+                              onClick={() => field.onChange("")}
+                            >
+                              <X />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              }}
+            />
+          </FloatingPanelPortalProvider>
+        )}
         {(errors.title || error) && (
           <p role="alert" className="tasks-inline-error">
             {errors.title?.message || error}
@@ -212,6 +328,7 @@ export default function TaskForm({
           className="tasks-add-subtask"
           onClick={() => {
             reset(formDefaults);
+            setShowDateTime(false);
             setError(null);
             onOpen?.();
             if (composer) {
@@ -240,11 +357,7 @@ export default function TaskForm({
   }
 
   return (
-    <form
-      onSubmit={handleSubmit(onSubmit)}
-      noValidate
-      className="p-3"
-    >
+    <form onSubmit={handleSubmit(onSubmit)} noValidate className="p-3">
       <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_150px_180px_auto]">
         <div className="flex-1">
           <input

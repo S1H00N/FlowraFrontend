@@ -117,20 +117,12 @@ export default function Login() {
             </div>
 
             <div>
-              <div className="flex items-center justify-between gap-3">
-                <label
-                  className="block text-sm font-medium text-slate-700"
-                  htmlFor="password"
-                >
-                  비밀번호
-                </label>
-                <Link
-                  to="/forgot-password"
-                  className="text-xs font-medium text-violet-700 hover:underline"
-                >
-                  비밀번호 찾기
-                </Link>
-              </div>
+              <label
+                className="block text-sm font-medium text-slate-700"
+                htmlFor="password"
+              >
+                비밀번호
+              </label>
               <input
                 id="password"
                 type="password"
@@ -155,6 +147,14 @@ export default function Login() {
             >
               {isSubmitting ? "로그인 중..." : "로그인"}
             </button>
+            <div className="text-right">
+              <Link
+                to="/forgot-password"
+                className="text-xs font-medium text-violet-700 hover:underline"
+              >
+                비밀번호 찾기
+              </Link>
+            </div>
           </form>
 
           <GoogleAuthFlow

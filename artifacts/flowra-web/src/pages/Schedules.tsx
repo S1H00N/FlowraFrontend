@@ -259,8 +259,8 @@ interface MonthCalendarCell {
 export interface ScheduleFormState {
   title: string;
   description: string;
-  schedule_type: ScheduleType;
-  priority: TaskPriority;
+  schedule_type: ScheduleType | "";
+  priority: TaskPriority | "";
   start_local: string;
   end_local: string;
   all_day: boolean;
@@ -2733,8 +2733,8 @@ export function emptyFormForDate(date: Date): ScheduleFormState {
   return {
     title: "",
     description: "",
-    schedule_type: "personal",
-    priority: "medium",
+    schedule_type: "",
+    priority: "",
     start_local: hasExplicitTime
       ? dateAtLocalTime(date, date.getHours(), date.getMinutes())
       : dateAtLocalTime(date, 9),
@@ -2767,7 +2767,8 @@ function formForScheduleOwner(
   form: ScheduleFormState,
   owner: ScheduleOwnerType,
 ) {
-  return owner === "company" && form.schedule_type === "personal"
+  return owner === "company" &&
+    (form.schedule_type === "" || form.schedule_type === "personal")
     ? { ...form, schedule_type: "meeting" as const }
     : form;
 }
@@ -2791,8 +2792,8 @@ export function toPayload(form: ScheduleFormState) {
   return {
     title: normalizeScheduleTitle(form.title),
     description: form.description.trim() || null,
-    schedule_type: form.schedule_type,
-    priority: form.priority,
+    schedule_type: form.schedule_type || undefined,
+    priority: form.priority || undefined,
     start_datetime: fromLocalInputValue(form.start_local),
     end_datetime: form.end_local
       ? fromLocalInputValue(form.end_local)
@@ -2905,8 +2906,8 @@ function previewScheduleFromForm(
     user_id: source?.user_id,
     title: normalizeScheduleTitle(form.title),
     description: form.description.trim() || null,
-    schedule_type: form.schedule_type,
-    priority: form.priority,
+    schedule_type: form.schedule_type || "other",
+    priority: form.priority || undefined,
     is_completed: source?.is_completed ?? false,
     start_datetime: fromLocalInputValue(form.start_local),
     end_datetime: end,
@@ -3672,12 +3673,20 @@ export function ScheduleFormPanel({
   const scheduleTypeOptions = getClassificationOptions(
     classificationSettings,
     "scheduleTypes",
-    { enabledOnly: true, include: form.schedule_type, defaultOnly: true },
+    {
+      enabledOnly: true,
+      include: form.schedule_type || undefined,
+      defaultOnly: true,
+    },
   );
   const priorityOptions = getClassificationOptions(
     classificationSettings,
     "taskPriorities",
-    { enabledOnly: true, include: form.priority, defaultOnly: true },
+    {
+      enabledOnly: true,
+      include: form.priority || undefined,
+      defaultOnly: true,
+    },
   );
   const {
     data: scheduleCategories = [],
@@ -3691,7 +3700,9 @@ export function ScheduleFormPanel({
   const departmentsQuery = useCompanyAdminDepartments(
     isCompanyScheduleDraft && companyCollaborationEnabled,
   );
-  const scheduleTypeSelectOptions = useMemo<CustomSelectOption<ScheduleType>[]>(
+  const scheduleTypeSelectOptions = useMemo<
+    CustomSelectOption<ScheduleType | "">[]
+  >(
     () =>
       scheduleTypeOptions.map((option) => {
         const meta = scheduleTypeSelectMeta[option.value];
@@ -3703,7 +3714,7 @@ export function ScheduleFormPanel({
       }),
     [scheduleTypeOptions],
   );
-  const prioritySelectOptions = useMemo<CustomSelectOption<TaskPriority>[]>(
+  const prioritySelectOptions = useMemo<CustomSelectOption<TaskPriority | "">[]>(
     () =>
       priorityOptions.map((option) => {
         const meta = prioritySelectMeta[option.value];
@@ -3718,10 +3729,11 @@ export function ScheduleFormPanel({
   const categorySelectOptions = useMemo<CustomSelectOption<number | "">[]>(
     () => [
       {
-        label: "카테고리 없음",
+        label: mode === "create" ? "자동 분류" : "카테고리 없음",
         value: "",
         colorDot: emptyCategoryColor,
-        description: "분류 없이 저장",
+        description:
+          mode === "create" ? "일정 내용에 따라 자동 분류" : "분류 없이 저장",
       },
       ...scheduleCategories.map((category) => ({
         label: category.name,
@@ -3729,7 +3741,7 @@ export function ScheduleFormPanel({
         colorDot: category.color || fallbackCategoryColor,
       })),
     ],
-    [scheduleCategories],
+    [mode, scheduleCategories],
   );
   const formStartDateKey = dateFromLocalInput(form.start_local);
   const formEndDateKey = dateFromLocalInput(form.end_local) || formStartDateKey;
@@ -3986,6 +3998,10 @@ export function ScheduleFormPanel({
     : mode === "create" || isRepeatMode || isSelectedDatesMode
       ? buildFormsForDateKeys(previewForm, targetDateKeys)
       : [previewForm];
+  const submitForms =
+    mode === "create" || isRepeatMode || isSelectedDatesMode
+      ? buildFormsForDateKeys(form, targetDateKeys)
+      : [form];
   const displayStartLocal = previewStartLocal ?? form.start_local;
   const displayEndLocal = previewEndLocal ?? form.end_local;
   const formTimeRangeLabel = formatTimeRange(
@@ -5996,7 +6012,7 @@ export function ScheduleFormPanel({
         await onCompanySubmit({
           title: normalizeScheduleTitle(form.title),
           description: form.description.trim() || undefined,
-          schedule_type: form.schedule_type,
+          schedule_type: form.schedule_type || "meeting",
           start_datetime: fromLocalInputValue(form.start_local),
           end_datetime: form.end_local
             ? fromLocalInputValue(form.end_local)
@@ -6035,7 +6051,7 @@ export function ScheduleFormPanel({
       return;
     }
 
-    for (const item of previewForms) {
+    for (const item of submitForms) {
       const validationError = validateForm(item);
       if (validationError) {
         setError(validationError);
@@ -6047,7 +6063,7 @@ export function ScheduleFormPanel({
       const share = buildShareOption();
       if (share === null) return;
 
-      await onSubmit(previewForms, { intent: "manual", share });
+      await onSubmit(submitForms, { intent: "manual", share });
       if (mode === "edit") {
         lastAutoSaveSignatureRef.current = scheduleFormSignature(form);
         setAutoSaveState("saved");
@@ -6079,7 +6095,7 @@ export function ScheduleFormPanel({
       return;
     }
 
-    for (const item of previewForms) {
+    for (const item of submitForms) {
       const validationError = validateForm(item);
       if (validationError) {
         setError(validationError);
@@ -6088,7 +6104,7 @@ export function ScheduleFormPanel({
     }
 
     try {
-      await onSubmit(previewForms, { intent: "repeat" });
+      await onSubmit(submitForms, { intent: "repeat" });
       setAutoSaveState("saved");
     } catch (err) {
       setAutoSaveState("error");
@@ -6177,9 +6193,17 @@ export function ScheduleFormPanel({
   const handleScheduleOwnerChange = (value: ScheduleOwnerType) => {
     setScheduleOwner(value);
     setForm((prev) =>
-      value === "company" && prev.schedule_type === "personal"
-        ? { ...prev, schedule_type: "meeting", visibility: "private" }
-        : { ...prev, visibility: value === "company" ? "private" : prev.visibility },
+      formForScheduleOwner(
+        {
+          ...prev,
+          schedule_type:
+            value === "personal" && !selectDisplayTouched.schedule_type
+              ? ""
+              : prev.schedule_type,
+          visibility: value === "company" ? "private" : prev.visibility,
+        },
+        value,
+      ),
     );
     setCompanyTargets([]);
     setCompanyCollaborationEnabled(false);
@@ -10027,9 +10051,11 @@ function WeekScheduleGrid({
   const visibleRangeKey = weekDates.map((day) => toDateKey(day)).join("|");
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const allDayGridRef = useRef<HTMLDivElement | null>(null);
+  const allDayToggleRef = useRef<HTMLButtonElement | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
   const dropSettleTimeoutRef = useRef<number | null>(null);
   const lastAutoScrolledRangeKeyRef = useRef<string | null>(null);
+  const [allDayCollapsed, setAllDayCollapsed] = useState(false);
   const [interaction, setInteraction] =
     useState<WeekScheduleInteraction | null>(null);
   const [createInteraction, setCreateInteraction] =
@@ -10074,6 +10100,22 @@ function WeekScheduleGrid({
   const allDayRowHeight = Math.max(
     42,
     30 + Math.max(1, holidayLaneCount + scheduleAllDayLaneCount) * 24,
+  );
+  const allDayCountsByDate = useMemo(
+    () =>
+      weekDates.map((_, dayIndex) => {
+        const counts: Record<ScheduleOwnerType, number> = {
+          personal: 0,
+          company: 0,
+        };
+        for (const { schedule, startIndex, endIndex } of allDayScheduleLayouts) {
+          if (dayIndex >= startIndex && dayIndex <= endIndex) {
+            counts[scheduleOwnerType(schedule)] += 1;
+          }
+        }
+        return counts;
+      }),
+    [allDayScheduleLayouts, weekDates],
   );
   const timedSchedules = useMemo(
     () =>
@@ -10921,20 +10963,97 @@ function WeekScheduleGrid({
         </div>
 
         <div
+          data-flowra-all-day-row
+          data-collapsed={allDayCollapsed}
           className="sticky top-11 z-30 grid border-b border-slate-100 bg-white/95 shadow-[0_1px_0_rgba(226,232,240,0.85)] backdrop-blur"
           style={{
             gridTemplateColumns: `${weekTimeColumnWidth}px repeat(${dayCount}, minmax(0, 1fr))`,
           }}
         >
-          <div
-            className="flex items-start justify-center border-r border-slate-100 px-2 pt-3 text-[11px] text-slate-500"
-            style={{ minHeight: allDayRowHeight }}
+          <button
+            ref={allDayToggleRef}
+            type="button"
+            aria-label={allDayCollapsed ? "종일 일정 펼치기" : "종일 일정 접기"}
+            aria-expanded={!allDayCollapsed}
+            title={allDayCollapsed ? "종일 일정 펼치기" : "종일 일정 접기"}
+            onClick={() => setAllDayCollapsed((collapsed) => !collapsed)}
+            className="flex items-start justify-center gap-0.5 border-r border-slate-100 px-1 pt-3 text-[11px] text-slate-500 transition hover:bg-slate-50 hover:text-violet-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-300"
+            style={{ minHeight: allDayCollapsed ? 42 : allDayRowHeight }}
           >
+            {allDayCollapsed ? (
+              <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+            ) : (
+              <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
             종일
-          </div>
+          </button>
+          {allDayCollapsed && (
+            <div
+              className="grid min-h-[42px]"
+              style={{
+                gridColumn: `span ${dayCount} / span ${dayCount}`,
+                gridTemplateColumns: `repeat(${dayCount}, minmax(0, 1fr))`,
+              }}
+            >
+              {weekDates.map((day, dayIndex) => {
+                const key = toDateKey(day);
+                const counts = allDayCountsByDate[dayIndex];
+                const holidays = holidaysByDate.get(key) ?? [];
+                const hasContent =
+                  counts.personal + counts.company > 0 || holidays.length > 0;
+
+                return (
+                  <div
+                    key={`all-day-summary-${key}`}
+                    className={`min-w-0 border-r border-slate-100 last:border-r-0 ${weekdayColumnClass(day, selectedKey === key, holidays.length > 0)}`}
+                  >
+                    {hasContent && (
+                      <button
+                        type="button"
+                        aria-label={`${day.getMonth() + 1}월 ${day.getDate()}일 종일 일정 펼치기`}
+                        aria-expanded={false}
+                        title={[
+                          counts.personal > 0 ? `개인 ${counts.personal}개` : "",
+                          counts.company > 0 ? `회사 ${counts.company}개` : "",
+                          ...holidays.map((holiday) => holiday.name),
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                        onClick={() => {
+                          setAllDayCollapsed(false);
+                          allDayToggleRef.current?.focus();
+                        }}
+                        className="flex h-full w-full min-w-0 flex-wrap content-center items-center gap-1 overflow-hidden p-1 text-left transition hover:bg-violet-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-300"
+                      >
+                        {(["personal", "company"] as const).map((owner) =>
+                          counts[owner] > 0 ? (
+                            <span
+                              key={owner}
+                              className="max-w-full truncate rounded px-1 text-[10px] font-semibold leading-4"
+                              style={{
+                                backgroundColor: `light-dark(${colorWithAlpha(scheduleOwnerFilterColors[owner], "18")}, color-mix(in srgb, ${scheduleOwnerFilterColors[owner]} 20%, #202020))`,
+                                color: `light-dark(${scheduleOwnerFilterColors[owner]}, color-mix(in srgb, ${scheduleOwnerFilterColors[owner]} 35%, #eeeeee))`,
+                              }}
+                            >
+                              {owner === "personal" ? "개인" : "회사"} +{counts[owner]}개
+                            </span>
+                          ) : null,
+                        )}
+                        {holidays.length > 0 && (
+                          <span className="max-w-full truncate rounded bg-rose-50 px-1 text-[10px] font-semibold leading-4 text-rose-700">
+                            {holidays.map((holiday) => holiday.name).join(", ")}
+                          </span>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           <div
             ref={allDayGridRef}
-            className="relative grid"
+            className={allDayCollapsed ? "hidden" : "relative grid"}
             style={{
               gridColumn: `span ${dayCount} / span ${dayCount}`,
               gridTemplateColumns: `repeat(${dayCount}, minmax(0, 1fr))`,

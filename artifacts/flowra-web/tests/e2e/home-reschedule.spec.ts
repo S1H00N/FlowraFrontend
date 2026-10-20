@@ -1270,8 +1270,9 @@ test("empty home hides overdue controls and can add a task using the existing fo
     .getByRole("region", { name: "오늘 할 일", exact: true })
     .getByRole("button", { name: "할 일 추가", exact: true })
     .click();
+  await page.getByRole("button", { name: "날짜·시간 설정", exact: true }).click();
   await expect(page.getByLabel("새 할 일 마감일", { exact: true })).toHaveValue(
-    "2026-09-09",
+    "09.09(수)",
   );
   await page
     .getByRole("textbox", { name: "새 할 일", exact: true })
@@ -1362,13 +1363,18 @@ test("empty panels stay compact and quick add collapses on Escape or the cancel 
   await expect(add).toBeFocused();
   await add.click();
   await expect(form).toBeVisible();
+  await form.getByRole("button", { name: "날짜·시간 설정", exact: true }).click();
   await form.getByLabel("새 할 일 마감일", { exact: true }).fill("2026-09-12");
+  await form.getByLabel("새 할 일 마감일", { exact: true }).press("Enter");
+  await title.focus();
   await form
     .getByRole("button", { name: "빠른 추가 취소", exact: true })
     .click();
   await add.click();
+  await expect(form.getByRole("button", { name: "날짜·시간 설정", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await form.getByRole("button", { name: "날짜·시간 설정", exact: true }).click();
   await expect(form.getByLabel("새 할 일 마감일", { exact: true })).toHaveValue(
-    "2026-09-09",
+    "09.09(수)",
   );
   await title.press("Escape");
   expect(api.state.tasks).toHaveLength(0);

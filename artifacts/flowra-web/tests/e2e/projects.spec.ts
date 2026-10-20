@@ -752,8 +752,8 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
       page.locator("main").getByText("보관", { exact: true }).first(),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "간트 차트", exact: true }),
-    ).toHaveCount(0);
+      page.getByRole("tab", { name: "간트 차트", exact: true }),
+    ).toBeVisible();
   });
 
   test("회사 역할과 별개로 프로젝트 관리 권한이 없으면 수정 기능을 제공하지 않는다", async ({

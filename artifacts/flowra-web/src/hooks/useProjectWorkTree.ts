@@ -241,12 +241,12 @@ export function useProjectWorkTree(
     return Boolean(children.get(item.company_project_work_item_id)?.length) || needsChildren(item) ||
       Boolean(queryById.get(item.company_project_work_item_id)?.isError);
   }
-  function loadChildren(item: CompanyProjectWorkItem) {
+  function loadChildren(item: CompanyProjectWorkItem, force = false) {
     const id = item.company_project_work_item_id;
     const query = queryById.get(id);
     if (query?.isError && !query.isFetching) {
       void query.refetch();
-    } else if (needsChildren(item)) {
+    } else if (force || needsChildren(item)) {
       if (query && !query.isFetching) void query.refetch();
       else setRequested((previous) => previous.includes(id) ? previous : [...previous, id]);
     }

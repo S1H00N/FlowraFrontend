@@ -10,12 +10,13 @@ const require = createRequire(new URL("../package.json", import.meta.url));
 const ts = require("typescript");
 let response = {};
 let rejection;
+let responseForCall;
 const calls = [];
 const invalidations = [];
 const client = Object.fromEntries(["get", "post", "patch", "put", "delete"].map((method) => [method, async (...args) => {
   calls.push({ method, args });
   if (rejection) throw rejection;
-  return { data: { success: true, message: "OK", data: response } };
+  return { data: { success: true, message: "OK", data: responseForCall ? await responseForCall(method, args) : response } };
 }]));
 const cache = new Map();
 function loadSource(source) {
@@ -114,10 +115,102 @@ test("children preserve parent and privacy-filtered relationships including an e
 
 test("Gantt preserves its response without requiring a project object and sends explicit depth five", async () => {
   response = { gantt_policy: { scale: "small", mode: "full", max_depth: 5, full_load_allowed: true }, phases: [], items: [work(10)], dependencies: [] };
-  const result = await api.getCompanyProjectGantt(7, { mode: "full", max_depth: 5 });
+  const signal = new AbortController().signal;
+  const result = await api.getCompanyProjectGantt(7, { mode: "full", max_depth: 5 }, { signal });
   assert.deepEqual(result.data, response);
   assert.equal(Object.hasOwn(result.data, "project"), false);
   assert.deepEqual(last().args[1].params, { mode: "full", max_depth: 5 });
+  assert.equal(last().args[1].signal, signal);
+});
+
+test("Gantt distinguishes an explicit empty response from missing or malformed required data", async () => {
+  const empty = { gantt_policy: { scale: "small", mode: "auto", max_depth: 2, full_load_allowed: true }, phases: [], items: [], dependencies: [] };
+  response = empty;
+  assert.deepEqual((await api.getCompanyProjectGantt(7)).data, empty);
+  for (const field of ["gantt_policy", "phases", "items", "dependencies"]) {
+    for (const value of [undefined, null, "invalid", {}]) {
+      response = { ...empty, [field]: value };
+      await assert.rejects(api.getCompanyProjectGantt(7), /간트 응답 형식/, `${field}: ${String(value)}`);
+    }
+  }
+  for (const policy of [
+    { ...empty.gantt_policy, scale: "invalid" }, { ...empty.gantt_policy, mode: "invalid" },
+    { ...empty.gantt_policy, max_depth: 0 }, { ...empty.gantt_policy, max_depth: 6 },
+    { ...empty.gantt_policy, max_depth: "2" }, { ...empty.gantt_policy, full_load_allowed: undefined },
+  ]) {
+    response = { ...empty, gantt_policy: policy };
+    await assert.rejects(api.getCompanyProjectGantt(7), /간트 응답 형식/);
+  }
+});
+
+test("Gantt rejects invalid and duplicate IDs or explicit foreign project rows without requiring missing ancestors", async () => {
+  const valid = { gantt_policy: { scale: "medium", mode: "summary", max_depth: 2, full_load_allowed: false },
+    phases: [{ company_project_phase_id: 4, company_project_id: 7, name: "Planning" }], items: [work(11, 10)], dependencies: [] };
+  response = valid;
+  assert.deepEqual((await api.getCompanyProjectGantt(7)).data.items, [work(11, 10)]);
+  for (const patch of [
+    { phases: [{ ...valid.phases[0], company_project_phase_id: 0 }] },
+    { phases: [{ ...valid.phases[0], company_project_id: 8 }] },
+    { phases: [valid.phases[0], valid.phases[0]] },
+    { items: [{ ...work(11), company_project_work_item_id: undefined }] },
+    { items: [{ ...work(11), company_project_work_item_id: "11" }] },
+    { items: [{ ...work(11), company_project_id: 8 }] },
+    { items: [{ ...work(11), depth_level: 6 }] },
+    { items: [work(11), work(11)] },
+    { dependencies: [{}] },
+    { dependencies: [{ company_project_work_dependency_id: 5, predecessor_work_item_id: 11, successor_work_item_id: 0 }] },
+  ]) {
+    response = { ...valid, ...patch };
+    await assert.rejects(api.getCompanyProjectGantt(7), /간트 응답 형식/);
+  }
+});
+
+test("Gantt hook waits for activation, forwards cancellation and keeps requested mode and depth", async () => {
+  const before = calls.length;
+  assert.equal(hooks.useCompanyProjectGantt(7, {}, { enabled: false }).enabled, false);
+  assert.equal(hooks.useCompanyProjectGantt(null).enabled, false);
+  assert.equal(calls.length, before);
+  response = { gantt_policy: { scale: "small", mode: "auto", max_depth: 2, full_load_allowed: true }, phases: [], items: [], dependencies: [] };
+  for (const query of [{ mode: "auto", max_depth: 2 }, { mode: "full", max_depth: 5 }]) {
+    const signal = new AbortController().signal;
+    const options = hooks.useCompanyProjectGantt(7, query);
+    assert.equal(options.enabled, true);
+    assert.equal(options.placeholderData, undefined);
+    await options.queryFn({ signal });
+    assert.equal(last().args[1].signal, signal);
+    assert.deepEqual(last().args[1].params, query);
+  }
+});
+
+test("Gantt query observers discard a cancelled project's late response and never reuse another project's rows", async () => {
+  const { QueryClient, QueryObserver } = require("@tanstack/react-query");
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+  const pending = new Map();
+  responseForCall = (_method, args) => new Promise((resolve) => pending.set(args[0], { resolve, signal: args[1].signal }));
+  const observer = new QueryObserver(queryClient, hooks.useCompanyProjectGantt(7, { mode: "full", max_depth: 5 }));
+  const unsubscribe = observer.subscribe(() => {});
+  const data = (id) => ({ gantt_policy: { scale: "small", mode: "full", max_depth: 5, full_load_allowed: true },
+    phases: [], items: [{ ...work(id), company_project_id: id }], dependencies: [] });
+  try {
+    assert.equal(pending.has("/company-projects/7/gantt"), true);
+    observer.setOptions(hooks.useCompanyProjectGantt(8, { mode: "full", max_depth: 5 }));
+    assert.equal(pending.get("/company-projects/7/gantt").signal.aborted, true);
+    assert.equal(observer.getCurrentResult().data, undefined);
+    pending.get("/company-projects/7/gantt").resolve(data(7));
+    pending.get("/company-projects/8/gantt").resolve(data(8));
+    await queryClient.fetchQuery(hooks.useCompanyProjectGantt(8, { mode: "full", max_depth: 5 }));
+    assert.equal(observer.getCurrentResult().data.items[0].company_project_id, 8);
+    observer.setOptions(hooks.useCompanyProjectGantt(9, { mode: "full", max_depth: 5 }));
+    assert.equal(observer.getCurrentResult().data, undefined);
+    pending.get("/company-projects/9/gantt").resolve(data(9));
+    await queryClient.fetchQuery(hooks.useCompanyProjectGantt(9, { mode: "full", max_depth: 5 }));
+    assert.equal(observer.getCurrentResult().data.items[0].company_project_id, 9);
+  } finally {
+    responseForCall = undefined;
+    unsubscribe();
+    observer.destroy();
+    queryClient.clear();
+  }
 });
 
 test("management assignment route allows replacement while self PATCH strips identity and normalizes UTC", async () => {

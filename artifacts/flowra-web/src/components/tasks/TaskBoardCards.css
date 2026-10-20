@@ -769,7 +769,7 @@
   background: var(--flowra-surface);
   box-shadow: 0 0 0 2px rgb(139 92 246 / 12%);
 }
-.tasks-quick-add input {
+.tasks-quick-add-controls > input {
   width: 0;
   min-width: 0;
   flex: 1;
@@ -784,6 +784,46 @@
   margin: 4px 8px;
   color: var(--flowra-text-muted);
   font-size: 11px;
+}
+.tasks-quick-add-date-toggle {
+  max-width: 100%;
+  padding-inline: 8px;
+}
+.tasks-quick-add-date-toggle span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tasks-quick-add-date-toggle:hover {
+  background: var(--flowra-surface-soft);
+}
+.tasks-quick-add-date-toggle:focus-visible {
+  outline: 2px solid var(--flowra-primary);
+  outline-offset: -2px;
+}
+.tasks-quick-add-date { display: grid; grid-template-columns: minmax(0, 1fr) 5.5rem auto; align-items: end; gap: 8px; padding: 6px 0; }
+.tasks-quick-add-date-label { display: block; margin-bottom: 4px; font-size: 12px; color: var(--flowra-text-muted); }
+.tasks-quick-add :is(.schedule-date-popover, [role="listbox"]) {
+  border-color: var(--flowra-border);
+  background-color: var(--flowra-surface-elevated);
+  color: var(--flowra-text-strong);
+}
+.tasks-quick-add :is(.schedule-date-popover, [role="listbox"]) :where([class~="text-slate-100"], [class~="text-slate-200"]) {
+  color: var(--flowra-text-strong);
+}
+.tasks-quick-add .schedule-date-popover :where([class~="text-slate-400"]) {
+  color: var(--flowra-text-muted);
+}
+.tasks-quick-add .schedule-date-popover button:disabled {
+  color: var(--flowra-text-muted);
+  opacity: 0.4;
+}
+.tasks-quick-add :is(.schedule-date-popover, [role="listbox"]) :where([class~="hover:bg-neutral-800"]):hover,
+.tasks-quick-add [role="listbox"] :where([class~="bg-neutral-800"]) {
+  background-color: var(--flowra-accent-bg);
+}
+.tasks-quick-add .schedule-date-popover :where([class~="hover:text-white"]):hover,
+.tasks-quick-add [role="listbox"] :where([class~="bg-neutral-800"]) {
+  color: var(--flowra-accent-text);
 }
 .tasks-subtask-open:focus-visible,
 .tasks-completed-toggle:focus-visible {

@@ -66,7 +66,6 @@ const navigation = [
   {
     to: "/projects",
     label: "프로젝트",
-    description: "회사 프로젝트의 계획과 진행 상태를 관리합니다.",
     icon: FolderKanban,
   },
   {
@@ -567,7 +566,7 @@ export default function AppShell({
                       </span>
                     )}
                   </div>
-                  {!fullBleed && headerDescriptionMode === "inline" && (
+                  {!fullBleed && headerDescriptionMode === "inline" && activeItem.description && (
                     <p className="truncate text-sm text-slate-500">
                       {activeItem.description}
                     </p>

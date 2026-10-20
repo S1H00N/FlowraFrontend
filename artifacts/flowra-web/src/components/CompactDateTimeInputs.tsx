@@ -542,7 +542,10 @@ export function CompactDateInput({
             event.currentTarget.select();
             window.requestAnimationFrame(updateCalendarPosition);
           }}
-          onClick={(event) => event.currentTarget.select()}
+          onClick={(event) => {
+            openCalendar();
+            event.currentTarget.select();
+          }}
           onBlur={(event) => {
             // Tab to the internal clear button still commits an edited date.
             if (

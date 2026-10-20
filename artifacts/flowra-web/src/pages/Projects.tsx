@@ -100,7 +100,7 @@ export default function Projects() {
   ];
 
   return (
-    <AppShell>
+    <AppShell wide>
       <div className="projects-page flowra-page-stack">
         <div className="projects-heading">
           <div>

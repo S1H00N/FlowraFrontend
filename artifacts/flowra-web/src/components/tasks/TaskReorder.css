@@ -39,10 +39,6 @@ li[data-reorder-drop="after"] {
   .task-move-menu [role="menuitem"] { min-height: 44px; }
 }
 .task-moved-highlight { background: color-mix(in srgb, #8b5cf6 10%, transparent); }
-.tasks-quick-add-date { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; padding: 6px 0; }
-.tasks-quick-add-date label { display: grid; gap: 4px; min-width: 0; font-size: 12px; color: var(--flowra-text-muted); }
-.tasks-quick-add-date input { min-height: 36px; padding: 5px 8px; border: 1px solid var(--flowra-border); border-radius: 6px; background: var(--flowra-surface); color: var(--flowra-text); }
-.tasks-quick-add .tasks-quick-add-date input { width: 100%; flex: none; }
 @container task-board (max-width: 640px) {
   .tasks-subtasks > .tasks-subtask { grid-template-columns: 32px minmax(0, 1fr) 72px; }
   .tasks-subtask .tasks-row-actions { width: 72px; gap: 0; }

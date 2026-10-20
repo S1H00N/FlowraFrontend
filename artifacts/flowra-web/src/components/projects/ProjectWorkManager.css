@@ -13,6 +13,9 @@
   width: 100%;
   max-width: 100%;
 }
+.project-work-layout > [role="tabpanel"] {
+  min-width: 0;
+}
 .project-work-list {
   container: work-list / inline-size;
   min-width: 0;

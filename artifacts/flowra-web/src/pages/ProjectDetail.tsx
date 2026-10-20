@@ -29,6 +29,7 @@ import "./Projects.css";
 const DETAIL_TABS = [
   { value: "overview", label: "개요" },
   { value: "work", label: "업무 목록" },
+  { value: "gantt", label: "간트 차트" },
   { value: "members", label: "구성원" },
 ] as const;
 
@@ -81,15 +82,16 @@ export default function ProjectDetail() {
     requestedCompany &&
     project &&
     String(project.company_id) !== requestedCompany;
+  const workActive = tab === "work" || tab === "gantt";
 
   return (
     <AppShell
       wide
-      aiChatButtonOffset={tab === "work" && panelLayout.overlay ? `${panelLayout.width + panelLayout.right}px` : undefined}
-      headerRightOffset={tab === "work" && panelLayout.docked ? `${panelLayout.width}px` : undefined}
+      aiChatButtonOffset={workActive && panelLayout.overlay ? `${panelLayout.width + panelLayout.right}px` : undefined}
+      headerRightOffset={workActive && panelLayout.docked ? `${panelLayout.width}px` : undefined}
     >
       <div className="projects-detail-workspace"
-        data-work-panel-docked={tab === "work" && panelLayout.docked}
+        data-work-panel-docked={workActive && panelLayout.docked}
         style={{ "--project-work-dock-space": `${panelLayout.width}px` } as CSSProperties}>
       <div className="projects-page projects-work-page flowra-page-stack">
         <div className="projects-detail-nav">
@@ -114,6 +116,9 @@ export default function ProjectDetail() {
               void detail.refetch();
               void queryClient.invalidateQueries({
                 queryKey: [...COMPANY_PROJECTS_QUERY_KEY, "members", id ?? 0],
+              });
+              void queryClient.invalidateQueries({
+                queryKey: [...COMPANY_PROJECTS_QUERY_KEY, "gantt", id ?? 0],
               });
             }}
           >
@@ -216,10 +221,7 @@ export default function ProjectDetail() {
               >{label}</Button>)}
             </div>
             <div
-              id="project-work-panel"
-              role="tabpanel"
-              aria-labelledby="project-work-tab"
-              hidden={tab !== "work"}
+              hidden={!workActive}
             >
               {detail.data && (
                 <ProjectWorkManager
@@ -227,7 +229,8 @@ export default function ProjectDetail() {
                   detail={detail.data}
                   detailUpdatedAt={detail.dataUpdatedAt}
                   membership={membership}
-                  active={tab === "work"}
+                  active={workActive}
+                  view={tab === "gantt" ? "gantt" : "work"}
                   onPanelLayoutChange={setPanelLayout}
                   onManageMembers={() => setMembersOpen(true)}
                 />

@@ -498,20 +498,40 @@ export async function removeCompanyProjectMember(
 export async function getCompanyProjectGantt(
   companyProjectId: number,
   query: CompanyProjectGanttQuery = {},
+  options: { signal?: AbortSignal } = {},
 ) {
   const res = await apiClient.get<ApiResponse<CompanyProjectGanttData>>(
     `/company-projects/${companyProjectId}/gantt`,
     {
       params: normalizeGanttQuery(query),
+      signal: options.signal,
     },
   );
+  const data: unknown = res.data.data;
+  if (!isRecord(data) || !isRecord(data.gantt_policy) ||
+    !["small", "medium", "large"].includes(String(data.gantt_policy.scale)) ||
+    !["auto", "summary", "full"].includes(String(data.gantt_policy.mode)) ||
+    !Number.isInteger(data.gantt_policy.max_depth) ||
+    Number(data.gantt_policy.max_depth) < 1 || Number(data.gantt_policy.max_depth) > 5 ||
+    typeof data.gantt_policy.full_load_allowed !== "boolean" ||
+    !Array.isArray(data.phases) || data.phases.some((phase) => !hasPhaseBasics(phase, companyProjectId)) ||
+    !hasUniqueIds(data.phases as CompanyProjectPhase[], (phase) => phase.company_project_phase_id) ||
+    !Array.isArray(data.items) || data.items.some((item) => !hasWorkItemBasics(item, companyProjectId) ||
+      (item.depth_level !== undefined && (!Number.isInteger(item.depth_level) || item.depth_level < 1 || item.depth_level > 5))) ||
+    !hasUniqueIds(data.items as CompanyProjectWorkItem[], (item) => item.company_project_work_item_id) ||
+    !hasValidDependencies(data.dependencies) || data.dependencies.some((dependency) =>
+      !isResourceId(dependency.company_project_work_dependency_id) ||
+      !isResourceId(dependency.predecessor_work_item_id) || !isResourceId(dependency.successor_work_item_id) ||
+      !belongsToProject(dependency, companyProjectId))) {
+    throw new Error("프로젝트 간트 응답 형식을 확인할 수 없습니다. 다시 조회해 주세요.");
+  }
   return {
     ...res.data,
     data: {
       gantt_policy: res.data.data.gantt_policy,
-      phases: res.data.data.phases ?? [],
-      items: res.data.data.items ?? [],
-      dependencies: res.data.data.dependencies ?? [],
+      phases: res.data.data.phases,
+      items: res.data.data.items,
+      dependencies: res.data.data.dependencies,
     } satisfies CompanyProjectGanttData,
   };
 }

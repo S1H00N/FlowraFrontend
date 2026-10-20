@@ -394,7 +394,7 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     await expect(workTab).toBeFocused();
     await expect(search).toHaveValue("다른 업무");
     await expect(row(page, "QA 다른 업무")).toBeVisible();
-    await expect(page.getByRole("tab", { name: /간트/ })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: "간트 차트", exact: true })).toBeVisible();
     expect(api.requests.filter((request) => /gantt/.test(request.path))).toEqual([]);
   });
 
