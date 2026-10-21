@@ -124,6 +124,42 @@ button.gantt-period-unset { cursor: pointer; }
 .gantt-legend-progress { background: var(--flowra-primary); }
 .gantt-legend .gantt-legend-phase { width: 16px; height: 6px; border: 1px solid var(--flowra-text-subtle); background: var(--flowra-border-strong); }
 .gantt-mobile { display: none; }
+.gantt-option { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; font-size: 12px; cursor: pointer; }
+.gantt-option input { accent-color: var(--flowra-primary); }
+.gantt-option:focus-within { outline: 2px solid var(--flowra-primary); outline-offset: 2px; border-radius: 4px; }
+.gantt-dependency-details { margin: 10px 20px; font-size: 12px; color: var(--flowra-text-muted); }
+.gantt-dependency-details summary { cursor: pointer; padding: 6px 0; }
+.gantt-dependency-details ul { display: grid; gap: 8px; max-height: 200px; overflow: auto; padding: 8px 0; list-style: none; }
+.gantt-dependency-details li { padding: 8px; border: 1px solid var(--flowra-border-soft); border-radius: 6px; overflow-wrap: anywhere; }
+.gantt-dependency-details button { color: var(--flowra-accent-text); text-decoration: underline; text-underline-offset: 3px; }
+.gantt-dependency-details button:focus-visible { outline: 2px solid var(--flowra-primary); outline-offset: 2px; }
+.gantt-relation-hidden { display: block; margin-top: 4px; }
+.gantt-row[data-related] .gantt-kind-icon { color: var(--flowra-primary); }
+.gantt-row[data-related] .gantt-wbs-cell { box-shadow: inset 3px 0 var(--flowra-primary); }
+.gantt-active-filters { padding: 0 20px 10px; }
+.gantt-active-filters button { max-width: 100%; }
+.gantt-display-options { display: grid; gap: 4px; }
+.gantt-display-options .gantt-option { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+.gantt-work-label { width: 100%; min-width: 0; }
+.gantt-work-metadata { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap;
+  padding-left: calc(48px + min(var(--gantt-depth), 5) * 16px); padding-right: 12px; font-size: 10px; }
+.gantt-work-metadata > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.gantt-work-metadata .work-assignee-summary { min-width: 0; }
+.gantt-work-metadata .work-assignee-identity { min-width: 0; }
+.gantt-work-metadata .work-assignee-name { overflow: hidden; text-overflow: ellipsis; }
+.gantt-work-metadata .work-assignee-identity > [data-slot="avatar"],
+.gantt-work-metadata .work-assignee-identity > .relative { display: none; }
+.has-metadata .gantt-name { height: 25px; }
+.has-metadata .gantt-title { font-size: 12px; padding-block: 1px; }
+.gantt-work-metadata > span { padding-block: 0; font-size: 10px; }
+.gantt-progress-text { position: absolute; inset: -1px 0; overflow: hidden; white-space: nowrap; text-align: center; color: var(--flowra-text-strong); font-size: 10px; line-height: 17px; }
+.gantt-resize-handle { position: absolute; right: -4px; top: 0; bottom: 0; width: 8px; z-index: 10; cursor: col-resize; touch-action: none; }
+.gantt-resize-handle::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: var(--flowra-border); }
+.gantt-resize-handle:hover::after,
+.gantt-resize-handle:focus-visible::after { background: var(--flowra-primary); }
+.gantt-resize-handle:focus-visible { outline: 2px solid var(--flowra-primary); outline-offset: -2px; }
+.gantt-resizing { cursor: col-resize; user-select: none; }
+.gantt-resizing .gantt-rows { pointer-events: none; }
 @container project-gantt (max-width: 800px) {
   .gantt-date-actions { margin-left: 0; }
   .gantt-heading,
