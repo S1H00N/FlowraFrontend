@@ -512,6 +512,28 @@ async function fillDate(scope: Page | Locator, label: string, value: string) {
 function advancedSettings(dialog: Locator) {
   return dialog.getByRole("button", { name: /^상세 설정/ });
 }
+async function auditSelectFocus(page: Page) {
+  await page.addInitScript(() => {
+    const hiddenAttempts: { role: string; label: string | null; visibility: string }[] = [];
+    Object.assign(window, { __selectHiddenFocusAttempts: hiddenAttempts });
+    const focus = HTMLElement.prototype.focus;
+    HTMLElement.prototype.focus = function (options) {
+      const role = this.getAttribute("role");
+      if (role === "option" || role === "listbox") {
+        const visibility = getComputedStyle(this).visibility;
+        if (visibility === "hidden") {
+          hiddenAttempts.push({ role, label: this.getAttribute("aria-label") ?? this.textContent, visibility });
+        }
+      }
+      focus.call(this, options);
+    };
+  });
+}
+async function expectNoHiddenSelectFocus(page: Page) {
+  expect(await page.evaluate(() => (
+    window as Window & { __selectHiddenFocusAttempts?: unknown[] }
+  ).__selectHiddenFocusAttempts)).toEqual([]);
+}
 function discardConfirmation(page: Page) {
   return page.getByRole("dialog", { name: "저장하지 않은 변경사항이 있습니다.", exact: true });
 }
@@ -3889,6 +3911,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
         await trigger.scrollIntoViewIfNeeded();
         await trigger.press("ArrowDown");
         const menu = dialog.getByRole("listbox", { name: label, exact: true });
+        await expect(menu).toBeVisible();
         await expect(menu.getByRole("option", { name: "대기", exact: true })).toBeFocused();
         await expectWorkMenuInsideFields(dialog, label);
         colors[`${theme}-${kind}`] = await menu.evaluate((element) => {
@@ -3934,6 +3957,136 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       expect(dark.menuForeground).not.toBe(light.menuForeground);
     }
     await testInfo.attach("phase-work-modal-theme-colors", { body: JSON.stringify(colors, null, 2), contentType: "application/json" });
+    expect(api.requests.every((request) => request.method === "GET")).toBe(true);
+  });
+
+  test("단계·업무 상태 Select는 표시 후 포커스하고 키보드 선택·복원·Tab 이동을 지원한다", async ({ page }) => {
+    api = await installWorkApi(page);
+    await auditSelectFocus(page);
+    await page.goto("/projects/901");
+    for (const kind of ["단계", "업무"]) {
+      const name = `${kind} 추가`;
+      await page.getByRole("button", { name, exact: true }).click();
+      const dialog = page.getByRole("dialog", { name, exact: true });
+      await advancedSettings(dialog).click();
+      const description = dialog.getByRole("textbox", { name: `${kind} 설명`, exact: true });
+      const trigger = dialog.getByRole("button", { name: `${kind} 상태 선택`, exact: true });
+      const menu = dialog.getByRole("listbox", { name: `${kind} 상태 선택`, exact: true });
+      const option = (label: string) => menu.getByRole("option", { name: label, exact: true });
+      await description.click();
+      await page.keyboard.press("Tab");
+      await expect(trigger).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(menu).toBeVisible();
+      await expect(trigger).toHaveAttribute("aria-expanded", "true");
+      await expect(option("대기")).toBeFocused();
+      await expectNoHiddenSelectFocus(page);
+      await page.keyboard.press("ArrowUp");
+      await expect(option("취소")).toBeFocused();
+      await page.keyboard.press("Home");
+      await expect(option("대기")).toBeFocused();
+      await page.keyboard.press("End");
+      await expect(option("취소")).toBeFocused();
+      await page.keyboard.press("Home");
+      await page.keyboard.press("ArrowDown");
+      await expect(option("진행 중")).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(menu).toHaveCount(0);
+      await expect(trigger).toContainText("진행 중");
+      await expect(trigger).toBeFocused();
+
+      await page.keyboard.press("Space");
+      await expect(menu).toBeVisible();
+      await expect(option("진행 중")).toBeFocused();
+      await page.keyboard.press("ArrowDown");
+      await expect(option("완료")).toBeFocused();
+      await page.keyboard.press("Space");
+      await expect(menu).toHaveCount(0);
+      await expect(trigger).toContainText("완료");
+      await expect(trigger).toBeFocused();
+      await page.keyboard.press("ArrowUp");
+      await expect(menu).toBeVisible();
+      await expect(option("완료")).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(menu).toHaveCount(0);
+      await expect(dialog).toBeVisible();
+      await expect(trigger).toBeFocused();
+
+      await page.keyboard.press("Enter");
+      await expect(menu).toBeVisible();
+      await expect(option("완료")).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(menu).toHaveCount(0);
+      const next = kind === "업무"
+        ? dialog.getByRole("button", { name: "업무 우선순위 선택", exact: true })
+        : dialog.getByRole("textbox", { name: "단계 실적 시작일", exact: true });
+      await expect(next).toBeFocused();
+      await description.click();
+      await page.keyboard.press("Tab");
+      await expect(trigger).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(menu).toBeVisible();
+      await expect(option("완료")).toBeFocused();
+      await page.keyboard.press("Shift+Tab");
+      await expect(menu).toHaveCount(0);
+      await expect(description).toBeFocused();
+      await expect(dialog).toBeVisible();
+      await expect(trigger).toContainText("완료");
+      await expectNoHiddenSelectFocus(page);
+      await cancelForm(page, dialog);
+    }
+    expect(api.requests.every((request) => request.method === "GET")).toBe(true);
+  });
+
+  test("단계·업무 상태 Select는 마우스·터치 선택과 바깥 클릭·재클릭·크기 변경을 지원한다", async ({ page, isMobile }) => {
+    api = await installWorkApi(page);
+    await auditSelectFocus(page);
+    await page.goto("/projects/901");
+    const activate = async (target: Locator) => {
+      if (isMobile) await target.tap();
+      else await target.click();
+    };
+    for (const kind of ["단계", "업무"]) {
+      const name = `${kind} 추가`;
+      await activate(page.getByRole("button", { name, exact: true }));
+      const dialog = page.getByRole("dialog", { name, exact: true });
+      await activate(advancedSettings(dialog));
+      const label = `${kind} 상태 선택`;
+      const trigger = dialog.getByRole("button", { name: label, exact: true });
+      const menu = dialog.getByRole("listbox", { name: label, exact: true });
+      await activate(trigger);
+      await expect(menu).toBeVisible();
+      await expect(menu.getByRole("option", { name: "대기", exact: true })).toBeFocused();
+      await activate(menu.getByRole("option", { name: "보류", exact: true }));
+      await expect(menu).toHaveCount(0);
+      await expect(trigger).toContainText("보류");
+      await expect(trigger).toBeFocused();
+      await activate(trigger);
+      await expect(menu).toBeVisible();
+      await expect(menu.getByRole("option", { name: "보류", exact: true })).toBeFocused();
+      await activate(trigger);
+      await expect(menu).toHaveCount(0);
+      await expect(trigger).toBeFocused();
+      await activate(trigger);
+      await expect(menu).toBeVisible();
+      await expect(menu.getByRole("option", { name: "보류", exact: true })).toBeFocused();
+      const viewport = page.viewportSize()!;
+      await page.setViewportSize({ width: viewport.width, height: viewport.height - 40 });
+      await expectWorkMenuInsideFields(dialog, label);
+      await expect(menu.getByRole("option", { name: "보류", exact: true })).toBeFocused();
+      await activate(dialog.getByRole("heading", { name, exact: true }));
+      await expect(menu).toHaveCount(0);
+      await expect(dialog).toBeVisible();
+      const description = dialog.getByRole("textbox", { name: `${kind} 설명`, exact: true });
+      await activate(description);
+      await expect(description).toBeFocused();
+      await expect(trigger).toContainText("보류");
+      await expect(dialog).toBeVisible();
+      await expectNoHiddenSelectFocus(page);
+      await expectNoPageOverflow(page);
+      await cancelForm(page, dialog);
+      await page.setViewportSize(viewport);
+    }
     expect(api.requests.every((request) => request.method === "GET")).toBe(true);
   });
 

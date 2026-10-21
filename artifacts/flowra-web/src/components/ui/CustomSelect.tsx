@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -77,11 +78,13 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const initializedMenuRef = useRef<HTMLDivElement | null>(null);
   const previewValueRef = useRef<TValue | null>(null);
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
   const [menuSide, setMenuSide] = useState(side);
+  const menuReady = open && menuStyle !== null;
   const selectedOption = options.find((option) => option.value === value);
   const selectedIndex = options.findIndex((option) => option.value === value);
   const enabledIndexes = useMemo(
@@ -319,25 +322,61 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
     };
   }, [collisionBoundaryRef, matchTriggerWidth, open, updateMenuPosition]);
 
-  useEffect(() => {
-    if (!open) return;
+  const focusOption = useCallback((index: number) => {
+    const option = optionRefs.current[index];
+    const menu = menuRef.current;
+    if (!menuReady || !menu?.isConnected || !option?.isConnected || option.disabled)
+      return;
 
+    setActiveIndex(index);
+    option.focus({ preventScroll: true });
+    // Reveal the option inside the menu without scrolling its page or dialog.
+    const top = option.offsetTop;
+    const bottom = top + option.offsetHeight;
+    if (top < menu.scrollTop || option.offsetHeight > menu.clientHeight) {
+      menu.scrollTop = top;
+    } else if (bottom > menu.scrollTop + menu.clientHeight) {
+      menu.scrollTop = bottom - menu.clientHeight;
+    }
+  }, [menuReady]);
+
+  useLayoutEffect(() => {
+    if (!menuReady) {
+      initializedMenuRef.current = null;
+      return;
+    }
+    const menu = menuRef.current;
+    if (!menu?.isConnected) return;
+
+    if (initializedMenuRef.current === menu) {
+      const focusedIndex = optionRefs.current.findIndex(
+        (option) => option === document.activeElement && !option?.disabled,
+      );
+      if (focusedIndex >= 0) {
+        setActiveIndex(focusedIndex);
+        return;
+      }
+      // Preserve focus moved outside by the user or an enclosing focus scope.
+      if (
+        document.activeElement !== document.body &&
+        !menu.contains(document.activeElement)
+      )
+        return;
+      if (firstEnabledIndex < 0 && document.activeElement === menu) return;
+    }
+
+    initializedMenuRef.current = menu;
     const nextActiveIndex =
       selectedIndex >= 0 && !options[selectedIndex]?.disabled
         ? selectedIndex
         : firstEnabledIndex;
-    setActiveIndex(nextActiveIndex);
-
-    const focusFrame = window.requestAnimationFrame(() => {
-      if (nextActiveIndex >= 0) {
-        optionRefs.current[nextActiveIndex]?.focus();
-      } else {
-        menuRef.current?.focus();
-      }
-    });
-
-    return () => window.cancelAnimationFrame(focusFrame);
-  }, [firstEnabledIndex, open, options, selectedIndex]);
+    if (nextActiveIndex >= 0) {
+      focusOption(nextActiveIndex);
+    } else {
+      setActiveIndex(-1);
+      menu.focus({ preventScroll: true });
+    }
+  }, [firstEnabledIndex, focusOption, menuReady, options, selectedIndex]);
 
   useEffect(() => {
     if (!open) return;
@@ -362,8 +401,24 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
   }, [open]);
 
   const focusTrigger = useCallback(() => {
-    window.requestAnimationFrame(() => triggerRef.current?.focus());
+    triggerRef.current?.focus({ preventScroll: true });
   }, []);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || !(event.target instanceof Node)) return;
+      if (!triggerRef.current?.contains(event.target) && !menuRef.current?.contains(event.target))
+        return;
+      // Consume Escape before an enclosing Radix layer's document capture listener.
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+      focusTrigger();
+    };
+    window.addEventListener("keydown", closeOnEscape, true);
+    return () => window.removeEventListener("keydown", closeOnEscape, true);
+  }, [focusTrigger, open]);
 
   const clearPreview = useCallback(() => {
     if (previewValueRef.current === null) return;
@@ -395,12 +450,6 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
     },
     [clearPreview, focusTrigger, onChange],
   );
-
-  const focusOption = useCallback((index: number) => {
-    if (index < 0) return;
-    setActiveIndex(index);
-    window.requestAnimationFrame(() => optionRefs.current[index]?.focus());
-  }, []);
 
   const moveActiveOption = useCallback(
     (direction: 1 | -1) => {
@@ -481,6 +530,8 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
       focusTrigger();
     }
     if (event.key === "Tab") {
+      // Let native Tab (and the parent focus scope) continue from the field.
+      focusTrigger();
       setOpen(false);
     }
   };
@@ -530,6 +581,7 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
                 type="button"
                 role="option"
                 aria-selected={selected}
+                tabIndex={-1}
                 disabled={option.disabled}
                 onClick={() => commitOption(option)}
                 onMouseEnter={() => {
