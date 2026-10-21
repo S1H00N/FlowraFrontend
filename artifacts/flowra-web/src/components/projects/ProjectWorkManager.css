@@ -576,6 +576,10 @@
   border-radius: 0;
   box-shadow: none;
 }
+.project-work-panel[data-panel-mode="overlay"] {
+  border: 1px solid var(--flowra-border);
+  border-radius: 16px;
+}
 body:has(.project-work-panel[aria-modal="true"]) #root {
   visibility: hidden;
 }
@@ -656,6 +660,25 @@ body:has(.project-work-panel[aria-modal="true"]) #root {
   align-items: center;
   flex-shrink: 0;
   gap: 4px;
+}
+.work-panel-display-options {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--flowra-text-muted);
+  font-size: 12px;
+}
+.work-panel-display-options .work-panel-mode-select {
+  min-width: 110px;
+  width: auto;
+  min-height: 32px;
+}
+.work-panel-display-options p {
+  flex-basis: 100%;
+  margin: 0;
+  line-height: 1.5;
 }
 .work-panel-content {
   min-height: 0;

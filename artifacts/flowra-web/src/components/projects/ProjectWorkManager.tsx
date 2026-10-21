@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -25,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import CustomSelect from "@/components/ui/CustomSelect";
+import { FloatingPanelPortalProvider } from "@/components/ui/FloatingPanelPortal";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -96,8 +98,14 @@ interface WorkSelection {
   source?: "gantt";
 }
 
-type WorkPanelMode = "docked" | "fullscreen";
+type WorkPanelMode = "docked" | "overlay" | "fullscreen";
+type GanttPanelPreference = "auto" | "docked" | "overlay";
 const panelWidth = 380;
+const ganttPanelOptions = [
+  { value: "auto", label: "자동" },
+  { value: "docked", label: "도킹" },
+  { value: "overlay", label: "오버레이" },
+] as const;
 
 function WorkPanelPortal({ children }: { children: ReactNode }) {
   return createPortal(children, document.body);
@@ -189,6 +197,11 @@ export default function ProjectWorkManager({
       getWorkItemDepthInfo(tree.graph, selectedId!).ancestryComplete)));
   const selectedChildrenLoading = Boolean(selectedId !== null && tree.queryById.get(selectedId)?.isFetching);
   const panelRef = useRef<HTMLElement>(null);
+  const [panelElement, setPanelElement] = useState<HTMLElement | null>(null);
+  const registerPanel = useCallback((element: HTMLElement | null) => {
+    panelRef.current = element;
+    setPanelElement(element);
+  }, []);
   const panelTitleRef = useRef<HTMLHeadingElement>(null);
   const panelContentRef = useRef<HTMLDivElement>(null);
   const [assignmentRefresh, setAssignmentRefresh] = useState<{ id: number; scroll: number; restoreFocus: boolean; complete: boolean } | null>(null);
@@ -224,6 +237,10 @@ export default function ProjectWorkManager({
   const filterButtonRef = useRef<HTMLButtonElement>(null);
   const filterDoneRef = useRef<HTMLButtonElement>(null);
   const [panelMode, setPanelMode] = useState<WorkPanelMode>("fullscreen");
+  const [ganttPanelPreference, setGanttPanelPreference] = useState<GanttPanelPreference>("auto");
+  const [ganttWbsWidth, setGanttWbsWidth] = useState(340);
+  const [overlayPosition, setOverlayPosition] = useState({ top: 80, right: 16 });
+  const [ganttViewport, setGanttViewport] = useState({ width: window.innerWidth, height: window.innerHeight, top: 0, left: 0 });
   const fullscreenPanel = panelMode === "fullscreen";
   const panelDocked = panelMode === "docked";
   const [mobile, setMobile] = useState(
@@ -383,6 +400,10 @@ export default function ProjectWorkManager({
       (target ?? fallback)?.focus({ preventScroll: true });
     });
   }
+  function focusGantt() {
+    const search = workspaceRef.current?.querySelector<HTMLInputElement>('[data-gantt-search]');
+    if (canFocus(search)) search.focus({ preventScroll: true });
+  }
   function openEditor(target: ProjectWorkEditTarget) {
     const focused = document.activeElement;
     // Menu items are removed when the menu closes; retain their trigger instead.
@@ -425,9 +446,32 @@ export default function ProjectWorkManager({
       const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
       const viewport = window.visualViewport;
       const height = viewport?.height ?? window.innerHeight;
-      const minimumWidth = view === "gantt" ? 340 + 320 + panelWidth + 16 : 20 * rem + panelWidth + 16;
-      const fullscreen = bounds.width < minimumWidth || height < 18 * rem;
-      setPanelMode(fullscreen ? "fullscreen" : "docked");
+      if (view === "gantt") {
+        // DOMRects include CSS zoom; the portal's fixed offsets and WBS widths
+        // use layout CSS pixels. Measure their common ancestor's effective scale.
+        const measuredScale = boundary.offsetWidth ? bounds.width / boundary.offsetWidth : 1;
+        const scale = Math.abs(measuredScale - 1) < 0.001 ? 1 : measuredScale;
+        const workBounds = workspaceRef.current?.getBoundingClientRect() ?? bounds;
+        const viewportTop = (viewport?.offsetTop ?? 0) / scale;
+        const viewportLeft = (viewport?.offsetLeft ?? 0) / scale;
+        const viewportWidth = (viewport?.width ?? window.innerWidth) / scale;
+        const viewportHeight = height / scale;
+        const viewportRight = viewportLeft + viewportWidth;
+        const top = Math.max(viewportTop + 16, workBounds.top / scale);
+        const right = Math.max(16, window.innerWidth / scale - Math.min(workBounds.right / scale, viewportRight));
+        const availableHeight = viewportTop + viewportHeight - top - 16;
+        const minimumWidth = ganttWbsWidth + 320 + panelWidth + 16;
+        const fullscreen = boundary.clientWidth < 700 || availableHeight < 18 * rem;
+        setPanelMode(fullscreen ? "fullscreen" :
+          ganttPanelPreference === "overlay" || boundary.clientWidth < minimumWidth ? "overlay" : "docked");
+        setOverlayPosition((current) => current.top === top && current.right === right ? current : { top, right });
+        setGanttViewport((current) => current.width === viewportWidth && current.height === viewportHeight &&
+          current.top === viewportTop && current.left === viewportLeft ? current :
+          { width: viewportWidth, height: viewportHeight, top: viewportTop, left: viewportLeft });
+      } else {
+        const minimumWidth = 20 * rem + panelWidth + 16;
+        setPanelMode(bounds.width < minimumWidth || height < 18 * rem ? "fullscreen" : "docked");
+      }
     }
     function scheduleMeasure() {
       if (!frame) frame = requestAnimationFrame(measure);
@@ -437,18 +481,22 @@ export default function ProjectWorkManager({
     observer.observe(boundary);
     observer.observe(workspace);
     window.addEventListener("resize", scheduleMeasure);
+    window.addEventListener("scroll", scheduleMeasure, true);
     window.visualViewport?.addEventListener("resize", scheduleMeasure);
+    window.visualViewport?.addEventListener("scroll", scheduleMeasure);
     return () => {
       observer.disconnect();
       cancelAnimationFrame(frame);
       window.removeEventListener("resize", scheduleMeasure);
+      window.removeEventListener("scroll", scheduleMeasure, true);
       window.visualViewport?.removeEventListener("resize", scheduleMeasure);
+      window.visualViewport?.removeEventListener("scroll", scheduleMeasure);
     };
-  }, [active, view]);
+  }, [active, view, ganttWbsWidth, ganttPanelPreference]);
   useEffect(() => {
     onPanelLayoutChange?.({ overlay: panelOpen && !fullscreenPanel, docked: panelOpen && panelDocked,
-      width: panelWidth, right: 0 });
-  }, [panelOpen, fullscreenPanel, panelDocked, onPanelLayoutChange]);
+      width: panelWidth, right: panelMode === "overlay" ? overlayPosition.right : 0 });
+  }, [panelOpen, fullscreenPanel, panelDocked, panelMode, overlayPosition.right, onPanelLayoutChange]);
   useEffect(() => () => {
     onPanelLayoutChange?.({ overlay: false, docked: false, width: 0, right: 0 });
   }, [onPanelLayoutChange]);
@@ -990,14 +1038,28 @@ export default function ProjectWorkManager({
       for (const id of group.rootIds) tableRows.push(...renderRows(tree.byId.get(id)!, phased ? 1 : 0));
   }
 
-  function trapPanelFocus(event: KeyboardEvent<HTMLElement>) {
-    if (!fullscreenPanel || editTarget || cancelTarget || event.key !== "Tab" || event.defaultPrevented) return;
-    const controls = [
+  function panelFocusControls() {
+    return [
       ...panelRef.current!.querySelectorAll<HTMLElement>(
         "button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], summary, [tabindex='0']",
       ),
     ].filter((control) => canFocus(control) &&
       (!control.closest("details:not([open])") || control.tagName === "SUMMARY"));
+  }
+  function ganttPreferenceKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (!fullscreenPanel || event.key !== "Tab" || !(event.target instanceof Element) ||
+      !event.target.closest('[role="listbox"][aria-label="간트 상세 표시 방식"]')) return;
+    const trigger = event.currentTarget.querySelector<HTMLButtonElement>('[aria-label="간트 상세 표시 방식"]');
+    const controls = panelFocusControls();
+    const index = trigger ? controls.indexOf(trigger) : -1;
+    const next = index < 0 ? undefined : controls[index + (event.shiftKey ? -1 : 1)];
+    // CustomSelect closes its menu on Tab. Continue from its trigger instead of
+    // letting the removed portal option reset the dialog's tab order.
+    if (next) { event.preventDefault(); next.focus(); }
+  }
+  function trapPanelFocus(event: KeyboardEvent<HTMLElement>) {
+    if (!fullscreenPanel || editTarget || cancelTarget || event.key !== "Tab" || event.defaultPrevented) return;
+    const controls = panelFocusControls();
     const first = controls[0],
       last = controls.at(-1);
     if (!first || !last) return;
@@ -1241,17 +1303,27 @@ export default function ProjectWorkManager({
       <div id="project-gantt-panel" role="tabpanel" aria-labelledby="project-gantt-tab" hidden={view !== "gantt"}>
         <ProjectGantt detail={detail} detailUpdatedAt={detailUpdatedAt} active={active && view === "gantt"}
           selectedId={selectedId} onSelect={selectGantt} onItemsChange={setGanttItems}
+          onWbsWidthChange={setGanttWbsWidth}
           assignments={tree.assignments} assignmentKnownIds={tree.assignmentKnownIds}
+          assigneeOptions={assigneeOptions}
           directory={directory} membership={membership} />
       </div>
       {panelOpen && (
         <WorkPanelPortal>
           <aside
-            ref={panelRef}
+            ref={registerPanel}
             className="project-work-panel flowra-surface"
             data-panel-mode={panelMode}
-            style={fullscreenPanel ? undefined : {
+            style={fullscreenPanel ? view === "gantt" ? {
+              top: ganttViewport.top, left: ganttViewport.left, right: "auto", bottom: "auto",
+              width: ganttViewport.width, height: ganttViewport.height,
+              maxWidth: ganttViewport.width, maxHeight: ganttViewport.height,
+            } : undefined : {
               "--work-panel-width": `${panelWidth}px`,
+              ...(panelMode === "overlay" ? {
+                "--work-panel-top": `${overlayPosition.top}px`,
+                "--work-panel-right": `${overlayPosition.right}px`,
+              } : {}),
             } as CSSProperties}
             aria-label="업무 상세"
             role={fullscreenPanel ? "dialog" : "complementary"}
@@ -1302,6 +1374,22 @@ export default function ProjectWorkManager({
                   <X aria-hidden="true" />
                 </Button>
               </div>
+              {view === "gantt" && <div className="work-panel-display-options" onKeyDown={ganttPreferenceKeyDown}>
+                <span>표시 방식</span>
+                <FloatingPanelPortalProvider value={fullscreenPanel ? panelElement : null}>
+                <CustomSelect<GanttPanelPreference>
+                  key={fullscreenPanel ? "fullscreen" : "floating"}
+                  ariaLabel="간트 상세 표시 방식"
+                  value={ganttPanelPreference}
+                  options={ganttPanelOptions}
+                  onChange={setGanttPanelPreference}
+                  className="work-panel-mode-select"
+                />
+                </FloatingPanelPortalProvider>
+                {!fullscreenPanel && <Button variant="ghost" size="sm" aria-label="간트로 이동" onClick={focusGantt}>간트로 이동</Button>}
+                <p>{panelMode === "overlay" ? "오버레이 · 배경 간트도 사용할 수 있습니다." :
+                  panelMode === "fullscreen" ? "전체 화면 · 공간이 넓어지면 선택한 방식으로 돌아갑니다." : "도킹 · 간트와 상세를 함께 봅니다."}</p>
+              </div>}
             </div>
             <div className="work-panel-content" ref={panelContentRef}>
               {preview ? (
