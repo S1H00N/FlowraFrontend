@@ -1,0 +1,51 @@
+name: Flowra CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flowra-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, regression tests and build
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm.cmd install --frozen-lockfile
+
+      # Root build script runs workspace-wide typecheck before building.
+      - name: Typecheck and build
+        run: pnpm.cmd run build
+
+      - name: API contract and regression tests
+        run: pnpm.cmd --filter @workspace/flowra-web run test:api
+
+      - name: Playwright test typecheck
+        run: pnpm.cmd --filter @workspace/flowra-web run test:e2e:typecheck
