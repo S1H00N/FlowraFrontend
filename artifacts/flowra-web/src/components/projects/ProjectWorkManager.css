@@ -217,9 +217,6 @@
 .work-tree-table tr.work-row-selected td:first-child {
   box-shadow: inset 3px 0 var(--flowra-primary);
 }
-.projects-work-page .projects-overview .projects-detail-description {
-  margin: 0 0 24px;
-}
 .work-tree-table th:nth-child(2) {
   width: 6rem;
 }
@@ -244,6 +241,9 @@
   height: 48px;
   border-bottom: 1px solid var(--flowra-border-soft);
   vertical-align: middle;
+}
+.work-tree-table .work-priority > span {
+  font-weight: 400;
 }
 .work-tree-table tbody tr[data-work-id] {
   cursor: pointer;

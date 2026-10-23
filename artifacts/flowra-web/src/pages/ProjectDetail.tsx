@@ -105,6 +105,7 @@ export default function ProjectDetail() {
             variant="ghost"
             size="icon"
             aria-label="프로젝트 새로고침"
+            title="프로젝트 새로고침"
             disabled={
               detail.isFetching ||
               membersBusy ||
@@ -141,7 +142,7 @@ export default function ProjectDetail() {
         ) : activeMemberships.length === 0 ? (
           <EmptyState
             icon={<FolderKanban />}
-            title="활성 회사 멤버십이 없습니다"
+            title="이용 가능한 소속 회사가 없습니다"
             description="회사 구성원 상태를 확인해 주세요."
           />
         ) : !companyAccessible || companyMismatch ? (
@@ -179,13 +180,8 @@ export default function ProjectDetail() {
                 </div>
               </div>
               <div className="projects-detail-meta">
-                <span>
-                  {membership.company?.name ?? `회사 ${membership.company_id}`}
-                  {project.origin_department_id
-                    ? ` · ${membership.department?.department_id === project.origin_department_id ? membership.department.name : `부서 ${project.origin_department_id}`}`
-                    : ""}
-                </span>
                 <span className="projects-detail-period">
+                  <span>예정 기간</span>
                   <span>
                     {formatProjectDate(project.planned_start_date)} ~{" "}
                     {formatProjectDate(project.planned_end_date)}
@@ -248,67 +244,62 @@ export default function ProjectDetail() {
                 aria-busy={detail.isFetching}
               >
                 <h3 id="project-overview-title">프로젝트 개요</h3>
-                <p className="projects-detail-description">
-                  {project.description || "등록된 프로젝트 설명이 없습니다."}
-                </p>
-                <dl className="projects-overview-fields">
-                  <div>
-                    <dt>계획 시작일</dt>
-                    <dd>{formatProjectDate(project.planned_start_date)}</dd>
-                  </div>
-                  <div>
-                    <dt>계획 종료일</dt>
-                    <dd>{formatProjectDate(project.planned_end_date)}</dd>
-                  </div>
-                  <div>
-                    <dt>소속 회사</dt>
-                    <dd>
-                      {membership.company?.name ??
-                        `회사 ${membership.company_id}`}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>소속 부서</dt>
-                    <dd>
-                      {project.origin_department_id
-                        ? membership.department?.department_id ===
-                          project.origin_department_id
-                          ? membership.department.name
-                          : `부서 ${project.origin_department_id}`
-                        : "미지정"}
-                    </dd>
-                  </div>
-                  {project.visibility && (
-                    <div>
-                      <dt>공개 범위</dt>
-                      <dd>
-                        {PROJECT_VISIBILITY_OPTIONS.find(
-                          (item) => item.value === project.visibility,
-                        )?.label ?? project.visibility}
-                      </dd>
-                    </div>
-                  )}
-                  {project.phase_mode && (
-                    <div>
-                      <dt>운영 방식</dt>
-                      <dd>
-                        {project.phase_mode === "phased"
-                          ? "단계별 관리"
-                          : project.phase_mode === "phase_less"
-                            ? "단계 없이 관리"
-                            : project.phase_mode}
-                      </dd>
-                    </div>
-                  )}
-                </dl>
+                {project.description?.trim() && (
+                  <p className="projects-detail-description">{project.description}</p>
+                )}
                 {detail.data?.summary && <>
-                  <dl className="projects-overview-fields" aria-label="프로젝트 전체 건수">
+                  <dl className="projects-overview-fields projects-overview-counts" aria-label="프로젝트 전체 건수">
                     <div><dt>전체 단계</dt><dd>{detail.data.summary.phase_count}개</dd></div>
                     <div><dt>전체 업무</dt><dd>{detail.data.summary.work_item_count}개</dd></div>
                     <div><dt>전체 배정</dt><dd>{detail.data.summary.assignment_count}건</dd></div>
                   </dl>
-                  <p className="projects-note">취소된 항목을 포함한 전체 건수입니다. 배정 건수는 담당자 인원 수와 다를 수 있습니다.</p>
+                  <p className="projects-note">취소 포함 · 배정 건수는 담당자 수와 다를 수 있습니다.</p>
                 </>}
+                <details className="border-t border-border pt-4">
+                  <summary className="w-fit cursor-pointer rounded py-1 text-sm font-medium hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20">프로젝트 정보</summary>
+                  <dl className="projects-overview-fields">
+                    <div>
+                      <dt>소속 회사</dt>
+                      <dd>
+                        {membership.company?.name ??
+                          `회사 ${membership.company_id}`}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>소속 부서</dt>
+                      <dd>
+                        {project.origin_department_id
+                          ? membership.department?.department_id ===
+                            project.origin_department_id
+                            ? membership.department.name
+                            : `부서 ${project.origin_department_id}`
+                          : "미지정"}
+                      </dd>
+                    </div>
+                    {project.visibility && (
+                      <div>
+                        <dt>공개 범위</dt>
+                        <dd>
+                          {PROJECT_VISIBILITY_OPTIONS.find(
+                            (item) => item.value === project.visibility,
+                          )?.label ?? project.visibility}
+                        </dd>
+                      </div>
+                    )}
+                    {project.phase_mode && (
+                      <div>
+                        <dt>운영 방식</dt>
+                        <dd>
+                          {project.phase_mode === "phased"
+                            ? "단계별 관리"
+                            : project.phase_mode === "phase_less"
+                              ? "단계 없이 관리"
+                              : project.phase_mode}
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+                </details>
               </section>
             </div>
             <div id="project-members-panel" role="tabpanel" aria-labelledby="project-members-tab" hidden={tab !== "members"}>
@@ -337,7 +328,7 @@ export default function ProjectDetail() {
         ) : (
           <EmptyState
             title="접근 권한이 없습니다"
-            description="이 프로젝트의 회사 멤버십을 확인해 주세요."
+            description="이 프로젝트의 소속 회사와 구성원 상태를 확인해 주세요."
           />
         )}
       </div>

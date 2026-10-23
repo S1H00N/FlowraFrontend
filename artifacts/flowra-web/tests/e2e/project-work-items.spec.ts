@@ -489,7 +489,7 @@ async function setGanttDisplayOption(page: Page, label: string, checked: boolean
     await page.keyboard.press("Escape");
 }
 async function selectOption(page: Page | Locator, label: string, option: string) {
-  const workFilter = ["업무 상태", "업무 우선순위", "Phase 선택"].includes(label);
+  const workFilter = ["업무 상태", "업무 우선순위", "업무 연결 단계"].includes(label);
   if (workFilter && !(await page.getByRole("button", { name: label, exact: true }).isVisible()))
     await page.getByRole("button", { name: "업무 필터", exact: true }).click();
   await page.getByRole("button", { name: label, exact: true }).click();
@@ -510,7 +510,7 @@ async function fillDate(scope: Page | Locator, label: string, value: string) {
   await field.press("Tab");
 }
 function advancedSettings(dialog: Locator) {
-  return dialog.getByRole("button", { name: /^상세 설정/ });
+  return dialog.getByRole("button", { name: /^추가 설정/ });
 }
 async function auditSelectFocus(page: Page) {
   await page.addInitScript(() => {
@@ -1337,10 +1337,10 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     api = await installWorkApi(page, options);
     await page.goto("/projects/901");
     await expect(rowTitle(page, "QA 백엔드 개발")).toBeVisible();
-    await expect(page.getByText(/^불러온 업무명에서 검색·필터합니다\./)).toBeVisible();
+    await expect(page.getByText(/^불러온 업무 기준/)).toBeVisible();
     options.partial = false;
     await page.getByRole("button", { name: "프로젝트 새로고침", exact: true }).click();
-    await expect(page.getByText(/^전체 업무명에서 검색·필터합니다\./)).toBeVisible();
+    await expect(page.getByText(/^전체 업무 기준/)).toBeVisible();
     expect(api.requests.filter((request) => request.path.endsWith("/gantt"))).toEqual([]);
     await page.getByRole("tab", { name: "간트 차트", exact: true }).click();
     await expect(ganttRow(page, 501)).toBeVisible();
@@ -1377,12 +1377,24 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     const header = page.locator(".projects-detail-header");
     const tabs = page.getByRole("tablist", { name: "프로젝트 상세 탐색", exact: true });
     await expect(tabs.getByRole("tab")).toHaveText(["개요", "업무 목록", "간트 차트", "구성원"]);
+    await tabs.getByRole("tab", { name: "개요", exact: true }).click();
+    const overview = page.getByRole("region", { name: "프로젝트 개요", exact: true });
+    await expect(overview).toBeVisible();
+    const information = overview.locator("details");
+    await expect(information.locator("summary")).toHaveText("프로젝트 정보");
+    await expect(information).not.toHaveAttribute("open");
+    await information.locator("summary").click();
+    await expect(information.getByText("QA 회사", { exact: true })).toBeVisible();
+    await expect(information.getByText("QA 개발부", { exact: true })).toBeVisible();
     for (const label of ["개요", "업무 목록", "간트 차트", "구성원"]) {
       await tabs.getByRole("tab", { name: label, exact: true }).click();
       await expect(header).toBeVisible();
       await expect(header.getByRole("heading", { name: "QA 계층형 프로젝트", exact: true })).toBeVisible();
-      await expect(header).toContainText("QA 회사 · QA 개발부");
-      await expect(header.locator(".projects-detail-period")).toContainText("2026");
+      await expect(header).not.toContainText("QA 회사");
+      await expect(header).not.toContainText("QA 개발부");
+      await expect(header.locator(".project-status")).toHaveText("진행 중");
+      await expect(header.locator(".projects-detail-period")).toContainText("예정 기간");
+      await expect(header.locator(".projects-detail-period")).toContainText("2026.09.09 ~ 2026.09.30");
       await expect(header.getByRole("button", { name: "프로젝트 수정", exact: true })).toBeEnabled();
     }
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
@@ -1842,8 +1854,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     const reads = api.requests.filter((request) => request.path.endsWith("/gantt")).length;
     const form = await editResource(page, "QA 운영 검토");
     await form.getByLabel("업무명", { exact: true }).fill("QA 간트에서 수정한 업무");
-    await fillDate(form, "업무 계획 시작일", "2026-09-14");
-    await fillDate(form, "업무 계획 종료일", "2026-09-16");
+    await fillDate(form, "업무 예정 시작일", "2026-09-14");
+    await fillDate(form, "업무 예정 종료일", "2026-09-16");
     await form.getByRole("button", { name: /^(저장|업무 추가|단계 추가)$/, exact: true }).click();
     await expect(form).toHaveCount(0);
     await expect(panel(page).getByRole("heading", { name: "QA 간트에서 수정한 업무", exact: true })).toBeVisible();
@@ -2068,7 +2080,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     api = await installCreationAssignmentsApi(page);
     await page.goto("/projects/901");
     await rowTitle(page, "QA 백엔드 개발").click();
-    await panel(page).getByRole("button", { name: "하위 업무 추가", exact: true }).click();
+    await panel(page).getByRole("button", { name: "세부 업무 추가", exact: true }).click();
     const form = page.getByRole("dialog", { name: "업무 추가", exact: true });
     await form.getByRole("list", { name: "프로젝트 구성원 선택", exact: true }).getByRole("button", { name: /QA 생성 담당자/ }).click();
     await form.getByLabel("업무명", { exact: true }).fill("QA 담당자 있는 하위 업무");
@@ -2092,7 +2104,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       await page.goto("/projects/901");
       if (partial) {
         await page.getByRole("button", { name: "QA 백엔드 개발 더 보기", exact: true }).click();
-        await page.getByRole("menuitem", { name: "하위 업무 추가", exact: true }).click();
+        await page.getByRole("menuitem", { name: "세부 업무 추가", exact: true }).click();
       } else await page.getByRole("button", { name: "업무 추가", exact: true }).click();
       const form = page.getByRole("dialog", { name: "업무 추가", exact: true });
       const candidates = form.getByRole("list", { name: "프로젝트 구성원 선택", exact: true });
@@ -2141,13 +2153,13 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     for (const kind of ["단계", "업무"]) {
       await page.getByRole("button", { name: `${kind} 추가`, exact: true }).click();
       const form = page.getByRole("dialog", { name: `${kind} 추가`, exact: true });
-      await expect(form.getByLabel(`${kind} 계획 시작일`, { exact: true })).toHaveValue("날짜 선택");
-      await expect(form.getByLabel(`${kind} 계획 종료일`, { exact: true })).toHaveValue("날짜 선택");
-      await fillDate(form, `${kind} 계획 시작일`, "2026-09-15");
-      const parentPeriod = form.getByRole("button", { name: kind === "단계" ? "프로젝트 기간 적용" : "상위 기간 적용", exact: true });
+      await expect(form.getByLabel(`${kind} 예정 시작일`, { exact: true })).toHaveValue("날짜 선택");
+      await expect(form.getByLabel(`${kind} 예정 종료일`, { exact: true })).toHaveValue("날짜 선택");
+      await fillDate(form, `${kind} 예정 시작일`, "2026-09-15");
+      const parentPeriod = form.getByRole("button", { name: kind === "단계" ? "프로젝트 기간 가져오기" : "상위 기간 가져오기", exact: true });
       await parentPeriod.click();
-      await expect(form.getByLabel(`${kind} 계획 시작일`, { exact: true })).toHaveValue(/09\.15/);
-      await expect(form.getByLabel(`${kind} 계획 종료일`, { exact: true })).toHaveValue(/09\.30/);
+      await expect(form.getByLabel(`${kind} 예정 시작일`, { exact: true })).toHaveValue(/09\.15/);
+      await expect(form.getByLabel(`${kind} 예정 종료일`, { exact: true })).toHaveValue(/09\.30/);
       await expect(parentPeriod).toBeDisabled();
       await cancelForm(page, form);
     }
@@ -2160,18 +2172,18 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.getByRole("button", { name: "업무 추가", exact: true }).click();
     const form = page.getByRole("dialog", { name: "업무 추가", exact: true });
     await form.getByLabel("업무명", { exact: true }).fill("QA 기간 초과 업무");
-    await fillDate(form, "업무 계획 시작일", "2026-10-02");
-    await fillDate(form, "업무 계획 종료일", "2026-10-01");
+    await fillDate(form, "업무 예정 시작일", "2026-10-02");
+    await fillDate(form, "업무 예정 종료일", "2026-10-01");
     await form.getByRole("button", { name: /^(저장|업무 추가|단계 추가)$/, exact: true }).click();
-    await expectFieldError(form, "업무 계획 종료일", "계획 종료일은 시작일과 같거나 이후여야 합니다.");
+    await expectFieldError(form, "업무 예정 종료일", "예정 종료일은 시작일과 같거나 이후여야 합니다.");
     expect(api.requests.filter((r) => r.method === "POST")).toEqual([]);
-    await fillDate(form, "업무 계획 시작일", "2026-10-01");
+    await fillDate(form, "업무 예정 시작일", "2026-10-01");
     await form.getByRole("button", { name: /^(저장|업무 추가|단계 추가)$/, exact: true }).click();
     const warning = page.getByRole("dialog", { name: "상위 일정 범위를 벗어났습니다", exact: true });
     await expect(warning).toContainText("1일 늦습니다");
     await warning.getByRole("button", { name: "날짜 수정", exact: true }).click();
     expect(api.requests.filter((r) => r.method === "POST")).toEqual([]);
-    await expect(form.getByLabel("업무 계획 종료일", { exact: true })).toHaveValue(/10\.01/);
+    await expect(form.getByLabel("업무 예정 종료일", { exact: true })).toHaveValue(/10\.01/);
     await form.getByRole("button", { name: /^(저장|업무 추가|단계 추가)$/, exact: true }).click();
     await warning.getByRole("button", { name: "그대로 저장", exact: true }).click();
     await expect(form).toHaveCount(0);
@@ -2185,20 +2197,20 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     api.phases[1].planned_end_date = "2026-09-18";
     await page.goto("/projects/901");
     await rowTitle(page, "QA 백엔드 개발").click();
-    await panel(page).getByRole("button", { name: "하위 업무 추가", exact: true }).click();
+    await panel(page).getByRole("button", { name: "세부 업무 추가", exact: true }).click();
     const form = page.getByRole("dialog", { name: "업무 추가", exact: true });
-    await expect(form.getByLabel("업무 계획 시작일", { exact: true })).toHaveValue("날짜 선택");
+    await expect(form.getByLabel("업무 예정 시작일", { exact: true })).toHaveValue("날짜 선택");
     await changeLinkedPhase(page, form, "2. QA 운영 단계");
     await selectOption(form, "부모 기간 적용 기준", "연결 단계: QA 운영 단계");
-    await form.getByRole("button", { name: "상위 기간 적용", exact: true }).click();
-    await expect(form.getByLabel("업무 계획 시작일", { exact: true })).toHaveValue("날짜 선택");
-    await expect(form.getByLabel("업무 계획 종료일", { exact: true })).toHaveValue(/09\.18/);
+    await form.getByRole("button", { name: "상위 기간 가져오기", exact: true }).click();
+    await expect(form.getByLabel("업무 예정 시작일", { exact: true })).toHaveValue("날짜 선택");
+    await expect(form.getByLabel("업무 예정 종료일", { exact: true })).toHaveValue(/09\.18/);
     await selectOption(form, "부모 기간 적용 기준", "상위 업무: QA 백엔드 개발");
-    await form.getByRole("button", { name: "상위 기간 적용", exact: true }).click();
-    await expect(form.getByLabel("업무 계획 시작일", { exact: true })).toHaveValue(/09\.10/);
-    await expect(form.getByLabel("업무 계획 종료일", { exact: true })).toHaveValue(/09\.18/);
+    await form.getByRole("button", { name: "상위 기간 가져오기", exact: true }).click();
+    await expect(form.getByLabel("업무 예정 시작일", { exact: true })).toHaveValue(/09\.10/);
+    await expect(form.getByLabel("업무 예정 종료일", { exact: true })).toHaveValue(/09\.18/);
     await changeLinkedPhase(page, form, "1. QA 구현 단계");
-    await expect(form.getByLabel("업무 계획 종료일", { exact: true })).toHaveValue(/09\.18/);
+    await expect(form.getByLabel("업무 예정 종료일", { exact: true })).toHaveValue(/09\.18/);
   });
 
   test("일정 정책: 자체 일정과 중첩 지연 집계를 분리하고 상태와 진행률을 유지한다", async ({ page }) => {
@@ -2210,22 +2222,23 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     Object.assign(api.workItems.find((item) => item.company_project_work_item_id === 531)!, { planned_end_date: "2026-10-01", status: "done" });
     api.phases[0].planned_end_date = "2026-10-20";
     await page.goto("/projects/901");
-    await expect(page.getByLabel("프로젝트 지연 현황")).toContainText("하위 업무 지연 2건 · 전체 업무 기준");
+    await expect(page.getByLabel("프로젝트 지연 현황")).toContainText("업무 지연 2건 · 전체 업무 기준");
     const phase = page.locator('[data-hierarchy-key="phase:501"]');
     await expect(phase.getByLabel("일정: 일정 정상", { exact: true })).toHaveCount(0);
-    await expect(phase).toContainText("하위 업무 지연 2건");
+    await expect(phase).toContainText("업무 지연 2건");
     await page.getByRole("button", { name: "전체 펼치기", exact: true }).click();
     const row = page.locator('[data-work-id="511"]');
     await expect(row).toContainText("대기");
     await expect(row).toContainText("37%");
     await expect(page.locator('[data-work-id="531"]').getByLabel(/일정:.*지연/)).toHaveCount(0);
     if (page.viewportSize()!.width <= 700) {
+      await expect(row.locator(".work-mobile-status").getByLabel("일정: 1일 지연", { exact: true })).toBeVisible();
       await rowTitle(page, "QA 인증 시스템").click();
       await expect(panel(page).getByLabel("일정: 1일 지연", { exact: true })).toBeVisible();
       await expect(panel(page)).toContainText("大기".replace("大", "대"));
       await expect(panel(page)).toContainText("37%");
     } else {
-      await expect(row.getByLabel("일정: 1일 지연", { exact: true })).toBeVisible();
+      await expect(row.locator(".work-dates").getByLabel("일정: 1일 지연", { exact: true })).toBeVisible();
     }
     expect(api.requests.filter((r) => r.method !== "GET")).toEqual([]);
   });
@@ -2239,13 +2252,19 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     const row = page.locator('[data-work-id="501"]');
     await expect(page.getByLabel("프로젝트 지연 현황")).toHaveCount(0);
     const mobile = page.viewportSize()!.width <= 700;
-    if (mobile) await rowTitle(page, "QA 백엔드 개발").click();
-    const schedule = mobile ? panel(page) : row;
-    await expect(schedule.getByLabel("일정: 오늘 마감", { exact: true })).toBeVisible();
+    if (mobile) {
+      await expect(row.locator(".work-mobile-status").getByLabel("일정: 오늘 종료 예정", { exact: true })).toBeVisible();
+      await rowTitle(page, "QA 백엔드 개발").click();
+    }
+    const schedule = mobile ? panel(page) : row.locator(".work-dates");
+    await expect(schedule.getByLabel("일정: 오늘 종료 예정", { exact: true })).toBeVisible();
     await page.clock.setFixedTime(new Date("2026-10-13T15:00:01Z"));
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(schedule.getByLabel("일정: 1일 지연", { exact: true })).toBeVisible();
-    if (mobile) await panel(page).getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+    if (mobile) {
+      await panel(page).getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+      await expect(row.locator(".work-mobile-status").getByLabel("일정: 1일 지연", { exact: true })).toBeVisible();
+    }
     await expect(page.getByLabel("프로젝트 지연 현황")).toContainText("1건 · 조회된 업무 기준");
     expect(api.requests.filter((r) => r.method !== "GET")).toEqual([]);
   });
@@ -2256,10 +2275,10 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     const originalItems = structuredClone(api.workItems);
     await page.goto("/projects/901");
     const form = await editResource(page, "QA 구현 단계", true);
-    await fillDate(form, "단계 계획 종료일", "2026-09-15");
+    await fillDate(form, "단계 예정 종료일", "2026-09-15");
     await form.getByRole("button", { name: /^(저장|업무 추가|단계 추가)$/, exact: true }).click();
     const warning = page.getByRole("dialog", { name: "상위 일정 범위를 벗어났습니다", exact: true });
-    await expect(warning).toContainText("조회된 하위 업무");
+    await expect(warning).toContainText("조회된 세부 업무");
     await warning.getByRole("button", { name: "그대로 저장", exact: true }).click();
     await expect(form).toHaveCount(0);
     expect(api.workItems).toEqual(originalItems);
@@ -2274,7 +2293,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     const trigger = form.getByRole("button", { name: "소속 위치 선택", exact: true });
     await expect(advancedSettings(form)).toHaveAttribute("aria-expanded", "false");
     await form.getByLabel("업무명", { exact: true }).fill("QA 위치 선택 업무");
-    await fillDate(form, "업무 계획 시작일", "2026-09-11");
+    await fillDate(form, "업무 예정 시작일", "2026-09-11");
     await advancedSettings(form).click();
     await form.getByLabel("업무 설명", { exact: true }).fill("탐색 후에도 보존");
     await advancedSettings(form).click();
@@ -2308,7 +2327,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       await expect(trigger).toBeFocused();
       await expect(trigger).toContainText("프로젝트 최상위");
       await expect(form.getByLabel("업무명", { exact: true })).toHaveValue("QA 위치 선택 업무");
-      await expect(form.getByLabel("업무 계획 시작일", { exact: true })).toHaveValue(/09\.11/);
+      await expect(form.getByLabel("업무 예정 시작일", { exact: true })).toHaveValue(/09\.11/);
     }
     await trigger.click();
     const picker = page.getByRole("dialog", { name: "소속 위치 선택", exact: true });
@@ -2367,7 +2386,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       const form = page.getByRole("dialog", { name: "업무 추가", exact: true });
       const title = form.getByRole("textbox", { name: "업무명", exact: true });
       await title.fill("QA 툴팁 Escape 입력 보존");
-      const period = form.getByRole("button", { name: "상위 기간 적용", exact: true });
+      const period = form.getByRole("button", { name: "상위 기간 가져오기", exact: true });
       const trigger = tooltipTarget === "location"
         ? form.getByRole("button", { name: "소속 위치 선택", exact: true })
         : tooltipTarget === "disabled-period" ? period.locator("xpath=..") : period;
@@ -2395,8 +2414,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       await expect(confirmation).toHaveCount(0);
       await expect(title).toHaveValue("QA 툴팁 Escape 입력 보존");
       await expect(trigger).toBeFocused();
-      await expect(form.getByLabel("업무 계획 시작일", { exact: true })).toHaveValue("날짜 선택");
-      await expect(form.getByLabel("업무 계획 종료일", { exact: true })).toHaveValue("날짜 선택");
+      await expect(form.getByLabel("업무 예정 시작일", { exact: true })).toHaveValue("날짜 선택");
+      await expect(form.getByLabel("업무 예정 종료일", { exact: true })).toHaveValue("날짜 선택");
       expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
       await title.fill("");
       await trigger.focus();
@@ -2437,7 +2456,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(row.locator(".work-phase-count")).toHaveText("업무 4개");
     await expect(row.locator(".work-dates")).toContainText("09.10");
     await expect(row.getByLabel("일정: 일정 정상", { exact: true })).toHaveCount(0);
-    await expect(row.getByText(/하위 업무 지연 0건/)).toHaveCount(0);
+    await expect(row.getByText(/세부 업무 지연 0건/)).toHaveCount(0);
     await row.locator(".work-phase-title").click();
     await expect(row).toHaveAttribute("aria-selected", "true");
     await row.getByRole("button", { name: "QA 구현 단계 접기", exact: true }).click();
@@ -2461,8 +2480,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.goto("/projects/901");
     const parentCount = page.locator('[data-work-id="501"] .work-child-count');
     const phaseCount = page.locator('[data-hierarchy-key="phase:501"] .work-phase-count');
-    await expect(parentCount).toHaveText("하위 2개");
-    await expect(parentCount).toHaveAttribute("title", "직계 하위 업무 2개 · 조회 완료 기준 · 취소 포함");
+    await expect(parentCount).toHaveText("세부 2개");
+    await expect(parentCount).toHaveAttribute("title", "직계 세부 업무 2개 · 조회 완료 기준 · 취소 포함");
     await expect(phaseCount).toHaveText("업무 5개");
     await expect(phaseCount).toHaveAttribute("title", "표시 그룹의 모든 깊이 업무 5개 · 전체 조회 기준 · 취소 포함");
     // A child's independent linked Phase does not move it out of its parent group.
@@ -2471,12 +2490,12 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(rowTitle(page, "QA 취소된 직계 자식")).toBeVisible();
     await selectOption(page, "업무 상태", "진행 중");
     await expect(rowTitle(page, "QA 취소된 직계 자식")).toHaveCount(0);
-    await expect(parentCount).toHaveText("하위 2개");
+    await expect(parentCount).toHaveText("세부 2개");
     await expect(phaseCount).toHaveText("업무 5개");
     await page.getByRole("textbox", { name: "업무 검색", exact: true }).fill("JWT 발급");
     await expect(rowTitle(page, "QA 백엔드 개발")).toBeVisible();
     await expect(rowTitle(page, "QA JWT 발급")).toBeVisible();
-    await expect(parentCount).toHaveText("하위 2개");
+    await expect(parentCount).toHaveText("세부 2개");
     await expect(phaseCount).toHaveText("업무 5개");
     expect(api.requests.filter((request) => request.path.endsWith("/children"))).toHaveLength(0);
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
@@ -2489,21 +2508,21 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.goto("/projects/901");
     const parentCount = page.locator('[data-work-id="501"] .work-child-count');
     const phaseCount = page.locator('[data-hierarchy-key="phase:501"] .work-phase-count');
-    await expect(parentCount).toHaveText("하위 2개");
-    await expect(parentCount).toHaveAttribute("title", "직계 하위 업무 2개 · 서버 집계 기준 · 취소 포함");
+    await expect(parentCount).toHaveText("세부 2개");
+    await expect(parentCount).toHaveAttribute("title", "직계 세부 업무 2개 · 서버 집계 기준 · 취소 포함");
     await expect(phaseCount).toHaveText("조회 1개");
     await expect(phaseCount).toHaveAttribute("title", "표시 그룹의 모든 깊이 업무 1개 · 현재 불러온 업무 기준 · 취소 포함");
-    await page.getByRole("button", { name: "QA 백엔드 개발 하위 업무 펼치기", exact: true }).click();
+    await page.getByRole("button", { name: "QA 백엔드 개발 세부 업무 펼치기", exact: true }).click();
     await expect(rowTitle(page, "QA 아직 조회하지 않은 직계 자식")).toBeVisible();
-    await expect(parentCount).toHaveText("하위 2개");
-    await expect(parentCount).toHaveAttribute("title", "직계 하위 업무 2개 · 조회 완료 기준 · 취소 포함");
+    await expect(parentCount).toHaveText("세부 2개");
+    await expect(parentCount).toHaveAttribute("title", "직계 세부 업무 2개 · 조회 완료 기준 · 취소 포함");
     await expect(phaseCount).toHaveText("조회 3개");
-    await page.getByRole("button", { name: "QA 백엔드 개발 하위 업무 접기", exact: true }).click();
+    await page.getByRole("button", { name: "QA 백엔드 개발 세부 업무 접기", exact: true }).click();
     await expect(phaseCount).toHaveText("조회 3개");
-    await page.getByRole("button", { name: "QA 백엔드 개발 하위 업무 펼치기", exact: true }).click();
+    await page.getByRole("button", { name: "QA 백엔드 개발 세부 업무 펼치기", exact: true }).click();
     expect(api.requests.filter((request) => request.path.endsWith("/501/children"))).toHaveLength(1);
-    await expect(page.getByText(/^불러온 업무명에서 검색·필터합니다\./)).toBeVisible();
-    await expect(page.getByText(/^전체 업무명에서 검색·필터합니다\./)).toHaveCount(0);
+    await expect(page.getByText(/^불러온 업무 기준/)).toBeVisible();
+    await expect(page.getByText(/^전체 업무 기준/)).toHaveCount(0);
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
   });
 
@@ -2519,25 +2538,25 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.goto("/projects/901");
     const parentCount = page.locator('[data-work-id="501"] .work-child-count');
     const phaseCount = page.locator('[data-hierarchy-key="phase:501"] .work-phase-count');
-    await expect(parentCount).toHaveText("조회 하위 2개");
-    await expect(parentCount).toHaveAttribute("title", "현재 불러온 직계 하위 업무 2개 · 전체 개수는 확인되지 않았습니다.");
+    await expect(parentCount).toHaveText("조회 세부 2개");
+    await expect(parentCount).toHaveAttribute("title", "현재 불러온 직계 세부 업무 2개 · 전체 개수는 확인되지 않았습니다.");
     await expect(phaseCount).toHaveText("조회 5개");
-    await expect(page.getByText(/^불러온 업무명에서 검색·필터합니다\./)).toBeVisible();
-    await expect(page.getByText(/^전체 업무명에서 검색·필터합니다\./)).toHaveCount(0);
-    await page.getByRole("button", { name: "QA 백엔드 개발 하위 업무 펼치기", exact: true }).click();
-    await expect(parentCount).toHaveText("하위 2개");
-    await expect(parentCount).toHaveAttribute("title", "직계 하위 업무 2개 · 조회 완료 기준 · 취소 포함");
+    await expect(page.getByText(/^불러온 업무 기준/)).toBeVisible();
+    await expect(page.getByText(/^전체 업무 기준/)).toHaveCount(0);
+    await page.getByRole("button", { name: "QA 백엔드 개발 세부 업무 펼치기", exact: true }).click();
+    await expect(parentCount).toHaveText("세부 2개");
+    await expect(parentCount).toHaveAttribute("title", "직계 세부 업무 2개 · 조회 완료 기준 · 취소 포함");
     const nestedCount = page.locator('[data-work-id="511"] .work-child-count');
-    await expect(nestedCount).toHaveText("하위 9개");
-    await expect(nestedCount).toHaveAttribute("title", "직계 하위 업무 9개 · 서버 집계 기준 · 취소 포함");
-    await page.getByRole("button", { name: "QA 인증 시스템 하위 업무 펼치기", exact: true }).click();
+    await expect(nestedCount).toHaveText("세부 9개");
+    await expect(nestedCount).toHaveAttribute("title", "직계 세부 업무 9개 · 서버 집계 기준 · 취소 포함");
+    await page.getByRole("button", { name: "QA 인증 시스템 세부 업무 펼치기", exact: true }).click();
     await expect(nestedCount).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /QA 인증 시스템 하위 업무/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /QA 인증 시스템 세부 업무/ })).toHaveCount(0);
     await expect(phaseCount).toHaveText("조회 3개");
     const beforeSearch = api.requests.filter((request) => request.path.endsWith("/children")).length;
     await page.getByRole("textbox", { name: "업무 검색", exact: true }).fill("로그인 API");
     await expect(page.getByText("현재 불러온 업무 중 검색 조건에 맞는 업무가 없습니다.", { exact: true })).toBeVisible();
-    await expect(page.getByText(/^불러온 업무명에서 검색·필터합니다\./)).toBeVisible();
+    await expect(page.getByText(/^불러온 업무 기준/)).toBeVisible();
     expect(api.requests.filter((request) => request.path.endsWith("/children"))).toHaveLength(beforeSearch);
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
   });
@@ -2696,7 +2715,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await picker.getByRole("button", { name: "다시 시도", exact: true }).click();
     await expect(picker.locator('[aria-label="하위 위치"]')).toHaveAttribute("aria-busy", "true");
     await expect(picker.getByText("하위 항목이 없습니다.", { exact: true })).toHaveCount(0);
-    await expect(picker.getByRole("status").filter({ hasText: "하위 업무를 불러오는 중..." })).toBeVisible();
+    await expect(picker.getByRole("status").filter({ hasText: "세부 업무를 불러오는 중..." })).toBeVisible();
     gate.release();
     await picker.getByRole("button", { name: "1.1.1.1. QA 로그인 API", exact: true }).click();
     await picker.getByRole("button", { name: "1.1.1.1.1. QA JWT 발급", exact: true }).click();
@@ -2738,7 +2757,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await picker.getByRole("button", { name: "1.1. QA 백엔드 개발", exact: true }).click();
     await expect(picker.getByRole("button", { name: "이 위치 적용", exact: true })).toBeDisabled();
     await picker.getByRole("button", { name: "1.1.1. QA 인증 시스템", exact: true }).click();
-    await expect(picker.getByRole("alert")).toContainText("자기 자신이나 하위 업무");
+    await expect(picker.getByRole("alert")).toContainText("자기 자신이나 세부 업무");
     await picker.getByRole("button", { name: "취소", exact: true }).click();
     await edit.getByRole("button", { name: "취소", exact: true }).click();
 
@@ -2973,8 +2992,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     const trigger = form.getByRole("button", { name: "소속 위치 선택", exact: true });
     const description = "Phase 후보를 적용해도 상세 입력과 스크롤을 유지합니다.\n".repeat(20);
     await form.getByLabel("업무명", { exact: true }).fill("QA 수동 Phase 보존 업무");
-    await fillDate(form, "업무 계획 시작일", "2026-09-11");
-    await fillDate(form, "업무 계획 종료일", "2026-09-19");
+    await fillDate(form, "업무 예정 시작일", "2026-09-11");
+    await fillDate(form, "업무 예정 종료일", "2026-09-19");
     await advancedSettings(form).click();
     await form.getByLabel("업무 설명", { exact: true }).fill(description);
     await trigger.scrollIntoViewIfNeeded();
@@ -3013,8 +3032,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(form.getByLabel("선택한 소속 관계", { exact: true })).toContainText("연결 단계: 2. QA 운영 단계");
     await expect.poll(() => fields.evaluate((element) => element.scrollTop)).toBe(formScroll);
     await expect(form.getByLabel("업무명", { exact: true })).toHaveValue("QA 수동 Phase 보존 업무");
-    await expect(form.getByLabel("업무 계획 시작일", { exact: true })).toHaveValue(/09\.11/);
-    await expect(form.getByLabel("업무 계획 종료일", { exact: true })).toHaveValue(/09\.19/);
+    await expect(form.getByLabel("업무 예정 시작일", { exact: true })).toHaveValue(/09\.11/);
+    await expect(form.getByLabel("업무 예정 종료일", { exact: true })).toHaveValue(/09\.19/);
     await expect(advancedSettings(form)).toHaveAttribute("aria-expanded", "true");
     await expect(form.getByLabel("업무 설명", { exact: true })).toHaveValue(description);
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
@@ -3062,8 +3081,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       const form = page.getByRole("dialog", { name: "업무 추가", exact: true });
       const trigger = form.getByRole("button", { name: "소속 위치 선택", exact: true });
       await form.getByLabel("업무명", { exact: true }).fill("QA 위치 화면 복귀 보존");
-      await fillDate(form, "업무 계획 시작일", "2026-09-11");
-      await fillDate(form, "업무 계획 종료일", "2026-09-19");
+      await fillDate(form, "업무 예정 시작일", "2026-09-11");
+      await fillDate(form, "업무 예정 종료일", "2026-09-19");
       await advancedSettings(form).click();
       await form.getByLabel("업무 설명", { exact: true }).fill("스크롤과 상세 입력도 함께 보존합니다.\n".repeat(20));
       await trigger.scrollIntoViewIfNeeded();
@@ -3122,8 +3141,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       await expect.poll(() => fields.evaluate((element) => element.scrollTop)).toBe(formScroll);
       await expect(trigger).toContainText("프로젝트 최상위");
       await expect(form.getByLabel("업무명", { exact: true })).toHaveValue("QA 위치 화면 복귀 보존");
-      await expect(form.getByLabel("업무 계획 시작일", { exact: true })).toHaveValue(/09\.11/);
-      await expect(form.getByLabel("업무 계획 종료일", { exact: true })).toHaveValue(/09\.19/);
+      await expect(form.getByLabel("업무 예정 시작일", { exact: true })).toHaveValue(/09\.11/);
+      await expect(form.getByLabel("업무 예정 종료일", { exact: true })).toHaveValue(/09\.19/);
       await expect(advancedSettings(form)).toHaveAttribute("aria-expanded", "true");
       await expect(form.getByLabel("업무 설명", { exact: true })).toHaveValue("스크롤과 상세 입력도 함께 보존합니다.\n".repeat(20));
       await cancelForm(page, form);
@@ -3234,10 +3253,12 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(rowTitle(page, "QA 취소된 업무")).toHaveCount(0);
     await expect(rowTitle(page, "QA 백엔드 개발")).toHaveText("1.2. QA 백엔드 개발");
     await selectOption(page, "업무 상태", "전체 상태");
-    await selectOption(page, "Phase 선택", "QA 운영 단계");
+    await selectOption(page, "업무 연결 단계", "QA 운영 단계");
+    await expect(page.getByRole("button", { name: "연결 단계 필터 해제", exact: true })).toContainText("연결 단계: QA 운영 단계");
+    await expect(page.locator(".work-tree-toolbar")).toContainText("상위 경로 함께 표시");
     await expect(rowTitle(page, "QA 인증 시스템")).toHaveCount(1);
     await expect(rowTitle(page, "QA 인증 시스템")).toHaveText("1.2.1. QA 인증 시스템");
-    await selectOption(page, "Phase 선택", "전체 단계");
+    await selectOption(page, "업무 연결 단계", "전체 단계");
     await page.getByRole("textbox", { name: "업무 검색", exact: true }).fill("다섯째");
     await expect(rowTitle(page, "QA 다섯째 업무")).toHaveText("1.2.1.1.1.1. QA 다섯째 업무");
     await expect(page.locator('[data-hierarchy-key="phase:502"]')).toHaveCount(0);
@@ -3246,7 +3267,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
   test("Phase 접힘은 독립적이며 검색 해제 후 복원되고 업무 펼침 상태를 보존한다", async ({ page }) => {
     api = await installWorkApi(page);
     await page.goto("/projects/901");
-    await page.getByRole("button", { name: "QA 백엔드 개발 하위 업무 펼치기", exact: true }).click();
+    await page.getByRole("button", { name: "QA 백엔드 개발 세부 업무 펼치기", exact: true }).click();
     const phaseToggle = page.getByRole("button", { name: "QA 구현 단계 접기", exact: true });
     await phaseToggle.focus();
     await page.keyboard.press("ArrowLeft");
@@ -3288,23 +3309,23 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     api = await installWorkApi(page, { summary: true });
     api.workItems.find((item) => item.company_project_work_item_id === 511)!.rollup = { child_count: 0 };
     await page.goto("/projects/901");
-    await expect(page.getByText(/^불러온 업무명에서 검색·필터합니다\./)).toBeVisible();
-    await expect(page.getByText(/^전체 업무명에서 검색·필터합니다\./)).toHaveCount(0);
+    await expect(page.getByText(/^불러온 업무 기준/)).toBeVisible();
+    await expect(page.getByText(/^전체 업무 기준/)).toHaveCount(0);
     await expect(page.locator('[data-hierarchy-key="phase:501"] .work-phase-count')).toHaveText("조회 2개");
     await expect(rowTitle(page, "QA 백엔드 개발")).toHaveText("1.1. QA 백엔드 개발");
-    await page.getByRole("button", { name: "QA 백엔드 개발 하위 업무 펼치기", exact: true }).click();
+    await page.getByRole("button", { name: "QA 백엔드 개발 세부 업무 펼치기", exact: true }).click();
     await expect(rowTitle(page, "QA 인증 시스템")).toHaveText("1.1.1. QA 인증 시스템");
     expect(api.requests.filter((request) => request.path.endsWith("/children"))).toHaveLength(0);
     const gate = deferred();
     const path = "/company-projects/901/work-items/511/children";
     api.gates.set(`GET ${path}`, gate.promise);
-    await page.getByRole("button", { name: "QA 인증 시스템 하위 업무 펼치기", exact: true }).click();
+    await page.getByRole("button", { name: "QA 인증 시스템 세부 업무 펼치기", exact: true }).click();
     await expect.poll(() => api.requests.filter((request) => request.path === path).length).toBe(1);
-    await page.getByRole("button", { name: "QA 인증 시스템 하위 업무 접기", exact: true }).click();
-    await page.getByRole("button", { name: "QA 인증 시스템 하위 업무 펼치기", exact: true }).click();
+    await page.getByRole("button", { name: "QA 인증 시스템 세부 업무 접기", exact: true }).click();
+    await page.getByRole("button", { name: "QA 인증 시스템 세부 업무 펼치기", exact: true }).click();
     gate.release();
     await expect(rowTitle(page, "QA 로그인 API")).toHaveText("1.1.1.1. QA 로그인 API");
-    await expect(page.getByText(/^불러온 업무명에서 검색·필터합니다\./)).toBeVisible();
+    await expect(page.getByText(/^불러온 업무 기준/)).toBeVisible();
     await expect(page.locator('[data-hierarchy-key="phase:501"] .work-phase-count')).toHaveText("조회 3개");
     await expect(rowTitle(page, "QA 운영 검토")).toHaveText("2.1. QA 운영 검토");
     expect(api.requests.filter((request) => request.path === path)).toHaveLength(1);
@@ -3313,10 +3334,10 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     // An explicitly explored successful empty response is complete despite old hints.
     api.workItems.find((item) => item.company_project_work_item_id === 521)!.rollup = { child_count: 9 };
     api.childrenPayloads.set(521, { items: [] });
-    await page.getByRole("button", { name: "QA 로그인 API 하위 업무 펼치기", exact: true }).click();
-    await expect(page.getByRole("button", { name: /QA 로그인 API 하위 업무/ })).toHaveCount(0);
+    await page.getByRole("button", { name: "QA 로그인 API 세부 업무 펼치기", exact: true }).click();
+    await expect(page.getByRole("button", { name: /QA 로그인 API 세부 업무/ })).toHaveCount(0);
     await rowTitle(page, "QA 로그인 API").click();
-    await expect(panel(page)).toContainText("하위 업무 없음");
+    await expect(panel(page)).toContainText("세부 업무 없음");
     await page.getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
     expect(api.requests.filter((request) => request.path.endsWith("/521/children"))).toHaveLength(1);
     await expect(rowTitle(page, "QA 백엔드 개발")).toHaveText("1.1. QA 백엔드 개발");
@@ -3327,7 +3348,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.goto("/projects/901");
     await expect(rowTitle(page, "QA 백엔드 개발")).toHaveText("QA 백엔드 개발");
     await expect(rowTitle(page, "QA 백엔드 개발")).toHaveAttribute("title", "QA 백엔드 개발 (번호 확인 필요)");
-    await page.getByRole("button", { name: "QA 백엔드 개발 하위 업무 펼치기", exact: true }).click();
+    await page.getByRole("button", { name: "QA 백엔드 개발 세부 업무 펼치기", exact: true }).click();
     await expect(rowTitle(page, "QA 인증 시스템")).toHaveText("QA 인증 시스템");
   });
 
@@ -3410,7 +3431,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(panel(page)).toContainText("37%");
     await expect(
       panel(page).getByRole("button", {
-        name: "하위 업무 추가",
+        name: "세부 업무 추가",
         exact: true,
       }),
     ).toBeEnabled();
@@ -3497,12 +3518,12 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     const create = page.getByRole("dialog", { name: "단계 추가", exact: true });
     await create.getByLabel("단계명", { exact: true }).fill("QA 신규 단계");
     await expect(advancedSettings(create)).toHaveAttribute("aria-expanded", "false");
-    await expect(create.getByLabel("단계 실적 시작일", { exact: true })).toHaveCount(0);
+    await expect(create.getByLabel("단계 실제 시작일", { exact: true })).toHaveCount(0);
     await advancedSettings(create).click();
     await create.getByLabel("단계 설명", { exact: true }).fill("QA 단계 설명");
     await selectOption(create, "단계 상태 선택", "진행 중");
-    await fillDate(create, "단계 계획 시작일", "2026-09-10");
-    await fillDate(create, "단계 계획 종료일", "2026-09-12");
+    await fillDate(create, "단계 예정 시작일", "2026-09-10");
+    await fillDate(create, "단계 예정 종료일", "2026-09-12");
     await create.getByLabel("단계 정렬 순서", { exact: true }).fill("3");
     await expect(create.getByText(/책임자|담당자/)).toHaveCount(0);
     await expect(create.getByRole("textbox", { name: "프로젝트 구성원 검색", exact: true })).toHaveCount(0);
@@ -3520,7 +3541,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await advancedSettings(edit).click();
     await edit.getByLabel("단계 설명", { exact: true }).fill("");
     await selectOption(edit, "단계 상태 선택", "완료");
-    await fillDate(edit, "단계 계획 종료일", "");
+    await fillDate(edit, "단계 예정 종료일", "");
     await expect(edit.getByText(/책임자|담당자/)).toHaveCount(0);
     await expect(edit.getByRole("textbox", { name: "프로젝트 구성원 검색", exact: true })).toHaveCount(0);
     await edit.getByRole("button", { name: /^(저장|업무 추가|단계 추가)$/, exact: true }).click();
@@ -3540,8 +3561,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await advancedSettings(dialog).click();
     await selectOption(dialog, "업무 상태 선택", "완료");
     await selectOption(dialog, "업무 우선순위 선택", "긴급");
-    await fillDate(dialog, "업무 계획 시작일", "2026-09-11");
-    await fillDate(dialog, "업무 계획 종료일", "2026-09-13");
+    await fillDate(dialog, "업무 예정 시작일", "2026-09-11");
+    await fillDate(dialog, "업무 예정 종료일", "2026-09-13");
     await fillDate(dialog, "업무 마감 날짜", "2026-09-13");
     await dialog.getByLabel("업무 마감 시간", { exact: true }).fill("09:30");
     await dialog.getByLabel("업무 마감 시간", { exact: true }).press("Tab");
@@ -3564,7 +3585,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     api = await installWorkApi(page);
     await page.goto("/projects/901");
     await rowTitle(page, "QA 백엔드 개발").click();
-    await panel(page).getByRole("button", { name: "하위 업무 추가", exact: true }).click();
+    await panel(page).getByRole("button", { name: "세부 업무 추가", exact: true }).click();
     const create = page.getByRole("dialog", { name: "업무 추가", exact: true });
     await expect(create.getByRole("button", { name: "소속 위치 선택", exact: true })).toContainText("QA 백엔드 개발");
     await expect(create.getByRole("button", { name: "소속 위치 선택", exact: true })).toContainText("QA 구현 단계");
@@ -3599,7 +3620,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     const grid = page.getByRole("treegrid", { name: "계층형 업무", exact: true });
     for (const entry of [
       { title: "QA 운영 단계", action: "업무 추가", name: "QA 단계 행 신규 업무", parentId: null, phaseId: 502 },
-      { title: "QA 백엔드 개발", action: "하위 업무 추가", name: "QA 업무 행 신규 하위", parentId: 501, phaseId: 501 },
+      { title: "QA 백엔드 개발", action: "세부 업무 추가", name: "QA 업무 행 신규 하위", parentId: 501, phaseId: 501 },
     ]) {
       await grid.getByRole("button", { name: `${entry.title} 더 보기`, exact: true }).click();
       await page.getByRole("menuitem", { name: entry.action, exact: true }).click();
@@ -3630,7 +3651,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await advancedSettings(dialog).click();
     await dialog.getByLabel("업무 설명", { exact: true }).fill("");
     await changeLinkedPhase(page, dialog, "단계 미지정");
-    for (const label of ["업무 계획 시작일", "업무 계획 종료일", "업무 실적 시작일", "업무 실적 종료일", "업무 마감 날짜"]) {
+    for (const label of ["업무 예정 시작일", "업무 예정 종료일", "업무 실제 시작일", "업무 실제 종료일", "업무 마감 날짜"]) {
       await fillDate(dialog, label, "");
       await expect(dialog.getByLabel(label, { exact: true })).toHaveAttribute("aria-expanded", "false");
     }
@@ -3657,8 +3678,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(dialog.getByLabel("업무 WBS 코드", { exact: true })).toHaveCount(0);
     await dialog.getByLabel("업무명", { exact: true }).fill("QA 접힌 상세 설정 업무");
     await disclosure.click();
-    await fillDate(dialog, "업무 실적 시작일", "2026-09-10");
-    await fillDate(dialog, "업무 실적 종료일", "2026-09-12");
+    await fillDate(dialog, "업무 실제 시작일", "2026-09-10");
+    await fillDate(dialog, "업무 실제 종료일", "2026-09-12");
     await fillDate(dialog, "업무 마감 날짜", "2026-09-13");
     await dialog.getByLabel("업무 마감 시간", { exact: true }).fill("09:30");
     await dialog.getByLabel("업무 마감 시간", { exact: true }).press("Tab");
@@ -3671,8 +3692,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(disclosure).toContainText("설정됨");
     await expect(dialog.getByLabel("업무 WBS 코드", { exact: true })).toHaveCount(0);
     await disclosure.click();
-    await expect(dialog.getByLabel("업무 실적 시작일", { exact: true })).toHaveValue(/09\.10/);
-    await expect(dialog.getByLabel("업무 실적 종료일", { exact: true })).toHaveValue(/09\.12/);
+    await expect(dialog.getByLabel("업무 실제 시작일", { exact: true })).toHaveValue(/09\.10/);
+    await expect(dialog.getByLabel("업무 실제 종료일", { exact: true })).toHaveValue(/09\.12/);
     await expect(dialog.getByLabel("업무 마감 날짜", { exact: true })).toHaveValue(/09\.13/);
     await expect(dialog.getByLabel("업무 마감 시간", { exact: true })).toHaveValue("09:30");
     await expect(dialog.getByRole("button", { name: "업무 진행률 설정", exact: true })).toContainText("수동 설정");
@@ -3811,7 +3832,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(advancedSettings(dialog)).toHaveAttribute("aria-expanded", "false");
     await expect(advancedSettings(dialog)).toContainText("설정됨");
     await advancedSettings(dialog).click();
-    await expect(dialog.getByLabel("단계 실적 시작일", { exact: true })).toHaveValue(/09\.10/);
+    await expect(dialog.getByLabel("단계 실제 시작일", { exact: true })).toHaveValue(/09\.10/);
     await advancedSettings(dialog).click();
     await dialog.getByLabel("단계명", { exact: true }).fill("QA 이름만 수정한 단계");
     await dialog.getByRole("button", { name: /^(저장|업무 추가|단계 추가)$/, exact: true }).click();
@@ -3829,17 +3850,17 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     const dialog = page.getByRole("dialog", { name: "업무 추가", exact: true });
     await dialog.getByLabel("업무명", { exact: true }).fill("QA 상세 날짜 검증 업무");
     await advancedSettings(dialog).click();
-    await fillDate(dialog, "업무 실적 시작일", "2026-09-13");
-    await fillDate(dialog, "업무 실적 종료일", "2026-09-11");
+    await fillDate(dialog, "업무 실제 시작일", "2026-09-13");
+    await fillDate(dialog, "업무 실제 종료일", "2026-09-11");
     await dialog.getByLabel("업무 WBS 코드", { exact: true }).fill("QA.RETRY");
     await advancedSettings(dialog).click();
     await dialog.getByRole("button", { name: /^(저장|업무 추가|단계 추가)$/, exact: true }).click();
-    await expectFieldError(dialog, "업무 실적 종료일", "실적 종료일은 시작일과 같거나 이후여야 합니다.");
+    await expectFieldError(dialog, "업무 실제 종료일", "실제 종료일은 시작일과 같거나 이후여야 합니다.");
     await expect(advancedSettings(dialog)).toHaveAttribute("aria-expanded", "true");
     await expect(dialog.getByLabel("업무 WBS 코드", { exact: true })).toHaveValue("QA.RETRY");
-    await expect(dialog.getByLabel("업무 실적 시작일", { exact: true })).toHaveValue(/09\.13/);
+    await expect(dialog.getByLabel("업무 실제 시작일", { exact: true })).toHaveValue(/09\.13/);
     expect(api.requests.filter((request) => request.method === "POST")).toHaveLength(0);
-    await fillDate(dialog, "업무 실적 종료일", "2026-09-14");
+    await fillDate(dialog, "업무 실제 종료일", "2026-09-14");
     await dialog.getByRole("button", { name: /^(저장|업무 추가|단계 추가)$/, exact: true }).click();
     await expect(dialog).toHaveCount(0);
     expect(api.workItems.find((item) => item.title === "QA 상세 날짜 검증 업무"))
@@ -3854,12 +3875,12 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       const name = `${kind} 추가`;
       await page.getByRole("button", { name, exact: true }).click();
       const dialog = page.getByRole("dialog", { name, exact: true });
-      await fillDate(dialog, `${kind} 계획 시작일`, "2026-09-10");
-      await fillDate(dialog, `${kind} 계획 종료일`, "2026-09-12");
-      await fillDate(dialog, `${kind} 계획 시작일`, "");
-      await expect(dialog.getByLabel(`${kind} 계획 시작일`, { exact: true })).toHaveValue("날짜 선택");
-      await expect(dialog.getByLabel(`${kind} 계획 시작일`, { exact: true })).toHaveAttribute("aria-expanded", "false");
-      await expect(dialog.getByLabel(`${kind} 계획 종료일`, { exact: true })).toHaveValue(/09\.12/);
+      await fillDate(dialog, `${kind} 예정 시작일`, "2026-09-10");
+      await fillDate(dialog, `${kind} 예정 종료일`, "2026-09-12");
+      await fillDate(dialog, `${kind} 예정 시작일`, "");
+      await expect(dialog.getByLabel(`${kind} 예정 시작일`, { exact: true })).toHaveValue("날짜 선택");
+      await expect(dialog.getByLabel(`${kind} 예정 시작일`, { exact: true })).toHaveAttribute("aria-expanded", "false");
+      await expect(dialog.getByLabel(`${kind} 예정 종료일`, { exact: true })).toHaveValue(/09\.12/);
       await expect(dialog.locator(".schedule-date-popover")).toHaveCount(0);
       await testInfo.attach(`${kind}-create-collapsed`, { body: await page.screenshot(), contentType: "image/png" });
       await advancedSettings(dialog).click();
@@ -4019,7 +4040,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       await expect(menu).toHaveCount(0);
       const next = kind === "업무"
         ? dialog.getByRole("button", { name: "업무 우선순위 선택", exact: true })
-        : dialog.getByRole("textbox", { name: "단계 실적 시작일", exact: true });
+        : dialog.getByRole("textbox", { name: "단계 실제 시작일", exact: true });
       await expect(next).toBeFocused();
       await description.click();
       await page.keyboard.press("Tab");
@@ -4123,17 +4144,17 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.goto("/projects/901");
     await page.getByRole("button", { name: "전체 펼치기", exact: true }).click();
     await rowTitle(page, "QA JWT 발급").click();
-    await panel(page).locator("summary").filter({ hasText: "추가 정보" }).click();
+    await panel(page).locator("summary").filter({ hasText: "자세히 보기" }).click();
     await expect(panel(page).getByText("D5", { exact: true })).toBeVisible();
-    await panel(page).getByRole("button", { name: "하위 업무 추가", exact: true }).click();
+    await panel(page).getByRole("button", { name: "세부 업무 추가", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "업무 추가", exact: true });
     await dialog.getByLabel("업무명", { exact: true }).fill("QA 최대 깊이 업무");
     await dialog.getByRole("button", { name: /^(저장|업무 추가|단계 추가)$/, exact: true }).click();
     await expect(dialog).toHaveCount(0);
     await panel(page).getByRole("button", { name: /^QA 최대 깊이 업무/ }).click();
-    await panel(page).locator("summary").filter({ hasText: "추가 정보" }).click();
+    await panel(page).locator("summary").filter({ hasText: "자세히 보기" }).click();
     await expect(panel(page).getByText("D6", { exact: true })).toBeVisible();
-    await expect(panel(page).getByRole("button", { name: "하위 업무 추가", exact: true })).toBeDisabled();
+    await expect(panel(page).getByRole("button", { name: "세부 업무 추가", exact: true })).toBeDisabled();
     const deepest = api.workItems.find((item) => item.title === "QA 최대 깊이 업무")!;
     expect(deepest.depth_level).toBe(5);
     expect(api.requests.filter((request) => request.method === "POST")).toHaveLength(1);
@@ -4160,17 +4181,17 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       await rowTitle(page, `QA 간결한 기본 정보 ${index}`).click();
       const detail = panel(page);
       const basic = detail.getByLabel("업무 기본 정보", { exact: true });
-      const period = basic.locator("dt").filter({ hasText: /^계획 기간$/ });
+      const period = basic.locator("dt").filter({ hasText: /^예정 기간$/ });
       await expect(period).toHaveCount(1);
       await expect(period.locator("..").locator("dd")).toHaveText(value.expected);
-      await expect(basic.locator("dt").filter({ hasText: /^계획 (시작|종료)일$/ })).toHaveCount(0);
+      await expect(basic.locator("dt").filter({ hasText: /^예정 (시작|종료)일$/ })).toHaveCount(0);
       if (index === 0)
         await expect(basic.locator("dt").filter({ hasText: /^일정 상태$/ })).toHaveCount(0);
       const progress = basic.locator(".work-panel-progress");
       await expect(progress.getByText(`${value.progress}%`, { exact: true })).toHaveCount(1);
       await expect(progress.getByRole("progressbar", { name: "업무 진행률", exact: true })).toHaveAttribute("aria-valuenow", String(value.progress));
       await expect(detail.getByText("설명 없음", { exact: true })).toHaveCount(1);
-      await expect(detail.getByText("하위 업무 없음", { exact: true })).toHaveCount(1);
+      await expect(detail.getByText("세부 업무 없음", { exact: true })).toHaveCount(1);
       await expect(detail.getByText(/지연 0건/)).toHaveCount(0);
       await detail.getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
     }
@@ -4186,7 +4207,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await rowTitle(page, "QA 백엔드 개발").click();
     await expect(panel(page).getByText("담당자 정보 비공개", { exact: true })).toBeVisible();
     await expect(panel(page).getByText("구성원 0", { exact: true })).toHaveCount(0);
-    await expect(panel(page).getByRole("button", { name: "하위 업무 추가", exact: true })).toHaveCount(0);
+    await expect(panel(page).getByRole("button", { name: "세부 업무 추가", exact: true })).toHaveCount(0);
     await expect(panel(page).getByRole("button", { name: "업무 수정", exact: true })).toHaveCount(0);
     await expect(panel(page).getByRole("button", { name: "QA 백엔드 개발 더 보기", exact: true })).toHaveCount(0);
     expect(api.requests.every((request) => request.method === "GET")).toBe(true);
@@ -4197,11 +4218,11 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.goto("/projects/901");
     await rowTitle(page, "QA 백엔드 개발").click();
     const dialog = await editResource(page, "QA 백엔드 개발");
-    await fillDate(dialog, "업무 계획 시작일", "2026-09-25");
+    await fillDate(dialog, "업무 예정 시작일", "2026-09-25");
     await dialog.getByRole("button", { name: /^(저장|업무 추가|단계 추가)$/, exact: true }).click();
-    await expectFieldError(dialog, "업무 계획 종료일", "계획 종료일은 시작일과 같거나 이후여야 합니다.");
+    await expectFieldError(dialog, "업무 예정 종료일", "예정 종료일은 시작일과 같거나 이후여야 합니다.");
     expect(api.requests.filter((request) => request.method === "PATCH")).toHaveLength(0);
-    await fillDate(dialog, "업무 계획 시작일", "2026-09-10");
+    await fillDate(dialog, "업무 예정 시작일", "2026-09-10");
     await dialog.getByLabel("업무명", { exact: true }).fill("QA 금지된 업무 수정");
     api.failures.set("PATCH /company-projects/901/work-items/501", { status: 403, code: "PROJECT_MANAGEMENT_FORBIDDEN", message: "프로젝트 관리 권한이 없습니다." });
     await dialog.getByRole("button", { name: /^(저장|업무 추가|단계 추가)$/, exact: true }).click();
@@ -4281,7 +4302,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     api.gates.set(`GET ${childPath}`, gate.promise);
     await page.goto("/projects/901");
     await expect(rowTitle(page, "QA 백엔드 개발")).toBeVisible();
-    await expect(page.getByText(/^불러온 업무명에서 검색·필터합니다\./)).toBeVisible();
+    await expect(page.getByText(/^불러온 업무 기준/)).toBeVisible();
     expect(
       api.requests.filter((request) => request.path.endsWith("/children")),
     ).toHaveLength(0);
@@ -4289,7 +4310,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       await attachLayout(page, testInfo, "phased-before-expand");
       await page
         .getByRole("button", {
-          name: "QA 백엔드 개발 하위 업무 펼치기",
+          name: "QA 백엔드 개발 세부 업무 펼치기",
           exact: true,
         })
         .scrollIntoViewIfNeeded();
@@ -4297,7 +4318,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     }
     await page
       .getByRole("button", {
-        name: "QA 백엔드 개발 하위 업무 펼치기",
+        name: "QA 백엔드 개발 세부 업무 펼치기",
         exact: true,
       })
       .click();
@@ -4322,14 +4343,14 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(rowTitle(page, "QA 인증 시스템")).toHaveCount(1);
     await page
       .getByRole("button", {
-        name: "QA 백엔드 개발 하위 업무 접기",
+        name: "QA 백엔드 개발 세부 업무 접기",
         exact: true,
       })
       .click();
     await expect(rowTitle(page, "QA 인증 시스템")).toHaveCount(0);
     await page
       .getByRole("button", {
-        name: "QA 백엔드 개발 하위 업무 펼치기",
+        name: "QA 백엔드 개발 세부 업무 펼치기",
         exact: true,
       })
       .click();
@@ -4360,7 +4381,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.goto("/projects/901");
     await page
       .getByRole("button", {
-        name: "QA 백엔드 개발 하위 업무 펼치기",
+        name: "QA 백엔드 개발 세부 업무 펼치기",
         exact: true,
       })
       .click();
@@ -4370,7 +4391,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(rowTitle(page, "QA 인증 시스템")).toHaveCount(0);
     api.failures.delete(`GET ${path}`);
     await page
-      .getByRole("button", { name: "하위 업무 다시 시도", exact: true })
+      .getByRole("button", { name: "세부 업무 다시 시도", exact: true })
       .click();
     await expect(rowTitle(page, "QA 인증 시스템")).toBeVisible();
     expect(
@@ -4385,18 +4406,18 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.goto("/projects/901");
     await expect(rowTitle(page, "QA 백엔드 개발")).toBeVisible();
     await expect(
-      page.getByText(/^전체 업무명에서 검색·필터합니다\./),
+      page.getByText(/^전체 업무 기준/),
     ).toBeVisible();
     await page
       .getByRole("button", { name: "전체 펼치기", exact: true })
       .click();
     await expect(rowTitle(page, "QA JWT 발급")).toHaveCount(1);
     await rowTitle(page, "QA JWT 발급").click();
-    await panel(page).locator("summary").filter({ hasText: "추가 정보" }).click();
+    await panel(page).locator("summary").filter({ hasText: "자세히 보기" }).click();
     await expect(panel(page).getByText("D5", { exact: true })).toBeVisible();
     await expect(
       panel(page).getByRole("button", {
-        name: "하위 업무 추가",
+        name: "세부 업무 추가",
         exact: true,
       }),
     ).toBeEnabled();
@@ -4410,10 +4431,10 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await selectOption(page, "업무 우선순위", "높음");
     await expect(rowTitle(page, "QA 운영 검토")).toHaveCount(0);
     await selectOption(page, "업무 우선순위", "전체 우선순위");
-    await selectOption(page, "Phase 선택", "QA 운영 단계");
+    await selectOption(page, "업무 연결 단계", "QA 운영 단계");
     await expect(rowTitle(page, "QA 운영 검토")).toBeVisible();
     await expect(rowTitle(page, "QA 백엔드 개발")).toHaveCount(0);
-    await selectOption(page, "Phase 선택", "전체 단계");
+    await selectOption(page, "업무 연결 단계", "전체 단계");
     await page
       .getByRole("textbox", { name: "업무 검색", exact: true })
       .fill("로그인");
@@ -4426,7 +4447,9 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
   test("통합 필터는 조건 수와 상위 경로를 유지하고 초기화해도 하위 업무를 추가 조회하지 않는다", async ({ page }) => {
     api = await installWorkApi(page, { partial: true });
     await page.goto("/projects/901");
-    await expect(page.getByText(/^불러온 업무명에서 검색·필터합니다\./)).toBeVisible();
+    await expect(page.getByText(/^불러온 업무 기준/)).toBeVisible();
+    await expect(page.locator(".work-tree-toolbar")).toContainText("일부 업무만 조회됨");
+    await expect(page.locator(".work-tree-toolbar")).toContainText("세부 업무를 펼치면 추가로 불러옵니다.");
     const filterTrigger = page.getByRole("button", { name: "업무 필터", exact: true });
     await filterTrigger.click();
     await page.getByRole("button", { name: "업무 상태", exact: true }).click();
@@ -4445,17 +4468,18 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(page.getByText("등록된 업무가 없습니다.", { exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "검색 해제", exact: true }).click();
     await expect(search).toBeFocused();
-    await page.getByRole("button", { name: "QA 백엔드 개발 하위 업무 펼치기", exact: true }).click();
+    await page.getByRole("button", { name: "QA 백엔드 개발 세부 업무 펼치기", exact: true }).click();
     await expect(rowTitle(page, "QA 인증 시스템")).toBeVisible();
     await selectOption(page, "업무 상태", "진행 중");
     await selectOption(page, "업무 우선순위", "높음");
-    await selectOption(page, "Phase 선택", "QA 구현 단계");
+    await selectOption(page, "업무 연결 단계", "QA 구현 단계");
     await expect(page.getByRole("button", { name: "업무 필터", exact: true })).toContainText("3");
     await expect(rowTitle(page, "QA 운영 검토")).toHaveCount(0);
     await search.fill("인증");
     await expect(rowTitle(page, "QA 백엔드 개발")).toBeVisible();
     await expect(rowTitle(page, "QA 인증 시스템")).toBeVisible();
-    await expect(page.getByRole("button", { name: "QA 백엔드 개발 하위 업무 접기", exact: true })).toBeDisabled();
+    await expect(page.locator(".work-tree-toolbar")).toContainText("상위 경로 함께 표시");
+    await expect(page.getByRole("button", { name: "QA 백엔드 개발 세부 업무 접기", exact: true })).toBeDisabled();
     await page.getByRole("button", { name: "우선순위 필터 해제", exact: true }).click();
     await expect(search).toBeFocused();
     await expect(page.getByRole("button", { name: "업무 필터", exact: true })).toContainText("2");
@@ -4463,7 +4487,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(search).toBeFocused();
     await expect(search).toHaveValue("");
     await expect(page.getByRole("button", { name: "상태 필터 해제", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "단계 필터 해제", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "연결 단계 필터 해제", exact: true })).toHaveCount(0);
     await expect(rowTitle(page, "QA 운영 검토")).toBeVisible();
     await expect(rowTitle(page, "QA 인증 시스템")).toBeVisible();
     expect(api.requests.filter((request) => request.path.endsWith("/children"))).toHaveLength(1);
@@ -4492,11 +4516,11 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
   test("full 정책이어도 전체 업무 수가 일치하지 않으면 검색 범위와 새로고침을 안내하고 추가 조회하지 않는다", async ({ page }) => {
     api = await installWorkApi(page, { incompleteFull: true });
     await page.goto("/projects/901");
-    const scope = page.getByText(/^불러온 업무명에서 검색·필터합니다\./);
+    const scope = page.getByText(/^불러온 업무 기준/);
     await expect(scope).toBeVisible();
     await expect(scope).toContainText("조회 정보가 완전하지 않습니다. 새로고침으로 확인해 주세요.");
-    await expect(scope).not.toContainText("하위 업무는 펼칠 때 불러옵니다.");
-    await expect(page.getByText(/^전체 업무명에서 검색·필터합니다\./)).toHaveCount(0);
+    await expect(scope).not.toContainText("세부 업무를 펼치면 추가로 불러옵니다.");
+    await expect(page.getByText(/^전체 업무 기준/)).toHaveCount(0);
     await page.getByRole("button", { name: "불러온 업무 펼치기", exact: true }).click();
     expect(api.requests.filter((request) => request.path.endsWith("/children"))).toHaveLength(0);
     await page.getByRole("textbox", { name: "업무 검색", exact: true }).fill("인증");
@@ -4511,7 +4535,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     api = await installWorkApi(page, { partial: true });
     api.workItems.splice(0);
     await page.goto("/projects/901");
-    await expect(page.getByText(/^불러온 업무명에서 검색·필터합니다\./)).toBeVisible();
+    await expect(page.getByText(/^불러온 업무 기준/)).toBeVisible();
     await expect(page.getByText("현재 불러온 업무가 없습니다.", { exact: true })).toBeVisible();
     await expect(page.getByText("등록된 업무가 없습니다.", { exact: true })).toHaveCount(0);
     expect(api.requests.filter((request) => request.path.endsWith("/children"))).toHaveLength(0);
@@ -4523,10 +4547,10 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.goto("/projects/901");
     await expect(rowTitle(page, "QA 백엔드 개발")).toBeVisible();
     await expect(rowTitle(page, "QA 운영 검토")).toBeVisible();
-    const scope = page.getByText(/^불러온 업무명에서 검색·필터합니다\./);
+    const scope = page.getByText(/^불러온 업무 기준/);
     await expect(scope).toBeVisible();
     await expect(scope).toContainText("조회 정보가 완전하지 않습니다. 새로고침으로 확인해 주세요.");
-    await expect(page.getByText(/^전체 업무명에서 검색·필터합니다\./)).toHaveCount(0);
+    await expect(page.getByText(/^전체 업무 기준/)).toHaveCount(0);
     await page.getByRole("button", { name: "불러온 업무 펼치기", exact: true }).click();
     await expect(rowTitle(page, "QA JWT 발급")).toBeVisible();
     expect(api.requests.filter((request) => request.path.endsWith("/children"))).toHaveLength(0);
@@ -4539,9 +4563,9 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     item.parent_work_item_id = 9999;
     item.description = "QA 설명에만 존재하는 검색어";
     await page.goto("/projects/901");
-    await expect(page.getByText(/^불러온 업무명에서 검색·필터합니다\./)).toBeVisible();
+    await expect(page.getByText(/^불러온 업무 기준/)).toBeVisible();
     await expect(page.getByText("계층 정보에 오류가 있어 상위 경로가 완전하지 않을 수 있습니다.", { exact: true })).toBeVisible();
-    await expect(page.getByText(/^전체 업무명에서 검색·필터합니다\./)).toHaveCount(0);
+    await expect(page.getByText(/^전체 업무 기준/)).toHaveCount(0);
     await expect(rowTitle(page, item.title)).toBeVisible();
     await page.getByRole("textbox", { name: "업무 검색", exact: true }).fill("설명에만 존재하는");
     await expect(rowTitle(page, item.title)).toHaveCount(0);
@@ -4563,7 +4587,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(detail).toBeVisible();
     const content = detail.locator(".work-panel-content");
     expect(await content.evaluate((element) => element.clientHeight)).toBeGreaterThan(120);
-    const additional = detail.locator("summary").filter({ hasText: "추가 정보" });
+    const additional = detail.locator("summary").filter({ hasText: "자세히 보기" });
     await additional.click();
     await expect(detail.getByText("WBS 코드", { exact: true })).toBeVisible();
     expect(await content.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
@@ -4704,9 +4728,9 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       await page.addInitScript((mode) => localStorage.setItem("flowra-project-work-panel-layout", mode), storedMode);
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto("/projects/901");
-      await page.getByRole("button", { name: "QA 백엔드 개발 하위 업무 펼치기", exact: true }).click();
+      await page.getByRole("button", { name: "QA 백엔드 개발 세부 업무 펼치기", exact: true }).click();
       await expect(rowTitle(page, "QA 인증 시스템")).toBeVisible();
-      await selectOption(page, "Phase 선택", "QA 구현 단계");
+      await selectOption(page, "업무 연결 단계", "QA 구현 단계");
       const search = page.getByRole("textbox", { name: "업무 검색", exact: true });
       await search.fill("QA");
       await rowTitle(page, "QA 백엔드 개발").click();
@@ -4723,7 +4747,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
         await expect(page.locator('[data-work-id="501"]')).toHaveAttribute("aria-expanded", "true");
         await expect(rowTitle(page, "QA 인증 시스템")).toHaveCount(1);
         await expect(search).toHaveValue("QA");
-        await expect(page.getByRole("button", { name: "단계 필터 해제", exact: true })).toContainText("QA 구현 단계");
+        await expect(page.getByRole("button", { name: "연결 단계 필터 해제", exact: true })).toContainText("QA 구현 단계");
         await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBe(originalScroll);
       };
       const edit = detail.getByRole("button", { name: "업무 수정", exact: true });
@@ -4750,7 +4774,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       await expect(detail.getByRole("button", { name: "QA 백엔드 개선 더 보기", exact: true })).toBeFocused();
       expect(api.requests.filter((request) => request.method === "PATCH")).toHaveLength(1);
 
-      const addChild = detail.getByRole("button", { name: "하위 업무 추가", exact: true });
+      const addChild = detail.getByRole("button", { name: "세부 업무 추가", exact: true });
       await addChild.click();
       form = page.getByRole("dialog", { name: "업무 추가", exact: true });
       await expect(form.getByRole("button", { name: "소속 위치 선택", exact: true })).toContainText("QA 백엔드 개선");
@@ -4780,7 +4804,11 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     test.skip(page.viewportSize()!.width > 700, "모바일 표의 두 열 배치를 검증한다.");
     api = await installWorkApi(page);
     const title = "QA 모바일 다섯째 업무의 긴 제목 ".repeat(12).slice(0, 200);
-    api.workItems.push(work(540, title, { parent_work_item_id: 531, depth_level: 5 }));
+    api.workItems.push(work(540, title, {
+      parent_work_item_id: 531, depth_level: 5,
+      planned_start_date: "2026-09-07", planned_end_date: "2026-09-08",
+    }));
+    Object.assign(api.phases[0], { planned_start_date: "2026-09-07", planned_end_date: "2026-09-08" });
     for (const width of [320, 390]) {
       await page.setViewportSize({ width, height: 844 });
       await page.goto("/projects/901");
@@ -4788,6 +4816,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       const row = page.locator('[data-work-id="540"]');
       await expect(row.locator("td:visible")).toHaveCount(2);
       await expect(row.locator("td").first().getByText("진행 중", { exact: true })).toBeVisible();
+      await expect(row.locator(".work-mobile-status").getByLabel("일정: 1일 지연", { exact: true })).toBeVisible();
+      await expect(page.locator('[data-hierarchy-key="phase:501"] .work-mobile-status').getByLabel("일정: 1일 지연", { exact: true })).toBeVisible();
       const name = row.locator(".work-title-button");
       await expect(name).toHaveAttribute("title", `1.1.1.1.1.1. ${title}`);
       await expect(name).toHaveCSS("font-size", "14px");
@@ -5244,7 +5274,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       await page.goto("/projects/901");
       await page
         .getByRole("button", {
-          name: "QA 백엔드 개발 하위 업무 펼치기",
+          name: "QA 백엔드 개발 세부 업무 펼치기",
           exact: true,
         })
         .click();
@@ -5255,7 +5285,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       ).toHaveCount(0);
       api.childrenPayloads.delete(501);
       await page
-        .getByRole("button", { name: "하위 업무 다시 시도", exact: true })
+        .getByRole("button", { name: "세부 업무 다시 시도", exact: true })
         .click();
       await expect(rowTitle(page, "QA 인증 시스템")).toHaveCount(1);
     });
@@ -5269,7 +5299,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.goto("/projects/901");
     await page
       .getByRole("button", {
-        name: "QA 백엔드 개발 하위 업무 펼치기",
+        name: "QA 백엔드 개발 세부 업무 펼치기",
         exact: true,
       })
       .click();
@@ -5320,7 +5350,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       .click();
     await page
       .getByRole("button", {
-        name: "QA 백엔드 개발 하위 업무 펼치기",
+        name: "QA 백엔드 개발 세부 업무 펼치기",
         exact: true,
       })
       .click();
@@ -5376,7 +5406,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(panel(page)).not.toContainText("QA 인증 시스템 설명");
     api.failures.delete(`GET ${childPath}`);
     await panel(page)
-      .getByRole("button", { name: "하위 업무 다시 시도", exact: true })
+      .getByRole("button", { name: "세부 업무 다시 시도", exact: true })
       .click();
     // Recover using the server's cancelled child, without reopening the collapsed parent.
     await expect(panel(page)).toContainText("QA 인증 시스템 설명");
@@ -5442,7 +5472,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.goto("/projects/901");
     await page
       .getByRole("button", {
-        name: "QA 백엔드 개발 하위 업무 펼치기",
+        name: "QA 백엔드 개발 세부 업무 펼치기",
         exact: true,
       })
       .click();
@@ -5460,7 +5490,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     api.childrenPayloads.set(511, { work_items: [grandchild] });
     await page
       .getByRole("button", {
-        name: "QA 인증 시스템 하위 업무 펼치기",
+        name: "QA 인증 시스템 세부 업무 펼치기",
         exact: true,
       })
       .click();

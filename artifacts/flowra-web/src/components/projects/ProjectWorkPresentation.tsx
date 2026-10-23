@@ -50,7 +50,7 @@ export function WorkAssigneeDetails({ assignments, directory, membership, known 
       </li>)}
     </ul> : <p>{known ? "미배정" : "담당자 정보를 아직 확인하지 못했습니다."}</p>}
     {known && !identitiesVisible && <p>비공개·미확인 배정은 인원 수를 확인할 수 없습니다.</p>}
-    <p className="work-assignee-tooltip-hint">{canManage ? "클릭하여 담당자 관리" : "클릭하여 업무 상세에서 담당자 확인"}</p>
+    <p className="work-assignee-tooltip-hint">{canManage ? "담당자 관리" : "업무 상세에서 담당자 확인"}</p>
   </>;
 }
 
