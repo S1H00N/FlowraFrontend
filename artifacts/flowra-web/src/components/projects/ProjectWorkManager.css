@@ -1,11 +1,17 @@
 .projects-page.projects-work-page {
-  max-width: 1480px;
+  max-width: none;
   width: 100%;
   min-width: 0;
   grid-template-columns: minmax(0, 1fr);
 }
 .projects-work-page > [role="tabpanel"] {
   min-width: 0;
+}
+.projects-work-page > #project-overview-panel,
+.projects-work-page > #project-members-panel {
+  width: 100%;
+  max-width: 1480px;
+  margin-inline: auto;
 }
 .project-work-layout {
   display: block;

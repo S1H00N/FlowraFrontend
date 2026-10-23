@@ -480,13 +480,26 @@ function panel(page: Page) {
     .getByRole("complementary", { name: "업무 상세", exact: true })
     .or(page.getByRole("dialog", { name: "업무 상세", exact: true }));
 }
-async function setGanttDisplayOption(page: Page, label: string, checked: boolean) {
-  const option = page.getByRole("checkbox", { name: label, exact: true });
-  if (!(await option.isVisible()))
-    await page.getByTestId("project-gantt").getByRole("button", { name: "간트 표시 옵션", exact: true }).click();
-  await option.setChecked(checked);
-  if (await page.getByRole("dialog", { name: "간트 표시 옵션 설정", exact: true }).isVisible())
+async function openGanttSettings(page: Page) {
+  const settings = page.getByRole("dialog", { name: "간트 보기 설정 메뉴", exact: true });
+  if (!(await settings.isVisible()))
+    await page.getByTestId("project-gantt").getByRole("button", { name: "간트 보기 설정", exact: true }).click();
+  await expect(settings).toBeVisible();
+  return settings;
+}
+async function closeGanttSettings(page: Page) {
+  if (await page.getByRole("dialog", { name: "간트 보기 설정 메뉴", exact: true }).isVisible())
     await page.keyboard.press("Escape");
+}
+async function runGanttViewAction(page: Page, label: string) {
+  const settings = await openGanttSettings(page);
+  await settings.getByRole("button", { name: label, exact: true }).click();
+  await closeGanttSettings(page);
+}
+async function setGanttDisplayOption(page: Page, label: string, checked: boolean) {
+  const settings = await openGanttSettings(page);
+  await settings.getByRole("checkbox", { name: label, exact: true }).setChecked(checked);
+  await closeGanttSettings(page);
 }
 async function selectOption(page: Page | Locator, label: string, option: string) {
   const workFilter = ["업무 상태", "업무 우선순위", "업무 연결 단계"].includes(label);
@@ -874,7 +887,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       const paths = await svg.locator("g[data-dependency-id] > path:first-of-type").evaluateAll((elements) => elements.map((element) => element.getAttribute("d")));
       expect(new Set(paths).size).toBe(4);
     }
-    await gantt.getByRole("button", { name: "모두 펼치기", exact: true }).click();
+    await runGanttViewAction(page, "모두 펼치기");
     await expect(ganttRow(page, 521)).toBeVisible();
     await expect(svg.locator("g[data-dependency-id]")).toHaveCount(5);
     if (!isMobile)
@@ -882,12 +895,15 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await ganttRow(page, 501).getByRole("button", { name: "QA 백엔드 개발", exact: true }).click();
     await expect(panel(page).getByRole("heading", { name: "QA 백엔드 개발", exact: true })).toBeVisible();
     await panel(page).getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
-    await expect(relations.locator("summary")).toContainText("선택 업무 의존성 6개 · 선행 0 · 후행 6");
+    await expect(relations.locator("summary")).toContainText("선택 업무 연결 6개 · 선행 0 · 후행 6");
     await expect(svg.locator('g[data-selected="true"]')).toHaveCount(4);
-    await setGanttDisplayOption(page, "의존성 표시", false);
-    await expect(svg).toHaveCount(0);
+    if (!isMobile) {
+      await setGanttDisplayOption(page, "업무 연결선", false);
+      await expect(svg).toHaveCount(0);
+    }
     await expect(relations.locator("li")).toHaveCount(6);
-    await setGanttDisplayOption(page, "의존성 표시", true);
+    if (isMobile) await expect(relations).toContainText("FS · 종료 → 시작");
+    else await setGanttDisplayOption(page, "업무 연결선", true);
     await gantt.getByRole("textbox", { name: "간트 업무 검색", exact: true }).fill("백엔드");
     await expect(svg.locator("g[data-dependency-id]")).toHaveCount(0);
     await expect(relations).toContainText("접힘 또는 필터로 연결된 업무가 현재 표시되지 않습니다.");
@@ -918,9 +934,10 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await gantt.getByRole("button", { name: "간트 업무 필터", exact: true }).click();
     await selectOption(page, "간트 상태", "보류");
     await selectOption(page, "간트 우선순위", "긴급");
-    await selectOption(page, "간트 Phase 선택", "QA 구현 단계");
+    await selectOption(page, "간트 표시 단계", "QA 구현 단계");
     await page.getByRole("dialog", { name: "간트 필터 조건", exact: true }).getByRole("button", { name: "완료", exact: true }).click();
-    await expect(gantt.locator(".gantt-scope")).toContainText("5개 표시 · 직접 일치 1개");
+    await expect(gantt.locator(".gantt-scope")).toContainText("일치 업무 1개 · 상위 경로 4개");
+    await expect(gantt.locator(".gantt-active-filters")).toContainText("표시 단계: QA 구현 단계");
     for (const id of [501, 511, 521, 531, 541]) await expect(ganttRow(page, id)).toHaveCount(1);
     await expect(ganttRow(page, 551)).toHaveCount(0);
     await expect(ganttRow(page, 541).locator(".gantt-wbs-number")).toHaveText("1.1.2.1.1.1.");
@@ -963,14 +980,23 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.goto("/projects/901");
     await page.getByRole("tab", { name: "간트 차트", exact: true }).click();
     const gantt = page.getByTestId("project-gantt");
-    await expect(gantt).toContainText("담당자 정보가 확인된 업무 기준으로 필터링합니다.");
-    await expect(gantt).toContainText("조회 완료 5/6개");
     await gantt.getByRole("button", { name: "간트 업무 필터", exact: true }).click();
     await selectOption(page, "간트 담당자 필터", QA_USER.name);
     await page.getByRole("dialog", { name: "간트 필터 조건", exact: true }).getByRole("button", { name: "완료", exact: true }).click();
+    await expect(gantt).toContainText("담당자 정보가 확인된 업무 기준");
+    await expect(gantt).toContainText("5/6개");
     await expect(ganttRow(page, 501)).toBeVisible();
     await expect(ganttRow(page, 511)).toHaveCount(0);
-    await expect(gantt.locator(".gantt-scope")).toContainText("직접 일치 1개");
+    await expect(gantt.locator(".gantt-scope")).toContainText("일치 업무 1개");
+    await gantt.getByRole("button", { name: "간트 업무 필터", exact: true }).click();
+    await page.getByRole("dialog", { name: "간트 필터 조건", exact: true }).getByRole("checkbox", { name: "미배정 업무만 보기", exact: true }).check();
+    await page.getByRole("dialog", { name: "간트 필터 조건", exact: true }).getByRole("button", { name: "완료", exact: true }).click();
+    await expect(gantt.locator(".gantt-scope")).toContainText("일치 업무 0개");
+    await expect(ganttRow(page, 501)).toHaveCount(0);
+    await gantt.getByRole("button", { name: "간트 업무 필터", exact: true }).click();
+    await expect(page.getByRole("button", { name: "간트 담당자 필터", exact: true })).toContainText(QA_USER.name);
+    await expect(page.getByRole("checkbox", { name: "미배정 업무만 보기", exact: true })).toBeChecked();
+    await page.getByRole("dialog", { name: "간트 필터 조건", exact: true }).getByRole("button", { name: "완료", exact: true }).click();
     await gantt.getByRole("button", { name: "간트 필터 초기화", exact: true }).click();
     await gantt.getByRole("button", { name: "간트 업무 필터", exact: true }).click();
     const filter = page.getByRole("dialog", { name: "간트 필터 조건", exact: true });
@@ -978,7 +1004,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await filter.getByRole("button", { name: "완료", exact: true }).click();
     for (const id of [502, 504, 505]) await expect(ganttRow(page, id)).toHaveCount(1);
     for (const id of [501, 503, 511]) await expect(ganttRow(page, id)).toHaveCount(0);
-    await expect(gantt.locator(".gantt-scope")).toContainText("직접 일치 3개");
+    await expect(gantt.locator(".gantt-scope")).toContainText("일치 업무 3개");
     await gantt.getByRole("textbox", { name: "간트 업무 검색", exact: true }).fill("인증");
     await expect(gantt.getByRole("button", { name: "검색 및 필터 초기화", exact: true })).toBeVisible();
     await gantt.getByRole("button", { name: "검색 및 필터 초기화", exact: true }).click();
@@ -987,6 +1013,162 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     expect(api.requests.filter((request) => request.path.endsWith("/gantt"))).toHaveLength(1);
     expect(api.requests.filter((request) => request.path.includes("/0"))).toEqual([]);
   });
+
+  test("UX 1B 간트: 보기 설정은 키보드로 즉시 반영하고 탭·화면 전환 뒤에도 선택을 유지한다", async ({ page }) => {
+    api = await installWorkApi(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/projects/901");
+    await page.getByRole("tab", { name: "간트 차트", exact: true }).click();
+    const gantt = page.getByTestId("project-gantt");
+    const trigger = gantt.getByRole("button", { name: "간트 보기 설정", exact: true });
+    for (const label of ["전체 기간 보기", "모두 펼치기", "모두 접기"])
+      await expect(gantt.getByRole("button", { name: label, exact: true })).toHaveCount(0);
+    await trigger.focus();
+    await trigger.press("Enter");
+    const settings = page.getByRole("dialog", { name: "간트 보기 설정 메뉴", exact: true });
+    await expect(settings).toBeVisible();
+    await expect(settings.getByRole("checkbox", { name: "기간 미설정 표시", exact: true })).toBeChecked();
+    for (const label of ["담당자", "상태", "우선순위", "진행률 숫자"])
+      await expect(settings.getByRole("checkbox", { name: label, exact: true })).not.toBeChecked();
+    const status = settings.getByRole("checkbox", { name: "상태", exact: true });
+    await status.focus();
+    await status.press("Space");
+    await expect(status).toBeChecked();
+    await expect(ganttRow(page, 501).locator(".gantt-work-metadata")).toContainText("진행 중");
+    await page.keyboard.press("Escape");
+    await expect(settings).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await page.getByRole("tab", { name: "업무 목록", exact: true }).click();
+    await page.getByRole("tab", { name: "간트 차트", exact: true }).click();
+    await openGanttSettings(page);
+    await expect(status).toBeChecked();
+    await closeGanttSettings(page);
+    for (const width of [768, 390, 320]) {
+      await page.setViewportSize({ width, height: 640 });
+      await openGanttSettings(page);
+      const bounds = (await settings.boundingBox())!;
+      expect(bounds.x).toBeGreaterThanOrEqual(0);
+      expect(bounds.y).toBeGreaterThanOrEqual(0);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(641);
+      await expect(status).toHaveCount(0);
+      const collapse = settings.getByRole("button", { name: "모두 접기", exact: true });
+      await collapse.scrollIntoViewIfNeeded();
+      await expect(collapse).toBeInViewport();
+      await closeGanttSettings(page);
+      await expectNoPageOverflow(page);
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openGanttSettings(page);
+    await expect(status).toBeChecked();
+    await closeGanttSettings(page);
+    expect(api.requests.filter((request) => request.path.endsWith("/gantt"))).toHaveLength(1);
+    expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
+  });
+
+  test("UX 1B 간트: 축약 보기 전환은 날짜 조작과 업무 행의 키보드 포커스를 복구한다", async ({ page }) => {
+    api = await installWorkApi(page);
+    for (let index = 0; index < 30; index++) api.workItems.push(work(6400 + index, `QA 포커스 ${index + 1}`));
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/projects/901");
+    await page.getByRole("tab", { name: "간트 차트", exact: true }).click();
+    const gantt = page.getByTestId("project-gantt");
+    const dateAction = gantt.getByRole("button", { name: "다음 기간", exact: true });
+    await dateAction.focus();
+    await expect(dateAction).toBeFocused();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.getByTestId("gantt-mobile-list")).toBeVisible();
+    await expect(gantt.getByRole("button", { name: "간트 보기 설정", exact: true })).toBeFocused();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const desktopTitle = page.getByTestId("gantt-scroll").locator('[data-work-id="501"]')
+      .getByRole("button", { name: "QA 백엔드 개발", exact: true });
+    await desktopTitle.focus();
+    await expect(desktopTitle).toBeFocused();
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileTitle = page.getByTestId("gantt-mobile-list").locator('[data-work-id="501"]')
+      .getByRole("button", { name: "QA 백엔드 개발", exact: true });
+    await expect(mobileTitle).toBeFocused();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(desktopTitle).toBeFocused();
+    const desktopDeep = page.getByTestId("gantt-scroll").locator('[data-work-id="6429"]')
+      .getByRole("button", { name: "QA 포커스 30", exact: true });
+    await desktopDeep.scrollIntoViewIfNeeded();
+    await desktopDeep.focus();
+    await expect(desktopDeep).toBeFocused();
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileDeep = page.getByTestId("gantt-mobile-list").locator('[data-work-id="6429"]')
+      .getByRole("button", { name: "QA 포커스 30", exact: true });
+    await expect(mobileDeep).toBeFocused();
+    await expect(mobileDeep).toBeInViewport();
+    await expect.poll(() => mobileDeep.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+      return hit !== null && (element === hit || element.contains(hit));
+    })).toBe(true);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(desktopDeep).toBeFocused();
+    await expect(desktopDeep).toBeInViewport();
+    await expect.poll(() => desktopDeep.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+      return hit !== null && (element === hit || element.contains(hit));
+    })).toBe(true);
+    expect(api.requests.filter((request) => request.path.endsWith("/gantt"))).toHaveLength(1);
+    expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
+  });
+
+  for (const rowCount of [0, 1, 7, 30, 300]) {
+    test(`UX 1B 간트: 업무 ${rowCount}개의 내용 높이·빈 상태·마지막 행 접근을 유지한다`, async ({ page }) => {
+      api = await installWorkApi(page, { phaseLess: true });
+      const rows = Array.from({ length: rowCount }, (_, index) => work(6000 + index,
+        `QA 높이 ${String(index + 1).padStart(3, "0")}`, { company_project_phase_id: null }));
+      api.workItems.splice(0, api.workItems.length, ...rows);
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await page.goto("/projects/901");
+      await page.getByRole("tab", { name: "간트 차트", exact: true }).click();
+      const gantt = page.getByTestId("project-gantt");
+      await expect(gantt.locator(".gantt-scope")).toContainText(`전체 업무 ${rowCount}개`);
+      await expectNoPageOverflow(page);
+      const scroll = page.getByTestId("gantt-scroll");
+      if (!rowCount) {
+        const empty = gantt.locator(".gantt-state");
+        await expect(empty).toContainText(/업무가 없습니다/);
+        await expect(empty).toBeVisible();
+        expect((await empty.boundingBox())!.height).toBeGreaterThanOrEqual(80);
+        await expect(scroll).toHaveCount(0);
+      } else {
+        await expect(scroll.locator(".gantt-row[data-work-id]")).toHaveCount(rowCount);
+        const metrics = await scroll.evaluate((element) => ({ client: element.clientHeight, content: element.scrollHeight }));
+        if (rowCount <= 7) {
+          expect(metrics.client).toBeGreaterThanOrEqual(58 + rowCount * 46 - 1);
+          expect(metrics.client).toBeLessThanOrEqual(58 + rowCount * 46 + 2);
+          expect(metrics.content - metrics.client).toBeLessThanOrEqual(1);
+        } else {
+          expect(metrics.content).toBeGreaterThan(metrics.client);
+          await scroll.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+          const last = ganttRow(page, 6000 + rowCount - 1).getByRole("button", { name: `QA 높이 ${String(rowCount).padStart(3, "0")}`, exact: true });
+          await last.scrollIntoViewIfNeeded();
+          await expect(last).toBeInViewport();
+          const headerDelta = await scroll.evaluate((element) =>
+            element.querySelector(".gantt-grid-header")!.getBoundingClientRect().top - element.getBoundingClientRect().top);
+          expect(Math.abs(headerDelta)).toBeLessThanOrEqual(2);
+        }
+        if (rowCount === 30) {
+          const search = gantt.getByRole("textbox", { name: "간트 업무 검색", exact: true });
+          await search.fill("높이 030");
+          await expect(scroll.locator(".gantt-row[data-work-id]")).toHaveCount(1);
+          await expect.poll(() => scroll.evaluate((element) => element.clientHeight)).toBeLessThanOrEqual(106);
+          await search.fill("");
+          await expect(scroll.locator(".gantt-row[data-work-id]")).toHaveCount(30);
+          await page.setViewportSize({ width: 1440, height: 500 });
+          await expect.poll(() => scroll.evaluate((element) => element.clientHeight)).toBeLessThan(metrics.client);
+          await expectNoPageOverflow(page);
+        }
+      }
+      expect(api.requests.filter((request) => request.path.endsWith("/gantt"))).toHaveLength(1);
+      expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
+    });
+  }
 
   test("4-3C 간트: WBS 키보드·포인터 조절과 표시 옵션은 좌표·스크롤·세션을 보존한다", async ({ page }) => {
     api = await installWorkApi(page);
@@ -1065,7 +1247,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await separator.press("Shift+ArrowRight");
     await expect(separator).toHaveAttribute("aria-valuenow", "390");
     await scroll.evaluate((element) => { element.scrollTop = 0; });
-    for (const option of ["담당자 요약 표시", "상태 표시", "우선순위 표시", "진행률 텍스트 표시", "날짜 미설정 안내"])
+    for (const option of ["담당자", "상태", "우선순위", "진행률 숫자", "기간 미설정 표시"])
       await setGanttDisplayOption(page, option, true);
     const metadata = ganttRow(page, 501).locator(".gantt-work-metadata");
     await expect(metadata).toContainText("진행 중");
@@ -1073,7 +1255,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(metadata).toContainText(QA_USER.name);
     await expect(page.getByTestId("gantt-bar-501").locator(".gantt-progress-text")).toHaveText("37%");
     await expect(ganttRow(page, 551).getByRole("button", { name: "QA 옵션 미설정 기간 계획 기간 미설정", exact: true })).toHaveCount(1);
-    await setGanttDisplayOption(page, "날짜 미설정 안내", false);
+    await setGanttDisplayOption(page, "기간 미설정 표시", false);
     await expect(ganttRow(page, 551).getByRole("button", { name: "QA 옵션 미설정 기간 계획 기간 미설정", exact: true })).toHaveCount(0);
     await page.getByRole("tab", { name: "업무 목록", exact: true }).click();
     await page.getByRole("tab", { name: "간트 차트", exact: true }).click();
@@ -1104,9 +1286,9 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(gantt.locator(".gantt-desktop .gantt-row[data-work-id]")).toHaveCount(300);
     const initialRenderMs = Date.now() - start;
     await expect(page.getByTestId("gantt-dependencies")).toHaveCount(0);
-    await expect(page.getByTestId("gantt-dependency-details").locator("summary")).toHaveText("조회된 의존성 299개");
+    await expect(page.getByTestId("gantt-dependency-details").locator("summary")).toHaveText("조회된 업무 연결 299개");
     const optionStart = Date.now();
-    await setGanttDisplayOption(page, "의존성 표시", true);
+    await setGanttDisplayOption(page, "업무 연결선", true);
     const svg = page.getByTestId("gantt-dependencies");
     await expect(svg.locator("g[data-dependency-id]")).toHaveCount(299);
     const showRelationsMs = Date.now() - optionStart;
@@ -1131,7 +1313,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await gantt.getByRole("group", { name: "간트 날짜 확대 수준", exact: true }).getByRole("button", { name: "월", exact: true }).click();
     await expect(svg.locator("g[data-dependency-id]")).toHaveCount(299);
     const filterAndZoomMs = Date.now() - interactionStart;
-    await setGanttDisplayOption(page, "의존성 표시", false);
+    await setGanttDisplayOption(page, "업무 연결선", false);
     await search.fill("대량 업무 299");
     await expect(svg).toHaveCount(0);
     await search.fill("");
@@ -1454,8 +1636,10 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.goto("/projects/901");
     await page.getByRole("tab", { name: "간트 차트", exact: true }).click();
     await expect(page.getByText("간트 일정을 불러오는 중입니다.", { exact: true })).toBeVisible();
-    await expect(page.getByTestId("project-gantt").getByRole("button", { name: "모두 펼치기", exact: true })).toBeDisabled();
-    await expect(page.getByTestId("project-gantt").getByRole("button", { name: "모두 접기", exact: true })).toBeDisabled();
+    const settings = await openGanttSettings(page);
+    await expect(settings.getByRole("button", { name: "모두 펼치기", exact: true })).toBeDisabled();
+    await expect(settings.getByRole("button", { name: "모두 접기", exact: true })).toBeDisabled();
+    await closeGanttSettings(page);
     gate.release();
     const gantt = page.getByTestId("project-gantt");
     const scroller = page.getByTestId("gantt-scroll");
@@ -1469,7 +1653,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await gantt.getByRole("button", { name: "이전 기간", exact: true }).click();
     await gantt.getByRole("button", { name: "오늘", exact: true }).click();
     await expect(page.getByTestId("gantt-today-line")).toBeVisible();
-    await gantt.getByRole("button", { name: "기간 맞춤", exact: true }).click();
+    await runGanttViewAction(page, "전체 기간 보기");
     await zoom.getByRole("button", { name: "일", exact: true }).click();
     await scroller.evaluate((element) => { element.scrollLeft = 190; });
     await expect.poll(() => scroller.evaluate((element) => element.scrollLeft)).toBe(190);
@@ -1491,36 +1675,38 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     const gantt = page.getByTestId("project-gantt");
     const scope = gantt.locator(".gantt-scope");
     await expect(scope).toContainText("불러온 업무 3개");
-    await expect(scope).toContainText("일부 업무만 불러왔습니다.");
     await expect(scope).not.toContainText("전체 업무");
-    const expand = gantt.getByRole("button", { name: "모두 펼치기", exact: true });
-    const collapse = gantt.getByRole("button", { name: "모두 접기", exact: true });
+    await expect(scope.getByRole("button", { name: "5단계 조회 요청", exact: true })).toBeVisible();
+    const settings = await openGanttSettings(page);
+    const expand = settings.getByRole("button", { name: "모두 펼치기", exact: true });
+    const collapse = settings.getByRole("button", { name: "모두 접기", exact: true });
     await expect(expand).toBeEnabled();
-    for (const control of [expand, collapse]) {
-      const border = await control.evaluate((element) => ({ style: getComputedStyle(element).borderTopStyle, color: getComputedStyle(element).borderTopColor }));
-      expect(border.style).toBe("solid");
-      expect(border.color).not.toBe("rgba(0, 0, 0, 0)");
-    }
     await expand.click();
-    await expect(ganttRow(page, 511)).toBeVisible();
+    await openGanttSettings(page);
     await expect(expand).toBeDisabled();
+    await closeGanttSettings(page);
+    await expect(ganttRow(page, 511)).toBeVisible();
     await expect(ganttRow(page, 521)).toHaveCount(0);
     expect(api.requests.filter((request) => request.path.endsWith("/children"))).toEqual([]);
     await expect(ganttRow(page, 511).getByRole("button", { name: "QA 인증 시스템 펼치기", exact: true })).toHaveAttribute("aria-expanded", "false");
-    await collapse.click();
+    await runGanttViewAction(page, "모두 접기");
+    await openGanttSettings(page);
     await expect(collapse).toBeDisabled();
+    await closeGanttSettings(page);
     await expect(ganttRow(page, 511)).toHaveCount(0);
-    await expand.click();
+    await runGanttViewAction(page, "모두 펼치기");
     expect(api.requests.filter((request) => request.path.endsWith("/children"))).toEqual([]);
     await gantt.getByRole("button", { name: "5단계 조회 요청", exact: true }).click();
-    await gantt.getByPlaceholder("간트 업무 검색", { exact: true }).fill("JWT 발급");
+    await gantt.getByRole("textbox", { name: "간트 업무 검색", exact: true }).fill("JWT 발급");
     await expect(ganttRow(page, 531)).toBeVisible();
     await expect(ganttRow(page, 501)).toBeVisible();
     await expect(ganttRow(page, 511)).toBeVisible();
     await expect(ganttRow(page, 521)).toBeVisible();
-    await expect(scope).toContainText("불러온 업무 5개 중 4개 표시");
+    await expect(scope).toContainText("일치 업무 1개 · 상위 경로 3개 · 전체 업무 5개");
+    await openGanttSettings(page);
     await expect(expand).toBeDisabled();
     await expect(collapse).toBeDisabled();
+    await closeGanttSettings(page);
     expect(api.requests.filter((request) => request.path.endsWith("/gantt")).map((request) => request.query))
       .toEqual([{ mode: "auto", max_depth: "2" }, { mode: "full", max_depth: "5" }]);
   });
@@ -1535,7 +1721,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(gantt.locator(".gantt-scope")).toContainText("불러온 업무 5개");
     await expect(gantt.locator(".gantt-scope")).not.toContainText("전체 업무");
     await gantt.getByRole("button", { name: "5단계 조회 요청", exact: true }).click();
-    await expect(gantt.locator(".gantt-scope")).toContainText("전체 업무 5개 조회");
+    await expect(gantt.locator(".gantt-scope")).toContainText("전체 업무 5개");
     expect(api.requests.filter((request) => request.path.endsWith("/gantt")).map((request) => request.query))
       .toEqual([{ mode: "auto", max_depth: "2" }, { mode: "full", max_depth: "5" }]);
   });
@@ -1554,9 +1740,9 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.goto("/projects/901");
     await page.getByRole("tab", { name: "간트 차트", exact: true }).click();
     const gantt = page.getByTestId("project-gantt");
-    await gantt.getByRole("button", { name: "모두 펼치기", exact: true }).click();
+    await runGanttViewAction(page, "모두 펼치기");
     await expect(gantt.locator(".gantt-desktop .gantt-row[data-work-id]")).toHaveCount(300);
-    await expect(gantt).toContainText("전체 업무 300개 조회");
+    await expect(gantt).toContainText("전체 업무 300개");
     const zoom = gantt.getByRole("group", { name: "간트 날짜 확대 수준", exact: true });
     for (const label of ["일", "주", "월"]) {
       await zoom.getByRole("button", { name: label, exact: true }).click();
@@ -1576,11 +1762,11 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       expect(counts.headerSegments).toBeLessThan(100);
       expect(counts.gridSegments).toBe(counts.minorHeaders);
     }
-    const search = gantt.getByPlaceholder("간트 업무 검색", { exact: true });
+    const search = gantt.getByRole("textbox", { name: "간트 업무 검색", exact: true });
     await search.fill("업무 003");
     for (const id of [2000, 2001, 2002]) await expect(ganttRow(page, id)).toHaveCount(1);
     await expect(gantt.locator(".gantt-desktop .gantt-row[data-work-id]")).toHaveCount(3);
-    await expect(gantt).toContainText("불러온 업무 300개 중 3개 표시");
+    await expect(gantt).toContainText("일치 업무 1개 · 상위 경로 2개 · 전체 업무 300개");
     await search.fill("");
     await expect(gantt.locator(".gantt-desktop .gantt-row[data-work-id]")).toHaveCount(300);
     expect(api.requests.filter((request) => request.path.endsWith("/gantt")).map((request) => request.query)).toEqual([{ mode: "full", max_depth: "5" }]);
@@ -1635,7 +1821,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     api.failures.set(parentKey, { status: 503, code: "INTERNAL_SERVER_ERROR", message: "QA 간트 상위 경로 조회 실패" });
     await page.goto("/projects/901");
     await page.getByRole("tab", { name: "간트 차트", exact: true }).click();
-    await page.getByPlaceholder("간트 업무 검색", { exact: true }).fill("로그인 API");
+    await page.getByRole("textbox", { name: "간트 업무 검색", exact: true }).fill("로그인 API");
     await ganttRow(page, 521).getByRole("button", { name: "QA 로그인 API", exact: true }).click();
     await expect(panel(page)).toContainText("담당자 미조회");
     await expect(panel(page).getByRole("button", { name: "QA 로그인 API 더 보기", exact: true })).toHaveCount(0);
@@ -1681,7 +1867,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.goto("/projects/901");
     await page.getByRole("tab", { name: "간트 차트", exact: true }).click();
     const gantt = page.getByTestId("project-gantt");
-    await gantt.getByRole("button", { name: "모두 펼치기", exact: true }).click();
+    await runGanttViewAction(page, "모두 펼치기");
     for (const id of [501, 511, 521, 531, 541]) await expect(ganttRow(page, id)).toHaveCount(1);
     const leaf = ganttRow(page, 541);
     await expect(page.getByTestId("gantt-bar-541")).toHaveAttribute("aria-label", /QA 5단계 교차 Phase.*2026-09-10 ~ 2026-09-20/);
@@ -1689,7 +1875,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(leaf.getByRole("button", { name: "QA 5단계 교차 Phase", exact: true })).toHaveAttribute("title", /서버 WBS: SERVER-5/);
     const order = await gantt.locator(".gantt-row:visible, .gantt-mobile-row:visible").allTextContents();
     expect(order.findIndex((text) => text.includes("QA 5단계 교차 Phase"))).toBeLessThan(order.findIndex((text) => text.includes("QA 운영 단계")));
-    await gantt.getByPlaceholder("간트 업무 검색", { exact: true }).fill("5단계 교차");
+    await gantt.getByRole("textbox", { name: "간트 업무 검색", exact: true }).fill("5단계 교차");
     await expect(leaf.locator(".gantt-wbs-number")).toHaveText("1.1.1.1.1.1.");
     for (const id of [501, 511, 521, 531, 541]) await expect(ganttRow(page, id)).toHaveCount(1);
     expect(api.requests.filter((request) => request.path.endsWith("/children"))).toEqual([]);
@@ -1722,7 +1908,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.goto("/projects/901");
     await page.getByRole("tab", { name: "간트 차트", exact: true }).click();
     const gantt = page.getByTestId("project-gantt");
-    await gantt.getByRole("button", { name: "모두 펼치기", exact: true }).click();
+    await runGanttViewAction(page, "모두 펼치기");
     await gantt.getByRole("group", { name: "간트 날짜 확대 수준", exact: true }).getByRole("button", { name: "일", exact: true }).click();
     await expect(page.getByTestId("gantt-bar-1201")).toHaveAccessibleName(/QA 서버 0%.*진행률 0%/);
     await expect(page.getByTestId("gantt-bar-1201").locator(".gantt-progress-fill")).toHaveAttribute("style", "width: 0%;");
@@ -1766,7 +1952,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     const phase = gantt.locator(".gantt-phase-bar[role=img]");
     await expect(phase).toHaveAccessibleName(/QA 구현 단계.*Phase 일정.*2026-09-09 ~ 2026-09-22/);
     await expect(phase.locator(".gantt-progress-fill")).toHaveCount(0);
-    await expect(gantt.locator(".gantt-legend-phase").locator("..")).toContainText("Phase 일정");
+    await expect(gantt.locator(".gantt-legend-phase").locator("..")).toContainText("단계 일정");
     await expect(gantt.locator(".gantt-phase-row").filter({ hasText: "QA 운영 단계" }).locator(".gantt-phase-bar")).toHaveCount(0);
     await expect(gantt.locator('[aria-label="QA 운영 단계 계획 기간 미설정"]')).toHaveText("—");
     await expect(gantt.locator('[aria-label="QA 운영 단계 계획 기간 미설정"]')).toHaveAttribute("tabindex", "0");
@@ -1877,7 +2063,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     api = await installCreationAssignmentsApi(page, true);
     await page.goto("/projects/901");
     await page.getByRole("tab", { name: "간트 차트", exact: true }).click();
-    const ganttSearch = page.getByPlaceholder("간트 업무 검색", { exact: true });
+    const ganttSearch = page.getByRole("textbox", { name: "간트 업무 검색", exact: true });
     await ganttSearch.fill("인증");
     await ganttRow(page, 511).getByRole("button", { name: "QA 인증 시스템", exact: true }).click();
     await expect(panel(page)).toContainText("QA 인증 시스템 설명");
@@ -1910,7 +2096,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     expect(api.requests.filter((request) => request.method === "POST")).toEqual([{ method: "POST", path: "/company-projects/901/work-items/511/assignments", query: {}, body: { assignee_company_member_id: 172, role: "assignee" } }]);
   });
 
-  test("간트: 320·390·768·1024·1440px와 테마 변경에도 한 스크롤·sticky WBS·행 정렬을 유지한다", async ({ page }, testInfo) => {
+  test("간트: 320·360·390·768·1024·1440·1920·2560px와 테마 변경에도 한 스크롤·sticky WBS·행 정렬을 유지한다", async ({ page }, testInfo) => {
     api = await installWorkApi(page);
     for (let index = 0; index < 32; index++) api.workItems.push(work(1100 + index, `QA 간트 스크롤 ${index + 1}`));
     const colors: string[] = [];
@@ -1922,12 +2108,13 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       await expect(page.locator("html")).toHaveAttribute("data-resolved-theme", theme);
       const gantt = page.getByTestId("project-gantt");
       await expect(ganttRow(page, 501)).toBeVisible();
-      await gantt.getByRole("button", { name: "모두 펼치기", exact: true }).click();
+      await runGanttViewAction(page, "모두 펼치기");
       if (theme === "light") await page.screenshot({ path: testInfo.outputPath("gantt-desktop-1440-light.png"), fullPage: true });
       colors.push(await gantt.evaluate((element) => getComputedStyle(element).color));
-      for (const width of [320, 390, 768, 1024, 1440]) {
+      for (const width of [320, 360, 390, 768, 1024, 1440, 1920, 2560]) {
         await page.setViewportSize({ width, height: width < 700 ? 844 : 900 });
         await expectNoPageOverflow(page);
+        if (width === 2560) expect((await gantt.boundingBox())!.width).toBeGreaterThan(1480);
         const compact = (await gantt.boundingBox())!.width <= 600;
         if (compact) {
           await expect(page.getByTestId("gantt-mobile-list")).toBeVisible();
@@ -1978,7 +2165,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.goto("/projects/901");
     await page.getByRole("tab", { name: "간트 차트", exact: true }).click();
     const gantt = page.getByTestId("project-gantt");
-    await gantt.getByRole("button", { name: "모두 펼치기", exact: true }).click();
+    await runGanttViewAction(page, "모두 펼치기");
 
     async function checkLastRow() {
       await expectNoPageOverflow(page);
@@ -2004,9 +2191,21 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
         expect(scrollbar.gutter).toContain("stable");
         if (!isMobile) expect(scrollbar.reserved).toBeGreaterThan(0);
       }
-      const collapse = gantt.getByRole("button", { name: "모두 접기", exact: true });
+      const settings = await openGanttSettings(page);
+      await expect.poll(() => settings.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return bounds.left >= -1 && bounds.top >= -1 &&
+          bounds.right <= window.innerWidth + 1 && bounds.bottom <= window.innerHeight + 1;
+      })).toBe(true);
+      const collapse = settings.getByRole("button", { name: "모두 접기", exact: true });
       await collapse.scrollIntoViewIfNeeded();
       await expect(collapse).toBeInViewport();
+      await expect.poll(() => collapse.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        const hit = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+        return hit !== null && (element === hit || element.contains(hit));
+      })).toBe(true);
+      await closeGanttSettings(page);
     }
 
     for (const size of [{ width: 1440, height: 900 }, { width: 1024, height: 500 },
