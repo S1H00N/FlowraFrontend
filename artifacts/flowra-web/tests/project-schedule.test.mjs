@@ -31,6 +31,7 @@ test("schedule covers missing, single-sided, future, start-day and inclusive due
     [null, "2026-10-20", "normal"], [today, today, "due"],
     [null, today, "due"], ["2026-10-20", today, "invalid"],
   ]) assert.equal(projectSchedule(period(start, end), today).kind, kind);
+  assert.equal(projectSchedule(period(null, today), today).label, "오늘 종료 예정");
 });
 
 test("delay starts the next calendar day and ignores stale completion timestamps on open work", () => {

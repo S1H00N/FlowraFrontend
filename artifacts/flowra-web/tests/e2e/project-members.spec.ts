@@ -874,7 +874,7 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
       await expect(tooltip.getByText(name, { exact: true })).toHaveCount(1);
     }
     await expect(tooltip).not.toContainText("QA 박디자인");
-    await expect(tooltip).toContainText("클릭하여 담당자 관리");
+    await expect(tooltip.getByText("담당자 관리", { exact: true })).toBeVisible();
     await page.mouse.move(0, 0, { steps: 10 });
     await expect(tooltip).toHaveCount(0);
     await summary.focus();

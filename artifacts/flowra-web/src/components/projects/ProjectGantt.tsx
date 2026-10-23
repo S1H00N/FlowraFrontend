@@ -3,6 +3,7 @@ import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, FileCheck2, Folder, Loader2, Search, SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import CustomSelect from "@/components/ui/CustomSelect";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -126,14 +127,22 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
   const [filters, setFilters] = useState(emptyProjectGanttFilters);
   const [filterOpen, setFilterOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const [filterElement, setFilterElement] = useState<HTMLDivElement | null>(null);
+  const [optionsElement, setOptionsElement] = useState<HTMLDivElement | null>(null);
   useEffect(() => { if (!active) { setFilterOpen(false); setOptionsOpen(false); } }, [active]);
   const filterDoneRef = useRef<HTMLButtonElement>(null);
+  const filterTriggerRef = useRef<HTMLButtonElement>(null);
+  const optionsTriggerRef = useRef<HTMLButtonElement>(null);
+  const dateActionsRef = useRef<HTMLDivElement>(null);
+  const lastFocusedRef = useRef<HTMLElement | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [dependencyChoice, setShowDependencies] = useState<boolean | null>(null);
   const [display, setDisplay] = useState({ assignees: false, status: false, priority: false, undated: true, progress: false });
   const [zoom, setZoom] = useState<ProjectGanttZoom>("week");
   const [range, setRange] = useState<{ start: string; end: string } | null>(null);
   const [viewport, setViewport] = useState({ width: 1000, left: 0 });
+  const [compact, setCompact] = useState(false);
+  const [chartHeight, setChartHeight] = useState<number>();
   const [preferredWbsWidth, setPreferredWbsWidth] = useState(340);
   const [resizing, setResizing] = useState(false);
   const resizeDrag = useRef<{ x: number; width: number; pointerId: number; scale: number } | null>(null);
@@ -254,6 +263,7 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
     return rows;
   }, [graph, hierarchy, expanded, collapsedGroups, matchingIds, detail.project.phase_mode, overDepthIds]);
   const displayedWorkCount = visibleRows.filter((row) => row.kind === "work").length;
+  const matchingWorkCount = visibleRows.filter((row) => row.kind === "work" && filtered.matchingIds.has(row.item.company_project_work_item_id)).length;
   const loadedParentIds = items.filter((item) => !overDepthIds.has(item.company_project_work_item_id) &&
     graph.childrenByParent.get(item.company_project_work_item_id)?.some((id) => !overDepthIds.has(id)))
     .map((item) => item.company_project_work_item_id);
@@ -292,15 +302,49 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
   useLayoutEffect(() => {
     if (!active || !rootRef.current) return;
     const element = rootRef.current;
+    let frame = 0;
     const measure = () => {
+      frame = 0;
       if (!element.clientWidth) return;
-      setViewport({ width: scroller.current?.clientWidth || element.clientWidth, left: scroller.current?.scrollLeft ?? savedScroll.current.left });
+      setCompact(element.clientWidth <= 600);
+      const scroll = scroller.current;
+      const width = scroll?.clientWidth || element.clientWidth;
+      const left = scroll?.clientWidth ? scroll.scrollLeft : savedScroll.current.left;
+      setViewport((current) => current.width === width && current.left === left ? current : { width, left });
+      if (!scroll?.clientWidth) return;
+      const bounds = scroll.getBoundingClientRect();
+      const scale = bounds.width / scroll.offsetWidth || 1;
+      const visual = window.visualViewport;
+      const bottom = ((visual?.offsetTop ?? 0) + (visual?.height ?? window.innerHeight)) / scale;
+      const border = Number.parseFloat(getComputedStyle(scroll).borderTopWidth) + Number.parseFloat(getComputedStyle(scroll).borderBottomWidth);
+      const scrollbar = Math.max(0, scroll.offsetHeight - scroll.clientHeight - border);
+      const footer = element.querySelector<HTMLElement>(".gantt-footer")?.offsetHeight ?? 0;
+      const relations = element.querySelector<HTMLElement>(".gantt-dependency-details")?.offsetHeight ?? 0;
+      const contentHeight = 58 + visibleRows.length * 46 + border + scrollbar;
+      const availableHeight = Math.max(58 + 46 + border + scrollbar, bottom - bounds.top / scale - footer - relations - 36);
+      setChartHeight(Math.ceil(Math.min(contentHeight, availableHeight)));
     };
+    const scheduleMeasure = () => { if (!frame) frame = requestAnimationFrame(measure); };
     measure();
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(scheduleMeasure);
     observer.observe(element);
-    return () => observer.disconnect();
-  }, [active, Boolean(data), Boolean(visibleRows.length)]);
+    if (scroller.current) observer.observe(scroller.current);
+    const details = element.querySelector(".gantt-dependency-details");
+    details?.addEventListener("toggle", scheduleMeasure);
+    window.addEventListener("resize", scheduleMeasure);
+    window.addEventListener("scroll", scheduleMeasure, true);
+    window.visualViewport?.addEventListener("resize", scheduleMeasure);
+    window.visualViewport?.addEventListener("scroll", scheduleMeasure);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      details?.removeEventListener("toggle", scheduleMeasure);
+      window.removeEventListener("resize", scheduleMeasure);
+      window.removeEventListener("scroll", scheduleMeasure, true);
+      window.visualViewport?.removeEventListener("resize", scheduleMeasure);
+      window.visualViewport?.removeEventListener("scroll", scheduleMeasure);
+    };
+  }, [active, Boolean(data), visibleRows.length, filterCount, search, display.assignees, dependencyRelations.length]);
   useLayoutEffect(() => {
     if (!data || initialized.current) return;
     initialized.current = true;
@@ -319,14 +363,81 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
     pendingPosition.current = null;
   }, [axis, active, data]);
   useLayoutEffect(() => {
-    if (!active || !scroller.current) return;
+    if (!active || compact || !scroller.current) return;
     scroller.current.scrollTop = savedScroll.current.top;
     scroller.current.scrollLeft = savedScroll.current.left;
     setViewport((previous) => ({ ...previous, left: savedScroll.current.left }));
-  }, [active, Boolean(data), Boolean(visibleRows.length)]);
+  }, [active, compact, Boolean(data), Boolean(visibleRows.length)]);
   useLayoutEffect(() => {
-    if (active && mobileScroller.current) mobileScroller.current.scrollTop = savedMobileScroll.current;
-  }, [active, Boolean(data), Boolean(visibleRows.length)]);
+    if (active && compact && mobileScroller.current) mobileScroller.current.scrollTop = savedMobileScroll.current;
+  }, [active, compact, Boolean(data), Boolean(visibleRows.length)]);
+  useLayoutEffect(() => {
+    if (!active) return;
+    const focused = document.activeElement === document.body ? lastFocusedRef.current : document.activeElement;
+    if (!(focused instanceof HTMLElement) || focused.getClientRects().length) return;
+    if (dateActionsRef.current?.contains(focused) || focused.closest(".gantt-desktop-options")) {
+      setOptionsOpen(false);
+      optionsTriggerRef.current?.focus({ preventScroll: true });
+    } else if (rootRef.current?.contains(focused)) {
+      const id = focused.closest<HTMLElement>("[data-work-id]")?.dataset.workId;
+      if (id) focusWork(Number(id));
+      else searchRef.current?.focus({ preventScroll: true });
+    }
+  }, [active, compact]);
+  useLayoutEffect(() => {
+    const content = optionsOpen ? optionsElement : filterOpen ? filterElement : null;
+    const trigger = optionsOpen ? optionsTriggerRef.current : filterTriggerRef.current;
+    const root = rootRef.current;
+    if (!content || !trigger || !root) return;
+    let frame = 0;
+    let translation = { x: 0, y: 0 };
+    // Radix's portal coordinates are viewport pixels; root CSS zoom scales
+    // them again. Correct only this Gantt popover, keeping its zoomed size.
+    const measure = () => {
+      frame = 0;
+      const scale = root.offsetWidth ? root.getBoundingClientRect().width / root.offsetWidth : 1;
+      if (Math.abs(scale - 1) < 0.001) {
+        content.style.removeProperty("translate");
+        content.style.removeProperty("max-height");
+        content.style.removeProperty("max-width");
+        translation = { x: 0, y: 0 };
+        return;
+      }
+      const visual = window.visualViewport;
+      const left = (visual?.offsetLeft ?? 0) + 12;
+      const top = (visual?.offsetTop ?? 0) + 12;
+      const right = left + (visual?.width ?? window.innerWidth) - 24;
+      const bottom = top + (visual?.height ?? window.innerHeight) - 24;
+      content.style.maxHeight = `${(bottom - top) / scale}px`;
+      content.style.maxWidth = `${(right - left) / scale}px`;
+      const bounds = content.getBoundingClientRect();
+      const anchor = trigger.getBoundingClientRect();
+      const x = Math.max(left, Math.min(right - bounds.width, optionsOpen ? anchor.right - bounds.width : anchor.left));
+      const below = anchor.bottom + 4;
+      const above = anchor.top - bounds.height - 4;
+      const y = below + bounds.height <= bottom ? below : above >= top ? above
+        : Math.max(top, bottom - bounds.height);
+      translation = { x: translation.x + (x - bounds.left) / scale, y: translation.y + (y - bounds.top) / scale };
+      content.style.translate = `${translation.x}px ${translation.y}px`;
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
+    const observer = new ResizeObserver(schedule);
+    observer.observe(root);
+    observer.observe(content);
+    // Floating UI updates the portal's transform after scroll and layout changes.
+    const positionObserver = new MutationObserver(schedule);
+    if (content.parentElement) positionObserver.observe(content.parentElement, { attributes: true, attributeFilter: ["style"] });
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, true);
+    content.addEventListener("animationend", schedule);
+    measure();
+    return () => {
+      observer.disconnect(); positionObserver.disconnect(); cancelAnimationFrame(frame);
+      window.removeEventListener("resize", schedule); window.removeEventListener("scroll", schedule, true);
+      content.removeEventListener("animationend", schedule);
+      content.style.removeProperty("translate"); content.style.removeProperty("max-height"); content.style.removeProperty("max-width");
+    };
+  }, [optionsOpen, filterOpen, optionsElement, filterElement]);
 
   function canExpand(item: CompanyProjectWorkItem) {
     const info = getWorkItemDepthInfo(graph, item.company_project_work_item_id);
@@ -359,9 +470,12 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
     if (target && scroll) {
       const bounds = scroll.getBoundingClientRect();
       const rowBounds = target.getBoundingClientRect();
-      const top = bounds.top + (scroll.classList.contains("gantt-scroll") ? 58 : 0);
-      if (rowBounds.top < top) scroll.scrollTop += rowBounds.top - top;
-      else if (rowBounds.bottom > bounds.bottom) scroll.scrollTop += rowBounds.bottom - bounds.bottom;
+      const scale = bounds.width / scroll.offsetWidth || 1;
+      const top = bounds.top + (scroll.classList.contains("gantt-scroll") ? 58 * scale : 0);
+      const bottom = bounds.top + scroll.clientHeight * scale;
+      if (rowBounds.top < top) scroll.scrollTop += (rowBounds.top - top) / scale;
+      else if (rowBounds.bottom > bottom) scroll.scrollTop += (rowBounds.bottom - bottom) / scale;
+      target.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
   }
   function rowKeyboard(event: KeyboardEvent, row: GanttRow) {
@@ -492,20 +606,38 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
   const statusCode = getApiErrorDetails(gantt.error)?.status;
   const errorMessage = statusCode === 401 ? "로그인이 만료되었습니다. 다시 로그인해 주세요." : statusCode === 403 ? "이 프로젝트의 간트를 조회할 권한이 없습니다."
     : statusCode === 404 ? "프로젝트를 찾을 수 없거나 접근할 수 없습니다." : getErrorMessage(gantt.error, "간트 일정을 불러오지 못했습니다.");
+  const legend = { plan: false, progress: false, phase: false, delayed: false, partial: false };
+  for (const row of visibleRows) {
+    const source = row.kind === "work" ? row.item : row.phase;
+    if (!source) continue;
+    const period = getProjectGanttPeriod(source, axis);
+    if (period.kind === "unset" || period.kind === "invalid") continue;
+    if (row.kind === "phase") legend.phase = true;
+    else legend.plan = true;
+    if (period.kind !== "period") legend.partial = true;
+    if (row.kind === "work" && period.kind === "period" && getProjectGanttProgress(row.item) !== null) legend.progress = true;
+    if (projectSchedule(source, today).kind === "delayed") legend.delayed = true;
+  }
 
-  return <TooltipProvider delayDuration={200}><section className={`project-gantt${resizing ? " gantt-resizing" : ""}`} ref={rootRef} data-testid="project-gantt" aria-label="프로젝트 간트 차트">
-    <div className="gantt-heading"><div><h3>간트 차트</h3><p>업무 계층과 계획 일정 · 서버 진행률</p></div>
+  return <TooltipProvider delayDuration={200}><section className={`project-gantt${resizing ? " gantt-resizing" : ""}`} ref={rootRef} data-testid="project-gantt" aria-label="프로젝트 간트 차트"
+    onFocusCapture={(event) => { if (event.target instanceof HTMLElement) lastFocusedRef.current = event.target; }}
+    onBlurCapture={(event) => {
+      if (event.relatedTarget instanceof HTMLElement && !rootRef.current?.contains(event.relatedTarget) &&
+        !event.relatedTarget.closest(".gantt-display-options, .gantt-filter-content")) lastFocusedRef.current = null;
+    }}>
+    <div className="gantt-heading"><h3>간트 차트</h3>
       {gantt.isFetching && <span className="gantt-updating" role="status"><Loader2 className="h-3.5 w-3.5 animate-spin" />일정 조회 중</span>}
     </div>
     <div className="gantt-toolbar">
+      <div className="gantt-find-actions">
       <label className="gantt-search"><Search className="h-4 w-4" aria-hidden="true" /><Input ref={searchRef} data-gantt-search aria-label="간트 업무 검색"
-        placeholder="간트 업무 검색" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+        placeholder="업무 찾기" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
       <Popover open={filterOpen} onOpenChange={setFilterOpen}>
-        <PopoverTrigger asChild><Button variant="outline" size="sm" aria-label="간트 업무 필터"
+        <PopoverTrigger asChild><Button ref={filterTriggerRef} variant="outline" size="sm" aria-label="간트 업무 필터"
           aria-description={filterCount ? `${filterCount}개 조건 적용 중` : "적용된 조건 없음"}>
           <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />필터{filterCount > 0 && <span className="work-filter-count">{filterCount}</span>}
         </Button></PopoverTrigger>
-        <PopoverContent className="work-filter-content" align="start" collisionPadding={12} aria-label="간트 필터 조건"
+        <PopoverContent ref={setFilterElement} className="work-filter-content gantt-filter-content" align="start" collisionPadding={12} aria-label="간트 필터 조건"
           onInteractOutside={(event) => {
             const target = event.detail.originalEvent.target;
             if (target instanceof Element && target.closest(".gantt-filter-menu")) event.preventDefault();
@@ -517,50 +649,57 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
             options={[{ value: "all", label: "전체 상태" }, ...WORK_STATUS_OPTIONS]} contentClassName="project-work-select-menu gantt-filter-menu" />
           <CustomSelect fieldLabel="우선순위" ariaLabel="간트 우선순위" value={filters.priority} onChange={(value) => updateFilter("priority", String(value))}
             options={[{ value: "all", label: "전체 우선순위" }, ...WORK_PRIORITY_OPTIONS]} contentClassName="project-work-select-menu gantt-filter-menu" />
-          {detail.project.phase_mode === "phased" && <CustomSelect fieldLabel="단계" ariaLabel="간트 Phase 선택" value={filters.phase}
+          {detail.project.phase_mode === "phased" && <CustomSelect fieldLabel="표시 단계" ariaLabel="간트 표시 단계" value={filters.phase}
             onChange={(value) => updateFilter("phase", String(value))} options={[{ value: "all", label: "전체 단계" },
               ...(data?.phases ?? []).map((phase) => ({ value: String(phase.company_project_phase_id), label: phase.name })),
               { value: "none", label: "단계 미지정" }]} contentClassName="project-work-select-menu gantt-filter-menu" />}
           <CustomSelect fieldLabel="담당자" ariaLabel="간트 담당자 필터" value={filters.assignee} onChange={(value) => updateFilter("assignee", String(value))}
             options={[{ value: "all", label: "전체 담당자" }, ...assigneeOptions]} contentClassName="project-work-select-menu gantt-filter-menu" />
-          <label className="work-unassigned-filter"><input type="checkbox" checked={filters.unassignedOnly}
-            onChange={(event) => updateFilter("unassignedOnly", event.target.checked)} /><span>미배정 업무만 보기</span></label>
-          <p className="projects-note">담당자 정보가 확인된 업무를 기준으로 필터합니다. 조건은 즉시 적용됩니다. 단계는 현재 WBS 그룹 기준입니다.</p>
+          <label className="gantt-option"><Checkbox checked={filters.unassignedOnly}
+            onCheckedChange={(checked) => updateFilter("unassignedOnly", checked === true)} /><span>미배정 업무만 보기</span></label>
+          <p className="projects-note">담당자 정보가 확인된 업무 기준</p>
+          {filters.assignee !== "all" && filters.unassignedOnly && <p className="projects-note" role="status">담당자와 미배정 조건을 함께 선택하면 일치하는 업무가 없습니다.</p>}
           <div className="work-filter-footer"><Button variant="ghost" size="sm" disabled={!filtered.filtering} onClick={resetFilters}>초기화</Button>
             <Button ref={filterDoneRef} size="sm" onClick={() => setFilterOpen(false)}>완료</Button></div>
         </PopoverContent>
       </Popover>
-      <div className="gantt-tree-actions"><Button size="sm" variant="outline" disabled={treeActionsBusy || !canExpandLoaded}
-        title="현재 불러온 업무만 펼칩니다. 하위 업무를 추가로 조회하지 않습니다." onClick={() => {
-        setExpanded(new Set(loadedParentIds)); setCollapsedGroups(new Set());
-      }}>모두 펼치기</Button><Button size="sm" variant="outline" disabled={treeActionsBusy || !canCollapseLoaded}
-        title="현재 펼쳐진 업무와 단계를 모두 접습니다." onClick={() => {
-        setExpanded(new Set()); setCollapsedGroups(new Set(hierarchy.groups.map((group) => group.key)));
-      }}>모두 접기</Button></div>
-      <div className="gantt-date-actions"><Tooltip><TooltipTrigger asChild><Button size="sm" variant="outline" onClick={() => navigateTo(today)}><CalendarDays className="h-3.5 w-3.5" />오늘</Button></TooltipTrigger>
-        <TooltipContent className="gantt-tooltip">오늘 날짜를 타임라인 가운데로 이동합니다.</TooltipContent></Tooltip>
-        <Tooltip><TooltipTrigger asChild><Button size="icon" variant="ghost" aria-label="이전 기간" onClick={() => movePeriod(-1)}><ChevronLeft className="h-4 w-4" /></Button></TooltipTrigger>
-          <TooltipContent className="gantt-tooltip">현재 화면 너비만큼 이전 기간으로 이동합니다.</TooltipContent></Tooltip>
-        <Tooltip><TooltipTrigger asChild><Button size="icon" variant="ghost" aria-label="다음 기간" onClick={() => movePeriod(1)}><ChevronRight className="h-4 w-4" /></Button></TooltipTrigger>
-          <TooltipContent className="gantt-tooltip">현재 화면 너비만큼 다음 기간으로 이동합니다.</TooltipContent></Tooltip>
-        <div className="gantt-zoom" role="group" aria-label="간트 날짜 확대 수준">{([['day', '일'], ['week', '주'], ['month', '월']] as const).map(([value, label]) =>
-          <Tooltip key={value}><TooltipTrigger asChild><Button size="sm" variant={zoom === value ? "secondary" : "ghost"} aria-pressed={zoom === value} onClick={() => changeZoom(value)}>{label}</Button></TooltipTrigger>
-            <TooltipContent className="gantt-tooltip">{label} 단위로 일정을 표시합니다. 현재 화면의 중심 날짜를 유지합니다.</TooltipContent></Tooltip>)}</div>
-        <Tooltip><TooltipTrigger asChild><Button size="sm" variant="ghost" onClick={fitPeriod}>기간 맞춤</Button></TooltipTrigger>
-          <TooltipContent className="gantt-tooltip">프로젝트 계획 기간을 화면 너비에 맞춥니다. 기간이 없으면 불러온 업무 일정을 사용합니다.</TooltipContent></Tooltip>
       </div>
-      <Popover open={optionsOpen} onOpenChange={setOptionsOpen}><PopoverTrigger asChild><Button size="sm" variant="outline" aria-label="간트 표시 옵션">표시 옵션</Button></PopoverTrigger>
-        <PopoverContent className="work-filter-content gantt-display-options" align="end" collisionPadding={12} aria-label="간트 표시 옵션 설정">
-          <h4>표시 옵션</h4>
-          <label className="gantt-option"><input type="checkbox" checked={showDependencies} disabled={!dependencyRelations.length}
-            onChange={(event) => setShowDependencies(event.target.checked)} />의존성 표시{!dependencyRelations.length && " (조회된 관계 없음)"}</label>
-          {dependencyChoice === null && drawableDependencyCount > 100 && <p className="projects-note">연결선이 많아 기본으로 숨겼습니다. 의존성 정보는 아래 목록에서도 확인할 수 있습니다.</p>}
-          {([['assignees', '담당자 요약 표시'], ['status', '상태 표시'], ['priority', '우선순위 표시'], ['undated', '날짜 미설정 안내'], ['progress', '진행률 텍스트 표시']] as const).map(([key, label]) =>
-            <label className="gantt-option" key={key}><input type="checkbox" checked={display[key]}
-              onChange={(event) => setDisplay((current) => ({ ...current, [key]: event.target.checked }))} />{label}</label>)}
-          <p className="projects-note">데스크톱 WBS·타임라인 표시 설정입니다. 모바일은 축약 일정 정보를 표시합니다. 현재 프로젝트 화면에서 유지되며, 담당자 미조회는 미배정으로 표시하지 않습니다.</p>
+      <div className="gantt-view-actions">
+      <div className="gantt-date-actions" ref={dateActionsRef}>
+        <Button size="sm" variant="outline" onClick={() => navigateTo(today)}><CalendarDays className="h-3.5 w-3.5" aria-hidden="true" />오늘</Button>
+        <Button size="icon" variant="ghost" aria-label="이전 기간" onClick={() => movePeriod(-1)}><ChevronLeft className="h-4 w-4" aria-hidden="true" /></Button>
+        <Button size="icon" variant="ghost" aria-label="다음 기간" onClick={() => movePeriod(1)}><ChevronRight className="h-4 w-4" aria-hidden="true" /></Button>
+        <div className="gantt-zoom" role="group" aria-label="간트 날짜 확대 수준">{([['day', '일'], ['week', '주'], ['month', '월']] as const).map(([value, label]) =>
+          <Button key={value} size="sm" variant={zoom === value ? "secondary" : "ghost"} aria-pressed={zoom === value} onClick={() => changeZoom(value)}>{label}</Button>)}</div>
+      </div>
+      <Popover open={optionsOpen} onOpenChange={setOptionsOpen}><PopoverTrigger asChild><Button ref={optionsTriggerRef} size="sm" variant="outline" aria-label="간트 보기 설정">보기 설정</Button></PopoverTrigger>
+        <PopoverContent ref={setOptionsElement} className="work-filter-content gantt-display-options" data-compact={compact} align="end" collisionPadding={12} aria-label="간트 보기 설정 메뉴">
+          <h4>보기 설정</h4>
+          <div className="gantt-desktop-options">
+          <h5>표시 항목</h5>
+          <label className="gantt-option"><Checkbox checked={showDependencies} disabled={!dependencyRelations.length}
+            onCheckedChange={(checked) => setShowDependencies(checked === true)} /><span>업무 연결선</span></label>
+          {!dependencyRelations.length && <p className="projects-note">현재 조회된 업무 연결이 없습니다.</p>}
+          {dependencyChoice === null && drawableDependencyCount > 100 && <p className="projects-note">연결선이 많아 숨겼습니다. 업무 연결 목록에서 확인할 수 있습니다.</p>}
+          {([['assignees', '담당자'], ['status', '상태'], ['priority', '우선순위'], ['undated', '기간 미설정 표시'], ['progress', '진행률 숫자']] as const).map(([key, label]) =>
+            <label className="gantt-option" key={key}><Checkbox checked={display[key]}
+              onCheckedChange={(checked) => setDisplay((current) => ({ ...current, [key]: checked === true }))} /><span>{label}</span></label>)}
+          </div>
+          <div className="gantt-settings-section gantt-desktop-options"><h5>화면 조정</h5>
+            <Button size="sm" variant="ghost" onClick={() => { fitPeriod(); setOptionsOpen(false); }}>전체 기간 보기</Button>
+          </div>
+          <div className="gantt-settings-section"><h5>업무 펼침</h5>
+            <p className="projects-note">불러온 업무만 펼칩니다.</p>
+            <Button size="sm" variant="ghost" disabled={treeActionsBusy || !canExpandLoaded} onClick={() => {
+              setExpanded(new Set(loadedParentIds)); setCollapsedGroups(new Set()); setOptionsOpen(false);
+            }}>모두 펼치기</Button>
+            <Button size="sm" variant="ghost" disabled={treeActionsBusy || !canCollapseLoaded} onClick={() => {
+              setExpanded(new Set()); setCollapsedGroups(new Set(hierarchy.groups.map((group) => group.key))); setOptionsOpen(false);
+            }}>모두 접기</Button>
+          </div>
         </PopoverContent>
       </Popover>
+      </div>
     </div>
     {filtered.filtering && <div className="work-active-filters gantt-active-filters" aria-label="간트 적용된 검색 및 필터">
       {search.trim() && <Button variant="ghost" size="sm" aria-label="간트 검색 해제" onClick={() => { setSearch(""); restoreFilterFocus(); }}>
@@ -568,7 +707,7 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
       {([
         ["status", "상태", WORK_STATUS_OPTIONS.find((option) => option.value === filters.status)?.label],
         ["priority", "우선순위", WORK_PRIORITY_OPTIONS.find((option) => option.value === filters.priority)?.label],
-        ["phase", "단계", data?.phases.find((phase) => String(phase.company_project_phase_id) === filters.phase)?.name ?? "단계 미지정"],
+        ["phase", "표시 단계", data?.phases.find((phase) => String(phase.company_project_phase_id) === filters.phase)?.name ?? "단계 미지정"],
         ["assignee", "담당자", assigneeOptions.find((option) => option.value === filters.assignee)?.label ?? "담당자 정보 확인 필요"],
       ] as const).map(([key, label, value]) => filters[key] !== "all" && <Button key={key} variant="ghost" size="sm"
         aria-label={`간트 ${label} 필터 해제`} onClick={() => { updateFilter(key, "all"); restoreFilterFocus(); }}><span>{label}: {value}</span><X aria-hidden="true" /></Button>)}
@@ -577,13 +716,13 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
       <Button className="work-filter-reset" variant="ghost" size="sm" aria-label="간트 필터 초기화" onClick={resetFilters}>초기화</Button>
     </div>}
     {data && <div className="gantt-scope" role="status"><span>{filtered.filtering
-      ? `불러온 업무 ${items.length}개 중 ${displayedWorkCount}개 표시 · 직접 일치 ${visibleRows.filter((row) => row.kind === "work" && filtered.matchingIds.has(row.item.company_project_work_item_id)).length}개 · 상위 경로 포함`
-      : scope === "complete" ? `전체 업무 ${items.length}개 조회` : `불러온 업무 ${items.length}개 · 일부 업무만 불러왔습니다.`}</span>
+      ? `일치 업무 ${matchingWorkCount}개 · 상위 경로 ${displayedWorkCount - matchingWorkCount}개 · ${scope === "complete" ? "전체" : "불러온"} 업무 ${items.length}개`
+      : `${scope === "complete" ? "전체" : "불러온"} 업무 ${items.length}개`}</span>
       {scope !== "complete" && query.mode !== "full" && <Button size="sm" variant="outline"
         onClick={() => setQuery({ mode: "full", max_depth: 5 })}>5단계 조회 요청</Button>}
     </div>}
-    {data && !filtered.assignmentCoverage.complete && <p className="gantt-warning" role="status">
-      담당자 정보가 확인된 업무 기준으로 필터링합니다. 조회 완료 {filtered.assignmentCoverage.knownCount}/{filtered.assignmentCoverage.totalCount}개
+    {data && !filtered.assignmentCoverage.complete && (filters.assignee !== "all" || filters.unassignedOnly || display.assignees) && <p className="gantt-warning" role="status">
+      담당자 정보가 확인된 업무 기준 · 확인 {filtered.assignmentCoverage.knownCount}/{filtered.assignmentCoverage.totalCount}개
       {filtered.assignmentCoverage.partialCount > 0 && ` · 일부 조회 ${filtered.assignmentCoverage.partialCount}개`} · 미조회 {filtered.assignmentCoverage.unqueriedCount}개
     </p>}
     {graph.warnings.length > 0 && <p className="gantt-warning" role="status"><AlertTriangle className="h-3.5 w-3.5" />상위 경로 일부를 확인할 수 없습니다. 조회된 관계만 표시합니다.</p>}
@@ -598,8 +737,9 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
             : <>
               <div className="gantt-desktop"><p className="gantt-visible-period" aria-live="polite">{shownStart} ~ {shownEnd}</p>
                 <div className="gantt-scroll" ref={scroller} data-testid="gantt-scroll" aria-label="WBS 및 일정 타임라인" tabIndex={0}
-                  style={{ "--gantt-wbs-width": `${wbsWidth}px`, "--gantt-axis-width": `${axis.width}px` } as CSSProperties}
-                  onScroll={(event) => { const element = event.currentTarget; savedScroll.current = { top: element.scrollTop, left: element.scrollLeft };
+                  style={{ height: chartHeight, "--gantt-wbs-width": `${wbsWidth}px`, "--gantt-axis-width": `${axis.width}px` } as CSSProperties}
+                  onScroll={(event) => { const element = event.currentTarget; if (!element.clientWidth) return;
+                    savedScroll.current = { top: element.scrollTop, left: element.scrollLeft };
                     setViewport((previous) => previous.left === element.scrollLeft ? previous : { ...previous, left: element.scrollLeft }); }}>
                   <div className="gantt-canvas" role="treegrid" aria-label="업무 계획 일정">
                     <div className="gantt-grid-header" role="row"><div className="gantt-wbs-head" role="columnheader">WBS / 업무명
@@ -665,7 +805,7 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
                 </div>
               </div>
               <div className="gantt-mobile" ref={mobileScroller} aria-label="간트 축약 일정 목록" data-testid="gantt-mobile-list"
-                onScroll={(event) => { savedMobileScroll.current = event.currentTarget.scrollTop; }}>{visibleRows.map((row) =>
+                onScroll={(event) => { if (event.currentTarget.clientWidth) savedMobileScroll.current = event.currentTarget.scrollTop; }}>{visibleRows.map((row) =>
                 <div className={`gantt-mobile-row${row.kind !== "work" ? " gantt-mobile-phase" : ""}${row.kind === "work" && selectedId === row.item.company_project_work_item_id ? " gantt-selected" : ""}`}
                   key={row.key} data-work-id={row.kind === "work" ? row.item.company_project_work_item_id : undefined}>
                   {rowName(row, false)}{row.kind === "work" && <div className="gantt-mobile-details">
@@ -677,7 +817,12 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
                 </div>)}</div>
             </>}
     <ProjectGanttDependencyDetails relations={dependencyRelations} selectedId={selectedId} onSelectWork={(item) => onSelect(item, items)} />
-    <div className="gantt-footer"><div className="gantt-legend"><span><i className="gantt-legend-plan" />계획</span><span><i className="gantt-legend-progress" />진행</span><span><i className="gantt-legend-phase" />Phase 일정</span><span>! 일정 지연</span></div>
-      <span>기간 미설정 업무도 표시 · 업무명·막대로 공통 상세 열기</span></div>
+    {data && !gantt.isError && Object.values(legend).some(Boolean) && <div className="gantt-footer"><div className="gantt-legend" aria-label="일정 범례">
+      {legend.plan && <span><i className="gantt-legend-plan" />계획</span>}
+      {legend.progress && <span><i className="gantt-legend-progress" />진행률</span>}
+      {legend.phase && <span><i className="gantt-legend-phase" />단계 일정</span>}
+      {legend.partial && <span>↥ 시작일·종료일 중 일부만 설정</span>}
+      {legend.delayed && <span>! 일정 지연</span>}
+    </div></div>}
   </section></TooltipProvider>;
 }
