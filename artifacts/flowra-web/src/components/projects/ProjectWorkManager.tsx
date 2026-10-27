@@ -698,7 +698,7 @@ export default function ProjectWorkManager({
         <DropdownMenuContent align="end" collisionPadding={12}>
           <DropdownMenuItem disabled={pending || !canAddChild(item)}
             onSelect={() => openEditor({ kind: "work", parent: item })}>
-            하위 업무 추가
+            세부 업무 추가
           </DropdownMenuItem>
           <DropdownMenuItem disabled={pending} onSelect={() => openEditor({ kind: "work", item })}>
             업무 수정
@@ -770,8 +770,8 @@ export default function ProjectWorkManager({
       : hasServerChildCount ? serverChildCount : tree.children.get(id)?.length ?? 0;
     const childCountPartial = !directChildrenComplete && !hasServerChildCount;
     const childCountDescription = childCountPartial
-      ? `현재 불러온 직계 하위 업무 ${childCount}개 · 전체 개수는 확인되지 않았습니다.`
-      : `직계 하위 업무 ${childCount}개 · ${directChildrenComplete ? "조회 완료" : "서버 집계"} 기준 · 취소 포함`;
+      ? `현재 불러온 직계 세부 업무 ${childCount}개 · 전체 개수는 확인되지 않았습니다.`
+      : `직계 세부 업무 ${childCount}개 · ${directChildrenComplete ? "조회 완료" : "서버 집계"} 기준 · 취소 포함`;
     const rows: React.ReactNode[] = [
       <tr
         key={`work:${id}`}
@@ -795,7 +795,7 @@ export default function ProjectWorkManager({
                 variant="ghost"
                 size="icon"
                 className="work-expand"
-                aria-label={`${item.title} 하위 업무 ${open ? "접기" : "펼치기"}`}
+                aria-label={`${item.title} 세부 업무 ${open ? "접기" : "펼치기"}`}
                 aria-expanded={open}
                 disabled={filtering}
                 onClick={(event) => {
@@ -829,11 +829,15 @@ export default function ProjectWorkManager({
               {number !== undefined && <span className="work-wbs-number">{title.slice(0, prefixLength)}</span>}
               <span className="work-title-text">{title.slice(prefixLength)}</span>
             </button>
-            <div className="work-mobile-status">{mobile && <WorkStatusBadge status={item.status} />}{assigneeDisplay(item)}</div>
+            <div className="work-mobile-status">
+              {mobile && <WorkStatusBadge status={item.status} />}
+              {assigneeDisplay(item)}
+              <ProjectScheduleLabel source={item} today={today} compact />
+            </div>
             </div>
             {childCount > 0 && (
               <span className="work-child-count" title={childCountDescription} aria-description={childCountDescription}>
-                {childCountPartial ? "조회 " : ""}하위 {childCount}개
+                {childCountPartial ? "조회 " : ""}세부 {childCount}개
               </span>
             )}
           </div>
@@ -841,7 +845,7 @@ export default function ProjectWorkManager({
         <td>
           {!mobile && <WorkStatusBadge status={item.status} />}
         </td>
-        <td>
+        <td className="work-priority">
           <WorkPriorityBadge priority={item.priority} />
         </td>
         <td className="work-assignees">
@@ -864,14 +868,14 @@ export default function ProjectWorkManager({
         <tr key={`error:${id}`}>
           <td colSpan={mobile ? 2 : 7}>
             <div role="alert" className="work-child-feedback">
-              {getErrorMessage(query.error, "하위 업무를 불러오지 못했습니다.")}{" "}
+              {getErrorMessage(query.error, "세부 업무를 불러오지 못했습니다.")}{" "}
               <Button
                 variant="outline"
                 size="sm"
                 disabled={query.isFetching}
                 onClick={() => tree.loadChildren(item)}
               >
-                하위 업무 다시 시도
+                세부 업무 다시 시도
               </Button>
             </div>
           </td>
@@ -882,7 +886,7 @@ export default function ProjectWorkManager({
         <tr key={`loading:${id}`}>
           <td colSpan={mobile ? 2 : 7}>
             <p role="status" className="work-child-feedback">
-              하위 업무를 불러오는 중...
+              세부 업무를 불러오는 중...
             </p>
           </td>
         </tr>,
@@ -964,8 +968,10 @@ export default function ProjectWorkManager({
                 {groupNumber !== undefined && <span className="work-wbs-number">{groupTitle.slice(0, groupPrefixLength)}</span>}
                 <span className="work-title-text">{groupTitle.slice(groupPrefixLength)}</span>
               </button>
-              {mobile && group.phase && typeof group.phase.status === "string" &&
-                <div className="work-mobile-status"><WorkStatusBadge status={group.phase.status} /></div>}
+              {group.phase && <div className="work-mobile-status">
+                {mobile && typeof group.phase.status === "string" && <WorkStatusBadge status={group.phase.status} />}
+                <ProjectScheduleLabel source={group.phase} today={today} compact />
+              </div>}
               </div>
               <span className="work-phase-count"
                 title={`표시 그룹의 모든 깊이 업무 ${descendants.size}개 · ${complete ? "전체 조회" : "현재 불러온 업무"} 기준 · 취소 포함`}
@@ -988,7 +994,7 @@ export default function ProjectWorkManager({
             {group.phase && <>
               <ProjectScheduleLabel source={group.phase} today={today} compact />
               {(delays.phases.get(group.phase.company_project_phase_id)?.size ?? 0) > 0 && <span className="project-schedule-label block text-xs text-destructive">
-                하위 업무 지연 {delays.phases.get(group.phase.company_project_phase_id)?.size ?? 0}건{delaysPartial ? " (조회 기준)" : ""}
+                업무 지연 {delays.phases.get(group.phase.company_project_phase_id)?.size ?? 0}건{delaysPartial ? " (조회 기준)" : ""}
               </span>}
             </>}
           </td>
@@ -1091,7 +1097,7 @@ export default function ProjectWorkManager({
                 : "표시할 업무가 없습니다."}
             </span>
             {delays.project.size > 0 && <span aria-label="프로젝트 지연 현황" className="work-delay-summary text-destructive">
-              하위 업무 지연 {delays.project.size}건{delaysPartial ? " · 조회된 업무 기준" : " · 전체 업무 기준"}
+              업무 지연 {delays.project.size}건{delaysPartial ? " · 조회된 업무 기준" : " · 전체 업무 기준"}
             </span>}
           </div>
           {canManage && (
@@ -1172,8 +1178,8 @@ export default function ProjectWorkManager({
                 />
                 {phased && (
                   <CustomSelect
-                    fieldLabel="단계"
-                    ariaLabel="Phase 선택"
+                    fieldLabel="연결 단계"
+                    ariaLabel="업무 연결 단계"
                     value={phaseFilter}
                     onChange={(value) => setPhaseFilter(String(value))}
                     options={[
@@ -1195,7 +1201,7 @@ export default function ProjectWorkManager({
                   <input type="checkbox" checked={unassignedOnly} onChange={(event) => setUnassignedOnly(event.target.checked)} />
                   <span>미배정 업무만 보기</span>
                 </label>
-                <p className="projects-note">담당자 정보가 확인된 업무를 기준으로 필터합니다. 조건은 즉시 적용됩니다.</p>
+                <p className="projects-note">담당자 필터는 담당자 정보가 확인된 업무 기준입니다.</p>
                 <div className="work-filter-footer">
                   <Button variant="ghost" size="sm" onClick={() => resetFilters()} disabled={!filtering}>
                     초기화
@@ -1236,8 +1242,8 @@ export default function ProjectWorkManager({
             {priority !== "all" && <Button variant="ghost" size="sm" aria-label="우선순위 필터 해제" onClick={() => clearFilter(() => setPriority("all"))}>
               <span>우선순위: {WORK_PRIORITY_OPTIONS.find((option) => option.value === priority)?.label ?? priority}</span><X aria-hidden="true" />
             </Button>}
-            {phased && phaseFilter !== "all" && <Button variant="ghost" size="sm" aria-label="단계 필터 해제" onClick={() => clearFilter(() => setPhaseFilter("all"))}>
-              <span>단계: {phases.find((phase) => String(phase.company_project_phase_id) === phaseFilter)?.name ?? "단계 미지정"}</span><X aria-hidden="true" />
+            {phased && phaseFilter !== "all" && <Button variant="ghost" size="sm" aria-label="연결 단계 필터 해제" onClick={() => clearFilter(() => setPhaseFilter("all"))}>
+              <span>연결 단계: {phases.find((phase) => String(phase.company_project_phase_id) === phaseFilter)?.name ?? "단계 미지정"}</span><X aria-hidden="true" />
             </Button>}
             {assigneeFilter !== "all" && <Button variant="ghost" size="sm" aria-label="담당자 필터 해제" onClick={() => clearFilter(() => setAssigneeFilter("all"))}>
               <span>담당자: {assigneeOptions.find((option) => option.value === assigneeFilter)?.label ?? "담당자 정보 확인 필요"}</span><X aria-hidden="true" />
@@ -1250,14 +1256,14 @@ export default function ProjectWorkManager({
         </div>
         <div className="work-tree-toolbar">
           <p>
-            {tree.searchScope === "complete" ? "전체 업무명에서 검색·필터합니다." : "불러온 업무명에서 검색·필터합니다."}
+            {tree.searchScope === "complete" ? "전체 업무 기준" : "불러온 업무 기준"}
             {tree.searchScope === "loaded" && (tree.items.some((item) => tree.needsChildren(item))
-              ? " 하위 업무는 펼칠 때 불러옵니다."
-              : " 조회 정보가 완전하지 않습니다. 새로고침으로 확인해 주세요.")}
+              ? " · 일부 업무만 조회됨 · 세부 업무를 펼치면 추가로 불러옵니다."
+              : " · 조회 정보가 완전하지 않습니다. 새로고침으로 확인해 주세요.")}
             {tree.searchScope === "invalid" && <span className="text-destructive" role="status">
               {" "}계층 정보에 오류가 있어 상위 경로가 완전하지 않을 수 있습니다.
             </span>}
-            {filtering && " 검색 결과의 상위 업무도 함께 표시합니다."}
+            {filtering && " · 상위 경로 함께 표시"}
           </p>
         </div>
         <div className="work-table-scroll" ref={listScrollRef} onScroll={(event) => {
@@ -1275,7 +1281,7 @@ export default function ProjectWorkManager({
                 <th>상태</th>
                 <th>우선순위</th>
                 <th>담당자</th>
-                <th>계획 기간</th>
+                <th>예정 기간</th>
                 <th>진행률</th>
                 <th>
                   <span className="sr-only">더 보기</span>
@@ -1402,7 +1408,7 @@ export default function ProjectWorkManager({
                     <h4>기본 정보</h4>
                     <dl className="work-panel-fields">
                       <div className="work-panel-field-wide">
-                        <dt>계획 기간</dt>
+                        <dt>예정 기간</dt>
                         <dd>
                           {preview.planned_start_date || preview.planned_end_date
                             ? `${preview.planned_start_date ? formatProjectDate(preview.planned_start_date) : "시작일 미정"} ~ ${preview.planned_end_date ? formatProjectDate(preview.planned_end_date) : "종료일 미정"}`
@@ -1411,7 +1417,7 @@ export default function ProjectWorkManager({
                       </div>
                       {phased && <div><dt>단계</dt><dd>{phases.find((phase) => phase.company_project_phase_id === preview.company_project_phase_id)?.name ?? "단계 미지정"}</dd></div>}
                       {(preview.planned_start_date || preview.planned_end_date) && <div><dt>일정 상태</dt><dd><ProjectScheduleLabel source={preview} today={today} /></dd></div>}
-                      {Boolean(delays.work.get(preview.company_project_work_item_id)?.size) && <div className="work-panel-delay"><dt>하위 업무 지연</dt><dd>{delays.work.get(preview.company_project_work_item_id)!.size}건{delaysPartial ? " (조회된 업무 기준)" : ""}</dd></div>}
+                      {Boolean(delays.work.get(preview.company_project_work_item_id)?.size) && <div className="work-panel-delay"><dt>세부 업무 지연</dt><dd>{delays.work.get(preview.company_project_work_item_id)!.size}건{delaysPartial ? " (조회된 업무 기준)" : ""}</dd></div>}
                       <div className="work-panel-field-wide work-panel-progress">
                         <dt className="sr-only">진행률</dt>
                         <dd>
@@ -1452,9 +1458,9 @@ export default function ProjectWorkManager({
                       {selected.description || "설명 없음"}
                     </p>
                   </section>
-                  <section aria-label="하위 업무">
+                  <section aria-label="세부 업무">
                     <div className="work-panel-section-heading">
-                      <h4>하위 업무</h4>
+                      <h4>세부 업무</h4>
                       {canManage && selectionReady && (
                         <Button
                           variant="ghost"
@@ -1463,13 +1469,13 @@ export default function ProjectWorkManager({
                           title={!canAddChild(selected) ? "업무는 최대 5단계까지 추가할 수 있습니다." : undefined}
                           onClick={() => openEditor({ kind: "work", parent: selected })}
                         >
-                          하위 업무 추가
+                          세부 업무 추가
                         </Button>
                       )}
                     </div>
                     {tree.queryById.get(selectedId!)?.isFetching && (
                       <p role="status" className="projects-note">
-                        하위 업무를 불러오는 중...
+                        세부 업무를 불러오는 중...
                       </p>
                     )}
                     {tree.queryById.get(selectedId!)?.isError && (
@@ -1477,7 +1483,7 @@ export default function ProjectWorkManager({
                         <p>
                           {getErrorMessage(
                             tree.queryById.get(selectedId!)!.error,
-                            "하위 업무를 불러오지 못했습니다.",
+                            "세부 업무를 불러오지 못했습니다.",
                           )}
                         </p>
                         <Button
@@ -1485,7 +1491,7 @@ export default function ProjectWorkManager({
                           size="sm"
                           onClick={() => tree.loadChildren(selected)}
                         >
-                          하위 업무 다시 시도
+                          세부 업무 다시 시도
                         </Button>
                       </div>
                     )}
@@ -1506,7 +1512,7 @@ export default function ProjectWorkManager({
                     </ul>
                     {!tree.children.get(selectedId!)?.length &&
                       !tree.hasChildren(selected) && (
-                        <p className="work-panel-empty">하위 업무 없음</p>
+                        <p className="work-panel-empty">세부 업무 없음</p>
                       )}
                     {tree.needsChildren(selected) &&
                       !tree.queryById.get(selectedId!)?.isFetching &&
@@ -1516,7 +1522,7 @@ export default function ProjectWorkManager({
                           size="sm"
                           onClick={() => tree.loadChildren(selected)}
                         >
-                          하위 업무 불러오기
+                          세부 업무 불러오기
                         </Button>
                       )}
                   </section>
@@ -1557,17 +1563,17 @@ export default function ProjectWorkManager({
                     </section>
                   )}
                   <details className="work-panel-additional" key={selectedId}>
-                    <summary>추가 정보</summary>
+                    <summary>자세히 보기</summary>
                     <dl className="work-panel-fields">
                       {getWorkItemUiDepth(tree.graph, selected.company_project_work_item_id) !== null && <div>
                         <dt>업무 계층</dt>
-                        <dd title="프로젝트를 포함한 업무 계층이며, Phase는 깊이에 포함하지 않습니다.">
+                        <dd title="프로젝트를 포함한 업무 계층이며, 단계는 깊이에 포함하지 않습니다.">
                           D{getWorkItemUiDepth(tree.graph, selected.company_project_work_item_id)}
                         </dd>
                       </div>}
                       <div><dt>WBS 코드</dt><dd>{selected.wbs_code || "—"}</dd></div>
-                      <div><dt>실적 시작일</dt><dd>{formatProjectDate(selected.actual_start_date)}</dd></div>
-                      <div><dt>실적 종료일</dt><dd>{formatProjectDate(selected.actual_end_date)}</dd></div>
+                      <div><dt>실제 시작일</dt><dd>{formatProjectDate(selected.actual_start_date)}</dd></div>
+                      <div><dt>실제 종료일</dt><dd>{formatProjectDate(selected.actual_end_date)}</dd></div>
                       {typeof selected.sort_order === "number" && <div><dt>정렬 순서</dt><dd>{selected.sort_order}</dd></div>}
                     </dl>
                   </details>
@@ -1598,7 +1604,7 @@ export default function ProjectWorkManager({
                   >
                     {selectionLoading
                       ? "불러오는 중..."
-                      : "하위 업무 다시 시도"}
+                      : "세부 업무 다시 시도"}
                   </Button>
                 </div>
               ) : (
@@ -1668,7 +1674,7 @@ export default function ProjectWorkManager({
               ”을 취소 상태로 변경합니다. 데이터는 영구 삭제되지 않습니다.
               {cancelTarget?.kind === "phase"
                 ? " 소속 업무와 담당자 배정은 유지됩니다."
-                : " 모든 하위 업무와 담당자 배정, 예약 알림도 취소하고 연결된 업무 의존성을 해제합니다."}
+                : " 모든 세부 업무와 담당자 배정, 예약 알림도 취소하고 연결된 업무 의존성을 해제합니다."}
             </DialogDescription>
           </DialogHeader>
           {cancelError && (

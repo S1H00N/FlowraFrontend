@@ -55,7 +55,7 @@ test("location parents reject cycles, foreign rows and known subtree depth overf
   assert.equal(getProjectWorkParentError(tree, 4), null);
   assert.match(getProjectWorkParentError(tree, 5), /5단계/);
   assert.match(getProjectWorkParentError(tree, 1, 1), /자기 자신/);
-  assert.match(getProjectWorkParentError(tree, 4, 1), /하위 업무/);
+  assert.match(getProjectWorkParentError(tree, 4, 1), /세부 업무/);
   assert.equal(getProjectWorkParentError(tree, 3, 6), null);
   assert.match(getProjectWorkParentError(tree, 4, 6), /5단계/);
   assert.match(getProjectWorkParentError(tree, 8), /확인/);

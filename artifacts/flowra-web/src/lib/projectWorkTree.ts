@@ -179,7 +179,7 @@ export function getProjectWorkParentError(tree: ProjectWorkTree, parentId: numbe
   if (!tree.nodes.has(parentId)) return "상위 업무를 아직 확인할 수 없습니다.";
   const path = getWorkItemAncestorPath(tree, parentId);
   if (itemId !== undefined && path.some((item) => item.company_project_work_item_id === itemId)) {
-    return "자기 자신이나 하위 업무를 상위 업무로 지정할 수 없습니다.";
+    return "자기 자신이나 세부 업무를 상위 업무로 지정할 수 없습니다.";
   }
   const info = getWorkItemDepthInfo(tree, parentId);
   const depth = info.workItemDepth ?? info.backendDepthLevel;

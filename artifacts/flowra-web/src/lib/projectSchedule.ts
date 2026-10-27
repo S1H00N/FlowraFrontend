@@ -46,7 +46,7 @@ export function projectSchedule(source: ScheduleSource, today: string) {
     const delayedDays = dayDifference(today, end);
     return { kind: "delayed", label: `${delayedDays}일 지연`, delayedDays } as const;
   }
-  if (end === today) return { kind: "due", label: "오늘 마감", delayedDays: 0 } as const;
+  if (end === today) return { kind: "due", label: "오늘 종료 예정", delayedDays: 0 } as const;
   if (start > today) return { kind: "upcoming", label: "시작 예정", delayedDays: 0 } as const;
   if (start === today) return { kind: "starting", label: "시작 예정일 도달", delayedDays: 0 } as const;
   return { kind: "normal", label: "일정 정상", delayedDays: 0 } as const;

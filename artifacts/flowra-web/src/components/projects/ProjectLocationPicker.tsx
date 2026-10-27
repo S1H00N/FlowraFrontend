@@ -465,7 +465,7 @@ export default function ProjectLocationPicker({
                 className="flex items-center gap-2 p-4 text-sm text-muted-foreground"
               >
                 <Loader2 aria-hidden className="h-4 w-4 animate-spin" />
-                하위 업무를 불러오는 중...
+                세부 업무를 불러오는 중...
               </p>
             )}
             {query?.isError && (
@@ -473,7 +473,7 @@ export default function ProjectLocationPicker({
                 <p className="text-destructive">
                   {getErrorMessage(
                     query.error,
-                    "하위 업무를 불러오지 못했습니다.",
+                    "세부 업무를 불러오지 못했습니다.",
                   )}
                 </p>
                 <Button
@@ -515,7 +515,7 @@ export default function ProjectLocationPicker({
                 ? explicitPhase
                   ? "단계 내 업무를 탐색합니다. 직접 선택한 연결 단계는 유지됩니다."
                   : "단계 내 업무를 탐색하고 연결 단계 후보로 선택합니다."
-                : "하위 업무를 탐색하고 상위 업무 후보로 선택합니다.";
+                : "세부 업무를 탐색하고 상위 업무 후보로 선택합니다.";
               const restriction =
                 isPhase ||
                 (editing && child === workKey(Number(value.parentId)))
@@ -652,7 +652,7 @@ export default function ProjectLocationPicker({
             candidate.parentId !== value.parentId &&
             tree.mayBePartial && (
               <p className="text-xs text-muted-foreground">
-                아직 조회하지 않은 하위 업무의 깊이와 이동 가능 여부는 저장 시
+                아직 조회하지 않은 세부 업무의 깊이와 이동 가능 여부는 저장 시
                 서버에서 확인합니다.
               </p>
             )}

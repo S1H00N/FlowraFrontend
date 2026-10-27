@@ -139,20 +139,20 @@ function creationUnavailableReason(membership: CompanyMembership) {
     return "소속 회사 정보를 확인한 후 다시 시도해 주세요.";
   }
   if (membership.status !== "active")
-    return "활성 회사 구성원만 프로젝트를 생성할 수 있습니다.";
+    return "활성 회사 구성원만 프로젝트를 만들 수 있습니다.";
   if (membership.company?.status && membership.company.status !== "active") {
-    return "활성 회사에서만 프로젝트를 생성할 수 있습니다.";
+    return "활성 회사에서만 프로젝트를 만들 수 있습니다.";
   }
   const departmentId =
     membership.department_id ?? membership.department?.department_id;
   if (!Number.isSafeInteger(departmentId) || Number(departmentId) <= 0) {
-    return "소속 부서가 있는 구성원만 프로젝트를 생성할 수 있습니다.";
+    return "소속 부서가 있는 구성원만 프로젝트를 만들 수 있습니다.";
   }
   if (
     membership.department?.status &&
     membership.department.status !== "active"
   ) {
-    return "활성 부서에 속한 구성원만 프로젝트를 생성할 수 있습니다.";
+    return "활성 부서에 속한 구성원만 프로젝트를 만들 수 있습니다.";
   }
   // The membership API does not expose project_create_policy or the department leader.
   // The user API makes the final decision about the department's creation policy.
@@ -200,7 +200,7 @@ function ProjectFormSession({
   const unavailable = project
     ? project.company_id !== membership.company_id ||
       !isActiveProjectMembership(membership)
-      ? "프로젝트의 소속 회사와 활성 멤버십을 확인한 후 다시 시도해 주세요."
+      ? "프로젝트의 소속 회사와 구성원 상태를 확인한 후 다시 시도해 주세요."
       : null
     : creationUnavailableReason(membership);
   const statusOptions = project
@@ -351,10 +351,10 @@ function ProjectFormSession({
       return "프로젝트명을 입력해 주세요.";
     }
     if (!isValidDate(draft.startDate) || !isValidDate(draft.endDate)) {
-      return "계획 날짜를 YYYY-MM-DD 형식의 유효한 날짜로 입력해 주세요.";
+      return "예정 날짜를 YYYY-MM-DD 형식의 유효한 날짜로 입력해 주세요.";
     }
     if (draft.startDate && draft.endDate && draft.startDate > draft.endDate) {
-      return "계획 종료일이 계획 시작일보다 빠를 수 없습니다.";
+      return "예정 종료일이 예정 시작일보다 빠를 수 없습니다.";
     }
     if (
       (!project || draft.status !== initial.status) &&
@@ -494,7 +494,7 @@ function ProjectFormSession({
               tabIndex={-1}
               className="pr-8 leading-6 outline-none"
             >
-              {project ? "프로젝트 수정" : "프로젝트 생성"}
+              {project ? "프로젝트 수정" : "프로젝트 만들기"}
             </DialogTitle>
             <DialogDescription className="text-muted-foreground">
               {project
@@ -575,11 +575,11 @@ function ProjectFormSession({
               <div
                 className="grid gap-4 sm:grid-cols-2"
                 role="group"
-                aria-label="계획 기간"
+                aria-label="예정 기간"
               >
                 {(["startDate", "endDate"] as const).map((field) => {
                   const label =
-                    field === "startDate" ? "계획 시작일" : "계획 종료일";
+                    field === "startDate" ? "예정 시작일" : "예정 종료일";
                   return (
                     <div key={field} className="min-w-0 space-y-1.5">
                       <p className="text-sm font-medium">{label}</p>
@@ -710,7 +710,7 @@ function ProjectFormSession({
               className="h-10 border-primary bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-primary/20"
               aria-busy={pending}
             >
-              {pending ? "저장 중..." : project ? "저장" : "생성"}
+              {pending ? "저장 중..." : project ? "저장" : "만들기"}
             </Button>
           </DialogFooter>
           <div ref={setPortal} />

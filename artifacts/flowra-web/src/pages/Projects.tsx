@@ -82,7 +82,6 @@ export default function Projects() {
     !projects.isLoading &&
     !projects.isError;
   const summary = [
-    { label: "조회된 프로젝트", count: rows.length },
     {
       label: "진행 중",
       count: rows.filter((item) => item.status === "active").length,
@@ -109,7 +108,7 @@ export default function Projects() {
           {createAllowed && (
             <Button type="button" onClick={() => setForm("create")}>
               <Plus aria-hidden="true" />
-              프로젝트 생성
+              프로젝트 만들기
             </Button>
           )}
         </div>
@@ -124,7 +123,7 @@ export default function Projects() {
         ) : activeMemberships.length === 0 ? (
           <EmptyState
             icon={<FolderKanban />}
-            title="활성 회사 멤버십이 없습니다"
+            title="이용 가능한 소속 회사가 없습니다"
             description="회사 초대를 수락하거나 회사 구성원 상태를 확인해 주세요."
             action={
               <Button asChild variant="outline">
@@ -135,20 +134,27 @@ export default function Projects() {
         ) : (
           <>
             <div className="projects-toolbar flowra-toolbar">
-              <CustomSelect
-                value={membership ? String(membership.company_id) : ""}
-                options={activeMemberships.map((item) => ({
-                  value: String(item.company_id),
-                  label: item.company?.name ?? `회사 ${item.company_id}`,
-                }))}
-                ariaLabel="회사 선택"
-                className="h-10"
-                placeholder="회사 선택"
-                onChange={(value) => {
-                  setForm(null);
-                  changeParams({ company_id: value });
-                }}
-              />
+              {activeMemberships.length === 1 && membership ? (
+                <p className="projects-company">
+                  <span className="sr-only">소속 회사 </span>
+                  {companyLabel}
+                </p>
+              ) : (
+                <CustomSelect
+                  value={membership ? String(membership.company_id) : ""}
+                  options={activeMemberships.map((item) => ({
+                    value: String(item.company_id),
+                    label: item.company?.name ?? `회사 ${item.company_id}`,
+                  }))}
+                  ariaLabel="회사 선택"
+                  className="h-10"
+                  placeholder="회사 선택"
+                  onChange={(value) => {
+                    setForm(null);
+                    changeParams({ company_id: value });
+                  }}
+                />
+              )}
               <div className="projects-search">
                 <Search size={16} aria-hidden="true" />
                 <Input
@@ -180,6 +186,7 @@ export default function Projects() {
                 size="icon"
                 className="projects-refresh h-10 w-10"
                 aria-label="프로젝트 새로고침"
+                title="프로젝트 새로고침"
                 disabled={projects.isFetching || !membership}
                 onClick={() => void projects.refetch()}
               >
@@ -191,13 +198,13 @@ export default function Projects() {
             {!membership ? (
               <EmptyState
                 title="선택한 회사에 접근할 수 없습니다"
-                description="활성 멤버십이 있는 회사를 선택해 주세요."
+                description="이용 가능한 소속 회사를 선택해 주세요."
               />
             ) : (
               <>
                 {!createAllowed && (
                   <p className="projects-note">
-                    프로젝트 생성에는 활성 소속 부서가 필요합니다.
+                    프로젝트를 만들려면 이용 가능한 소속 부서가 필요합니다.
                   </p>
                 )}
                 {projects.isLoading ? (
@@ -212,11 +219,12 @@ export default function Projects() {
                   ready && (
                     <>
                       <section
-                        className="projects-summary flowra-surface"
+                        className="projects-summary"
                         aria-label="조회된 프로젝트 현황"
                       >
-                        <p className="projects-summary-scope">
-                          {companyLabel} · 현재 조회 결과 기준
+                        <p className="projects-result-count" aria-live="polite">
+                          {q ? "검색 결과" : status ? "필터 결과" : "조회 결과"}{" "}
+                          <strong>{rows.length}개</strong>
                         </p>
                         <dl>
                           {summary.map((item) => (
@@ -242,7 +250,9 @@ export default function Projects() {
                             description={
                               q || status
                                 ? "검색어나 상태 필터를 변경해 주세요."
-                                : "조회할 수 있는 프로젝트가 없습니다. 새 프로젝트를 시작해 보세요."
+                                : createAllowed
+                                  ? "새 프로젝트를 시작해 보세요."
+                                  : "조회할 수 있는 프로젝트가 없습니다."
                             }
                             action={
                               q || status ? (
@@ -273,26 +283,26 @@ export default function Projects() {
                                   to={`/projects/${project.company_project_id}?company_id=${membership.company_id}`}
                                 >
                                   <span>{project.name}</span>
-                                  <p>
-                                    {project.description || "설명이 없습니다."}
-                                  </p>
+                                  {project.description?.trim() && (
+                                    <p>{project.description}</p>
+                                  )}
                                 </Link>
                                 <ProjectStatusBadge status={project.status} />
                                 <dl className="project-row-dates">
                                   <div>
-                                    <dt>계획 시작일</dt>
+                                    <dt>예정 기간</dt>
                                     <dd>
-                                      {formatProjectDate(
-                                        project.planned_start_date,
-                                      )}
-                                    </dd>
-                                  </div>
-                                  <div>
-                                    <dt>계획 종료일</dt>
-                                    <dd>
-                                      {formatProjectDate(
-                                        project.planned_end_date,
-                                      )}
+                                      <span>
+                                        {formatProjectDate(
+                                          project.planned_start_date,
+                                        )}
+                                      </span>
+                                      <span>~</span>
+                                      <span>
+                                        {formatProjectDate(
+                                          project.planned_end_date,
+                                        )}
+                                      </span>
                                     </dd>
                                   </div>
                                 </dl>

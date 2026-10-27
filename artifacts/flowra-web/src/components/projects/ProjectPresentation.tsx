@@ -28,7 +28,7 @@ export const PROJECT_VISIBILITY_OPTIONS: Array<{
 }> = [
   { value: "company", label: "회사 전체" },
   { value: "department_tree", label: "부서 및 하위 부서" },
-  { value: "members", label: "프로젝트 멤버" },
+  { value: "members", label: "프로젝트 구성원" },
 ];
 
 export function isActiveProjectMembership(membership: CompanyMembership) {
@@ -152,6 +152,7 @@ export function ProjectEditAction({
         disabled={permission.isFetching}
         onClick={() => void permission.refetch()}
         aria-label={`${project.name} 권한 다시 확인`}
+        title={compact ? `${project.name} 권한 다시 확인` : undefined}
       >
         <RefreshCw aria-hidden="true" />
         {!compact && "권한 다시 확인"}
@@ -166,6 +167,7 @@ export function ProjectEditAction({
       size={compact ? "icon" : "default"}
       onClick={onEdit}
       aria-label={compact ? `${project.name} 수정` : "프로젝트 수정"}
+      title={compact ? `${project.name} 수정` : undefined}
     >
       <Pencil aria-hidden="true" />
       {!compact && "프로젝트 수정"}

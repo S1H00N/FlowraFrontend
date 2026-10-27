@@ -63,9 +63,9 @@ export function ProjectGanttDependencyDetails({ relations, selectedId, onSelectW
       : <span>{item?.title ?? `업무 #${id}`}</span>;
   }
   return <details className="gantt-dependency-details" data-testid="gantt-dependency-details">
-    <summary>{selectedId === null ? `조회된 의존성 ${related.length}개` : `선택 업무 의존성 ${related.length}개 · 선행 ${incoming} · 후행 ${outgoing}`}</summary>
-    <p>현재 Gantt 응답에서 확인된 관계만 표시합니다. 조회 범위 밖의 관계는 포함되지 않을 수 있습니다.</p>
-    {!related.length ? <p>선택 업무와 관련해 현재 응답에서 확인된 의존성이 없습니다.</p>
+    <summary>{selectedId === null ? `조회된 업무 연결 ${related.length}개` : `선택 업무 연결 ${related.length}개 · 선행 ${incoming} · 후행 ${outgoing}`}</summary>
+    <p>불러온 업무 연결 기준 · 조회 범위 밖의 연결은 포함되지 않을 수 있습니다.</p>
+    {!related.length ? <p>선택 업무와 연결된 관계가 현재 조회 범위에 없습니다.</p>
       : <ul>{related.map(({ dependency, predecessor, successor, typeLabel, hiddenReason }) => <li key={dependency.company_project_work_dependency_id}>
         <span className="gantt-relation-direction">{selectedId === null ? "관계" : dependency.successor_work_item_id === selectedId ? "선행" : "후행"}</span>{" "}
         {work(predecessor, dependency.predecessor_work_item_id)}{" → "}{work(successor, dependency.successor_work_item_id)}

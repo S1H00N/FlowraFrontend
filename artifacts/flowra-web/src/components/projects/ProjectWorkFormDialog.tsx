@@ -522,7 +522,7 @@ export default function ProjectWorkFormDialog({
       (draft.plannedStart && !isValidProjectDate(draft.plannedStart)) ||
       (draft.plannedEnd && !isValidProjectDate(draft.plannedEnd))
     ) {
-      invalid(draft.plannedStart && !isValidProjectDate(draft.plannedStart) ? "plannedStart" : "plannedEnd", "계획 날짜를 유효한 날짜로 입력해 주세요.");
+      invalid(draft.plannedStart && !isValidProjectDate(draft.plannedStart) ? "plannedStart" : "plannedEnd", "예정 날짜를 유효한 날짜로 입력해 주세요.");
       return;
     }
     if (
@@ -530,12 +530,12 @@ export default function ProjectWorkFormDialog({
       draft.plannedEnd &&
       draft.plannedEnd < draft.plannedStart
     ) {
-      invalid("plannedEnd", "계획 종료일은 시작일과 같거나 이후여야 합니다.");
+      invalid("plannedEnd", "예정 종료일은 시작일과 같거나 이후여야 합니다.");
       return;
     }
     if ((draft.actualStart && !isValidProjectDate(draft.actualStart)) ||
       (draft.actualEnd && !isValidProjectDate(draft.actualEnd))) {
-      invalid(draft.actualStart && !isValidProjectDate(draft.actualStart) ? "actualStart" : "actualEnd", "실적 날짜를 유효한 날짜로 입력해 주세요.", true);
+      invalid(draft.actualStart && !isValidProjectDate(draft.actualStart) ? "actualStart" : "actualEnd", "실제 날짜를 유효한 날짜로 입력해 주세요.", true);
       return;
     }
     if (
@@ -543,7 +543,7 @@ export default function ProjectWorkFormDialog({
       draft.actualEnd &&
       draft.actualEnd < draft.actualStart
     ) {
-      invalid("actualEnd", "실적 종료일은 시작일과 같거나 이후여야 합니다.", true);
+      invalid("actualEnd", "실제 종료일은 시작일과 같거나 이후여야 합니다.", true);
       return;
     }
     if (
@@ -597,7 +597,7 @@ export default function ProjectWorkFormDialog({
               tree.hierarchy.displayPhaseByWorkId.get(item.company_project_work_item_id)?.company_project_phase_id === target.phase?.company_project_phase_id)
           : (tree.children.get(itemId!) ?? []);
         const outside = children.filter((item) => periodWarnings(item, period).length > 0);
-        if (outside.length) messages.push(`조회된 하위 업무 ${outside.length}건이 변경할 기간을 벗어납니다.`);
+        if (outside.length) messages.push(`조회된 세부 업무 ${outside.length}건이 변경할 기간을 벗어납니다.`);
       }
       if (messages.length) {
         setPeriodWarning(messages);
@@ -819,7 +819,7 @@ export default function ProjectWorkFormDialog({
             </DialogTitle>
             <DialogDescription className="sr-only">
               {target.kind === "work"
-                ? "기본 정보를 입력하고, 필요할 때 상세 설정을 펼쳐 주세요."
+                ? "기본 정보를 입력하고, 필요할 때 추가 설정을 펼쳐 주세요."
                 : "단계의 상태를 변경해도 소속 업무의 상태는 유지됩니다."}
             </DialogDescription>
           </DialogHeader>
@@ -899,9 +899,9 @@ export default function ProjectWorkFormDialog({
                         {fieldError("parentId")}
                       </>
                   </div>}
-                  <div className="space-y-2" role="group" aria-label="계획 기간">
+                  <div className="space-y-2" role="group" aria-label="예정 기간">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-medium">계획 기간</p>
+                      <p className="text-sm font-medium">예정 기간</p>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span tabIndex={!fieldsDisabled && !canApplyPeriod ? 0 : undefined} aria-describedby={`${id}-period-help`} className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20">
@@ -918,7 +918,7 @@ export default function ProjectWorkFormDialog({
                                   delete next.plannedEnd;
                                   return next;
                                 });
-                              }}>{target.kind === "phase" ? "프로젝트 기간 적용" : "상위 기간 적용"}</Button>
+                              }}>{target.kind === "phase" ? "프로젝트 기간 가져오기" : "상위 기간 가져오기"}</Button>
                           </span>
                         </TooltipTrigger>
                         <TooltipContent onEscapeKeyDown={handleTooltipEscape} className="max-w-[min(22rem,calc(100vw-2rem))] break-words">{periodHelp}</TooltipContent>
@@ -937,12 +937,12 @@ export default function ProjectWorkFormDialog({
                     <div className="grid grid-cols-2 gap-3">
                     {(
                       [
-                        ["plannedStart", "계획 시작일"],
-                        ["plannedEnd", "계획 종료일"],
+                        ["plannedStart", "예정 시작일"],
+                        ["plannedEnd", "예정 종료일"],
                       ] as const
                     ).map(([key, label]) => (
                       <div key={key} className="min-w-0 space-y-1" data-project-work-field={key}>
-                        <p className="text-xs text-muted-foreground">{label === "계획 시작일" ? "시작일" : "종료일"}</p>
+                        <p className="text-xs text-muted-foreground">{label === "예정 시작일" ? "시작일" : "종료일"}</p>
                         <CompactDateInput
                           ariaLabel={`${kindLabel} ${label}`}
                           clearLabel={`${kindLabel} ${label} 지우기`}
@@ -1011,7 +1011,7 @@ export default function ProjectWorkFormDialog({
                         aria-hidden
                         className={`h-4 w-4 shrink-0 transition-transform ${advancedOpen ? "" : "-rotate-90"}`}
                       />
-                      <span>상세 설정 (선택)</span>
+                      <span>추가 설정 (선택)</span>
                       {advancedError ? (
                         <span className="ml-auto text-xs text-destructive">
                           오류 확인
@@ -1083,12 +1083,12 @@ export default function ProjectWorkFormDialog({
                         <div
                           className="grid grid-cols-2 gap-3"
                           role="group"
-                          aria-label="실적 기간"
+                          aria-label="실제 기간"
                         >
                           {(
                             [
-                              ["actualStart", "실적 시작일"],
-                              ["actualEnd", "실적 종료일"],
+                              ["actualStart", "실제 시작일"],
+                              ["actualEnd", "실제 종료일"],
                             ] as const
                           ).map(([key, label]) => (
                             <div key={key} className="min-w-0 space-y-1" data-project-work-field={key}>
