@@ -345,12 +345,16 @@ test("할 일 패널의 날짜·시간·우선순위를 선택하고 저장한�
     exact: true,
   });
   await priority.click();
-  await panel.getByRole("option", { name: "높음", exact: true }).click();
+  await panel
+    .getByRole("listbox", { name: "우선순위 선택", exact: true })
+    .getByRole("option", { name: "높음", exact: true })
+    .click();
   await expect(priority).toContainText("높음");
   await priority.click();
   await page.keyboard.press("Escape");
   await expect(panel).toBeVisible();
   await expect(priority).toHaveAttribute("aria-expanded", "false");
+  await expect(priority).toBeFocused();
   const date = panel.getByLabel("마감 날짜 선택", { exact: true });
   await date.click();
   await panel
@@ -359,12 +363,42 @@ test("할 일 패널의 날짜·시간·우선순위를 선택하고 저장한�
     .click();
   await expect(date).toHaveValue("09.10(목)");
   const time = panel.getByLabel("마감 시간", { exact: true });
+  const timeOptions = panel.getByRole("listbox", {
+    name: "마감 시간 선택",
+    exact: true,
+  });
   await time.click();
-  await panel
-    .getByRole("listbox")
-    .getByRole("button", { name: "11:15", exact: true })
+  await expect(time).toHaveAttribute("aria-expanded", "true");
+  await expect(timeOptions).toBeVisible();
+  await timeOptions
+    .getByRole("option", { name: "11:15", exact: true })
     .click();
   await expect(time).toHaveValue("11:15");
+  await expect(timeOptions).toHaveCount(0);
+  await expect(time).toBeFocused();
+  await time.click();
+  await expect(
+    timeOptions.getByRole("option", { name: "11:15", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  await time.press("ArrowDown");
+  await expect(
+    timeOptions.getByRole("option", { name: "11:30", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  await expect(time).toHaveValue("11:30");
+  await time.press("Escape");
+  await expect(timeOptions).toHaveCount(0);
+  await expect(time).toHaveAttribute("aria-expanded", "false");
+  await expect(time).toHaveValue("11:15");
+  await expect(time).toBeFocused();
+  await expect(panel).toBeVisible();
+  await time.click();
+  await expect(
+    timeOptions.getByRole("option", { name: "11:15", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
+  await time.press("ArrowDown");
+  await time.press("Enter");
+  await expect(timeOptions).toHaveCount(0);
+  await expect(time).toHaveValue("11:30");
   await panel
     .locator("form")
     .getByRole("button", { name: "할 일 추가", exact: true })
@@ -381,7 +415,7 @@ test("할 일 패널의 날짜·시간·우선순위를 선택하고 저장한�
   )!;
   expect(saved.schedule_id).toBe(201);
   expect(new Date(saved.due_datetime!).toISOString()).toBe(
-    "2026-09-10T02:15:00.000Z",
+    "2026-09-10T02:30:00.000Z",
   );
   await panel
     .getByRole("button", { name: "할 일 추가 패널 닫기", exact: true })
@@ -391,6 +425,15 @@ test("할 일 패널의 날짜·시간·우선순위를 선택하고 저장한�
   await expect(
     row.getByText("QA 패널 선택값 저장", { exact: true }),
   ).toBeVisible();
+  await page.reload();
+  await expandSchedule(row);
+  const savedRow = row.locator("li").filter({
+    has: page.getByText("QA 패널 선택값 저장", { exact: true }),
+  });
+  await expect(
+    savedRow.getByTitle("9월 10일 오전 11:30", { exact: true }),
+  ).toBeVisible();
+  await expect(savedRow.getByText("높음", { exact: true })).toBeVisible();
 });
 
 test("새 일정 패널이 화면 크기 변경에도 입력을 유지하고 좁은 화면의 포커스를 관리한다", async ({
