@@ -457,7 +457,7 @@
 .project-member-row,
 .project-members-columns {
   display: grid;
-  grid-template-columns: minmax(130px, 1fr) minmax(80px, 0.65fr) minmax(160px, 0.85fr) 78px minmax(108px, auto);
+  grid-template-columns: minmax(130px, 1fr) minmax(90px, 0.65fr) 78px minmax(72px, auto);
   align-items: center;
   gap: 12px;
   padding: 12px 0;
@@ -489,9 +489,7 @@
 }
 .project-member-identity strong {
   display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
   font-size: 14px;
   font-weight: 600;
 }
@@ -503,10 +501,10 @@
   overflow-wrap: anywhere;
 }
 .project-member-identity > div > span {
-  display: none;
+  display: block;
+  white-space: normal;
 }
-.project-member-department,
-.project-member-identity > div > span {
+.project-member-department {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -546,6 +544,7 @@
 .project-member-state > .project-status {
   max-width: 100%;
 }
+.project-member-editor,
 .project-member-confirm,
 .project-member-add {
   grid-column: 1 / -1;
@@ -553,6 +552,23 @@
   border: 1px solid var(--flowra-border-soft);
   border-radius: 12px;
   background: var(--flowra-surface-muted);
+}
+.project-member-editor {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.project-member-editor > p {
+  margin: 0;
+}
+.project-member-editor-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.project-member-editor .project-member-role-control {
+  min-width: 0;
 }
 .project-member-confirm p,
 .project-member-add p {

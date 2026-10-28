@@ -176,10 +176,12 @@ function memberDialog(page: Page) {
 function assignmentDialog(page: Page) {
   return page.getByRole("dialog", { name: "담당자 관리", exact: true });
 }
-async function openAssignments(page: Page) {
+async function openAssignments(page: Page, expandAdd = true) {
   await workPanel(page).getByRole("button", { name: "담당자 관리", exact: true }).click();
   const dialog = assignmentDialog(page);
   await expect(dialog).toBeVisible();
+  const add = dialog.getByRole("button", { name: "담당자 추가", exact: true });
+  if (expandAdd && await add.getAttribute("aria-expanded") === "false") await add.click();
   return dialog;
 }
 function workPanel(page: Page) {
@@ -191,12 +193,24 @@ function row(page: Page, title: string) {
     .getByRole("button", { name: new RegExp(`^(?:\\d+(?:\\.\\d+)*\\.? )?${title}$`) });
 }
 async function select(scope: Locator, label: string, name: string) {
+  if (label === "추가할 프로젝트 역할") {
+    if (!await scope.getByRole("button", { name: label, exact: true }).isVisible())
+      await scope.getByRole("button", { name: "추가할 프로젝트 역할 변경", exact: true }).click();
+  } else if (label.endsWith(" 프로젝트 역할")) {
+    await openMemberManagement(scope, label.slice(0, -" 프로젝트 역할".length));
+  } else if (label === "추가 담당자 배정 역할" && !await scope.getByRole("button", { name: label, exact: true }).isVisible()) {
+    await scope.getByRole("button", { name: "추가 담당자 역할 변경", exact: true }).click();
+  }
   await scope.getByRole("button", { name: label, exact: true }).click();
   await scope.page().getByRole("listbox", { name: label, exact: true }).getByRole("option", { name, exact: true }).click();
 }
+async function openMemberManagement(scope: Locator, name: string) {
+  const manage = scope.getByRole("button", { name: `${name} 구성원 관리`, exact: true });
+  if (await manage.getAttribute("aria-expanded") === "false") await manage.click();
+}
 async function requestAssignmentCancellation(dialog: Locator, name: string) {
   await dialog.getByRole("button", { name: `${name} 배정 더 보기`, exact: true }).click();
-  await dialog.page().getByRole("menuitem", { name: `${name} 배정 취소`, exact: true }).click();
+  await dialog.page().getByRole("menuitem", { name: `${name} 담당 배정 취소`, exact: true }).click();
 }
 async function openMembers(page: Page, company = false) {
   await page.getByRole("tab", { name: "업무 목록", exact: true }).click();
@@ -230,6 +244,108 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     expect.soft(api.requests.filter((request) => request.method === "DELETE" && /assignments/.test(request.path))).toEqual([]);
   });
 
+  test("UX3: 현재 담당자를 먼저 표시하고 추가 영역을 접어도 검색·선택·역할을 보존한다", async ({ page }) => {
+    api = await installMembersApi(page);
+    await page.goto("/projects/901");
+    await row(page, "QA 담당자 업무").click();
+    const dialog = await openAssignments(page, false);
+    const add = dialog.getByRole("button", { name: "담당자 추가", exact: true });
+    const search = dialog.getByRole("textbox", { name: "프로젝트 구성원 검색", exact: true });
+    await expect(dialog.locator(".work-assignment-current")).toHaveCount(1);
+    await expect(dialog.locator(".work-assignment-current")).toContainText("QA 김개발");
+    await expect(add).toHaveAttribute("aria-expanded", "false");
+    await expect(search).toHaveCount(0);
+    await expect(dialog.getByRole("list", { name: "프로젝트 구성원 선택", exact: true })).toHaveCount(0);
+    await add.focus();
+    await page.keyboard.press("Enter");
+    await expect(search).toBeFocused();
+    await search.fill("테스터");
+    const candidate = dialog.getByRole("button", { name: new RegExp(QA_USER.name) });
+    await candidate.focus();
+    await page.keyboard.press("Space");
+    await expect(candidate).toHaveAttribute("aria-pressed", "true");
+    await expect(dialog).toContainText("담당 역할: 담당자");
+    await select(dialog, "추가 담당자 배정 역할", "검토자");
+    await add.click();
+    await expect(add).toHaveAttribute("aria-expanded", "false");
+    await expect(search).toHaveCount(0);
+    await add.click();
+    await expect(search).toHaveValue("테스터");
+    await expect(candidate).toHaveAttribute("aria-pressed", "true");
+    await expect(dialog.getByRole("button", { name: "추가 담당자 배정 역할", exact: true })).toContainText("검토자");
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(workPanel(page).getByRole("button", { name: "담당자 관리", exact: true })).toBeFocused();
+    expect(api.requests.every((request) => request.method === "GET")).toBe(true);
+  });
+
+  test("UX3: 실제 미배정은 추가 영역을 열고 비공개 배정은 인원 추정 없이 접어 둔다", async ({ page }) => {
+    api = await installMembersApi(page, { masked: true });
+    await page.goto("/projects/901");
+    await page.getByRole("button", { name: "QA 담당자 업무 담당자 관리", exact: true }).click();
+    const masked = assignmentDialog(page);
+    await expect(masked).toContainText("담당자 정보 비공개");
+    await expect(masked).toContainText("인원 확인 필요");
+    await expect(masked.getByText("1명", { exact: true })).toHaveCount(0);
+    await expect(masked.getByText("미배정", { exact: true })).toHaveCount(0);
+    await expect(masked.getByRole("button", { name: "담당자 추가", exact: true })).toHaveAttribute("aria-expanded", "false");
+    await expect(masked.getByRole("textbox", { name: "프로젝트 구성원 검색", exact: true })).toHaveCount(0);
+    await masked.getByRole("button", { name: "닫기", exact: true }).click();
+    const summary = page.getByRole("button", { name: "QA 다른 업무 담당자 관리", exact: true });
+    await summary.click();
+    const empty = assignmentDialog(page);
+    await expect(empty.getByText("미배정", { exact: true })).toBeVisible();
+    await expect(empty.getByRole("button", { name: "담당자 추가", exact: true })).toHaveAttribute("aria-expanded", "true");
+    await expect(empty.getByRole("textbox", { name: "프로젝트 구성원 검색", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(empty).toHaveCount(0);
+    await expect(summary).toBeFocused();
+    expect(api.requests.filter((request) => /\/members\/0/.test(request.path))).toEqual([]);
+    expect(api.requests.every((request) => request.method === "GET")).toBe(true);
+  });
+
+  test("UX3: 구성원 관리에서 역할 초안과 추가할 사람을 보존하고 미저장 닫기를 확인한다", async ({ page }) => {
+    api = await installMembersApi(page);
+    await page.goto("/projects/901");
+    const dialog = await openMembers(page);
+    const manage = dialog.getByRole("button", { name: "QA 김개발 구성원 관리", exact: true });
+    const role = dialog.getByRole("button", { name: "QA 김개발 프로젝트 역할", exact: true });
+    await expect(manage).toHaveAttribute("aria-expanded", "false");
+    await expect(role).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "QA 김개발 프로젝트 참여 종료", exact: true })).toHaveCount(0);
+    await select(dialog, "QA 김개발 프로젝트 역할", "관리자");
+    await expect(dialog).toContainText("현재 역할: 구성원");
+    await dialog.getByRole("tab", { name: "회사 구성원", exact: true }).click();
+    const search = dialog.getByRole("textbox", { name: "이름 또는 부서 검색", exact: true });
+    await search.fill("박디자인");
+    await dialog.getByRole("button", { name: "프로젝트에 추가", exact: true }).click();
+    const selected = dialog.getByRole("group", { name: "프로젝트 구성원 추가 확인", exact: true });
+    await expect(selected).toContainText("QA 박디자인");
+    await expect(selected).toContainText("프로젝트 역할: 구성원");
+    await expect(dialog.getByRole("button", { name: "추가할 프로젝트 역할", exact: true })).toHaveCount(0);
+    await search.fill("존재하지 않는 직원");
+    await expect(dialog.getByRole("list", { name: "회사 구성원 목록", exact: true })).toHaveCount(0);
+    await expect(selected).toContainText("QA 박디자인");
+    await search.fill("");
+    await dialog.getByRole("tab", { name: "프로젝트 구성원", exact: true }).click();
+    await expect(role).toContainText("관리자");
+    await expect(dialog).toContainText("현재 역할: 구성원");
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("alert")).toContainText("저장하지 않은 구성원 변경");
+    await dialog.getByRole("button", { name: "계속 편집", exact: true }).click();
+    await expect(role).toContainText("관리자");
+    await dialog.getByRole("tab", { name: "회사 구성원", exact: true }).click();
+    await expect(selected).toContainText("QA 박디자인");
+    await dialog.getByRole("button", { name: "닫기", exact: true }).click();
+    await dialog.getByRole("button", { name: "변경 내용 버리고 닫기", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(assignmentDialog(page).getByRole("button", { name: "프로젝트 구성원 관리에서 직원 추가", exact: true })).toBeFocused();
+    expect(api.requests.every((request) => request.method === "GET")).toBe(true);
+    expect(api.members.get(901)?.find((member) => member.company_member_id === 172)?.role).toBe("member");
+    expect(api.members.get(901)?.some((member) => member.company_member_id === 174)).toBe(false);
+  });
+
   test("구성원 탭에서 부서와 이름으로 직원을 찾아 즉시 추가하고 역할·참여 상태를 기존 API로 관리한다", async ({ page }) => {
     api = await installMembersApi(page);
     await page.goto("/projects/901?company_id=71");
@@ -249,6 +365,7 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     await select(panel, "QA 박디자인 프로젝트 역할", "조회자");
     await panel.getByRole("button", { name: "QA 박디자인 역할 변경 저장", exact: true }).click();
     await expect.poll(() => api.members.get(901)?.find((member) => member.company_member_id === 174)?.role).toBe("viewer");
+    await openMemberManagement(panel, "QA 박디자인");
     await panel.getByRole("button", { name: "QA 박디자인 프로젝트 참여 종료", exact: true }).click();
     await panel.getByRole("button", { name: "참여 종료 확인", exact: true }).click();
     await expect(panel.getByRole("button", { name: "QA 박디자인 다시 참여", exact: true })).toBeVisible();
@@ -410,6 +527,7 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
       await page.setViewportSize({ width, height: 900 });
       for (const dark of [false, true]) {
         await page.evaluate((enabled) => document.documentElement.classList.toggle("dark", enabled), dark);
+        await openMemberManagement(panel, longName);
         const role = panel.getByRole("button", { name: `${longName} 프로젝트 역할`, exact: true });
         await expect(role).toBeVisible();
         await expect(role).toContainText("구성원");
@@ -523,6 +641,7 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     await page.goto("/projects/901");
     await page.addStyleTag({ content: ".project-members-body { overflow-y: scroll !important; scrollbar-gutter: stable; } .project-members-body::-webkit-scrollbar { width: 16px; }" });
     const dialog = await openMembers(page);
+    await openMemberManagement(dialog, "QA 김개발");
     const role = dialog.getByRole("button", { name: "QA 김개발 프로젝트 역할", exact: true });
     await role.focus();
     await page.keyboard.press("Enter");
@@ -590,6 +709,7 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     await select(dialog, "QA 이복귀 프로젝트 역할", "관리자");
     await dialog.getByRole("button", { name: "QA 이복귀 역할 변경 저장", exact: true }).click();
     await expect.poll(() => api.members.get(901)?.find((member) => member.company_member_id === 173)?.role).toBe("manager");
+    await openMemberManagement(dialog, "QA 이복귀");
     await dialog.getByRole("button", { name: "QA 이복귀 프로젝트 참여 종료", exact: true }).click();
     await dialog.getByRole("button", { name: "참여 종료 확인", exact: true }).click();
     await expect.poll(() => api.members.get(901)?.find((member) => member.company_member_id === 173)?.status).toBe("inactive");
@@ -606,6 +726,7 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     api.failures.set("DELETE /company-projects/901/members/1901", { status: 409, code: "PROJECT_LAST_OWNER_REQUIRED", message: "QA 구성원 제외 충돌" });
     await page.goto("/projects/901");
     const dialog = await openMembers(page);
+    await openMemberManagement(dialog, QA_USER.name);
     await dialog.getByRole("button", { name: `${QA_USER.name} 프로젝트 참여 종료`, exact: true }).click();
     await dialog.getByRole("button", { name: "참여 종료 확인", exact: true }).click();
     await expect(dialog).toContainText("프로젝트에는 활성 소유자가 최소 한 명 있어야 합니다.");
@@ -640,7 +761,7 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     await row(page, "QA 담당자 업무").click();
     const panel = workPanel(page);
     const dialog = await openAssignments(page);
-    await expect(dialog.getByRole("button", { name: "추가 담당자 배정 역할", exact: true })).toContainText("담당자");
+    await expect(dialog.getByRole("button", { name: "추가 담당자 배정 역할", exact: true })).toHaveCount(0);
     const search = dialog.getByRole("textbox", { name: "프로젝트 구성원 검색", exact: true });
     await search.fill("테스터");
     await dialog.getByRole("button", { name: new RegExp(QA_USER.name) }).click();
@@ -656,16 +777,16 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     const more = dialog.getByRole("button", { name: "QA 홍검토 배정 더 보기", exact: true });
     await more.focus();
     await page.keyboard.press("Enter");
-    await expect(page.getByRole("menuitem", { name: "QA 홍검토 배정 취소", exact: true })).toBeVisible();
-    await expect(dialog.getByRole("group", { name: "배정 취소 확인", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("menuitem", { name: "QA 홍검토 담당 배정 취소", exact: true })).toBeVisible();
+    await expect(dialog.getByRole("group", { name: "담당 배정 취소 확인", exact: true })).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(dialog).toBeVisible();
     await expect(more).toBeFocused();
     await requestAssignmentCancellation(dialog, "QA 홍검토");
-    await expect(dialog.getByRole("group", { name: "배정 취소 확인", exact: true })).toContainText("QA 홍검토");
+    await expect(dialog.getByRole("group", { name: "담당 배정 취소 확인", exact: true })).toContainText("QA 홍검토");
     expect(api.assignments[0].status).toBe("in_progress");
     expect(api.requests.filter((request) => request.body.status === "cancelled")).toHaveLength(0);
-    await dialog.getByRole("button", { name: "배정 취소 확인", exact: true }).click();
+    await dialog.getByRole("button", { name: "담당 배정 취소 확인", exact: true }).click();
     await expect.poll(() => api.assignments[0].status).toBe("cancelled");
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([
       { method: "POST", path: "/company-projects/901/work-items/501/assignments", body: { assignee_company_member_id: 171, role: "assignee" } },
@@ -693,7 +814,7 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     await row(page, "QA 담당자 업무").click();
     const dialog = await openAssignments(page);
     await requestAssignmentCancellation(dialog, "QA 김개발");
-    await dialog.getByRole("button", { name: "배정 취소 확인", exact: true }).click();
+    await dialog.getByRole("button", { name: "담당 배정 취소 확인", exact: true }).click();
     await expect(dialog).toContainText("QA 담당자 변경 권한 없음");
     expect(api.assignments[0]).toMatchObject({ assignee_company_member_id: 172, status: "in_progress", progress_percent: 37 });
     await expect(dialog).toContainText("QA 김개발");
@@ -1162,7 +1283,7 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     await expect(page.locator('tr[data-work-id="502"]')).toContainText("QA 홍검토");
     const cancellation = await openAssignments(page);
     await requestAssignmentCancellation(cancellation, "QA 홍검토");
-    await cancellation.getByRole("button", { name: "배정 취소 확인", exact: true }).click();
+    await cancellation.getByRole("button", { name: "담당 배정 취소 확인", exact: true }).click();
     await expect.poll(() => api.assignments.at(-1)?.status).toBe("cancelled");
     await cancellation.getByRole("button", { name: "닫기", exact: true }).click();
     await expect(workPanel(page)).toHaveAttribute("data-panel-mode", "docked");
@@ -1181,7 +1302,7 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     { value: "reviewer", label: "검토자" },
     { value: "watcher", label: "참관자" },
   ] as const) {
-    test(`담당자 추가 전에 ${role.label} 역할을 선택하고 저장 후 기본 담당자 역할로 돌아간다`, async ({ page }) => {
+    test(`사람을 선택한 뒤 ${role.label} 역할로 배정하고 다음 사람은 기본 담당자 역할로 배정한다`, async ({ page }) => {
       api = await installMembersApi(page);
       Object.assign(api.assignments[0], { allocation_percent: 25, planned_minutes: 180 });
       const existing = { ...api.assignments[0] };
@@ -1189,21 +1310,23 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
       await row(page, "QA 담당자 업무").click();
       const dialog = await openAssignments(page);
       const addRole = dialog.getByRole("button", { name: "추가 담당자 배정 역할", exact: true });
-      await expect(addRole).toBeVisible();
-      await expect(addRole).toContainText("담당자");
-      await select(dialog, "추가 담당자 배정 역할", role.label);
-      await expect(addRole).toContainText(role.label);
+      await expect(addRole).toHaveCount(0);
+      await expect(dialog.getByRole("button", { name: "추가 담당자 역할 변경", exact: true })).toHaveCount(0);
       const search = dialog.getByRole("textbox", { name: "프로젝트 구성원 검색", exact: true });
       await search.fill("테스터");
       await dialog.getByRole("button", { name: new RegExp(QA_USER.name) }).click();
+      await expect(dialog).toContainText("담당 역할: 담당자");
+      await select(dialog, "추가 담당자 배정 역할", role.label);
+      await expect(addRole).toContainText(role.label);
       expect(api.requests.every((request) => request.method === "GET")).toBe(true);
       expect(api.assignments).toEqual([existing]);
       await dialog.getByRole("button", { name: "담당자 배정", exact: true }).click();
       await expect.poll(() => api.assignments.find((assignment) => assignment.assignee_company_member_id === 171)?.role).toBe(role.value);
       await expect(dialog.getByRole("button", { name: `${QA_USER.name} 배정 역할`, exact: true })).toContainText(role.label);
-      await expect(addRole).toContainText("담당자");
+      await expect(addRole).toHaveCount(0);
       await search.fill("홍검토");
       await dialog.getByRole("button", { name: /QA 홍검토/ }).click();
+      await expect(dialog).toContainText("담당 역할: 담당자");
       await dialog.getByRole("button", { name: "담당자 배정", exact: true }).click();
       await expect.poll(() => api.assignments.find((assignment) => assignment.assignee_company_member_id === 175)?.role).toBe("assignee");
       expect(api.requests.filter((request) => request.method !== "GET")).toEqual([
@@ -1222,11 +1345,11 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     await page.goto("/projects/901");
     await row(page, "QA 담당자 업무").click();
     const dialog = await openAssignments(page);
-    await select(dialog, "추가 담당자 배정 역할", "참관자");
     await dialog.getByRole("textbox", { name: "프로젝트 구성원 검색", exact: true }).fill("테스터");
     const candidate = dialog.getByRole("list", { name: "프로젝트 구성원 선택", exact: true })
       .getByRole("button", { name: new RegExp(QA_USER.name) });
     await candidate.click();
+    await select(dialog, "추가 담당자 배정 역할", "참관자");
     const save = dialog.getByRole("button", { name: "담당자 배정", exact: true });
     await save.click();
     await expect(dialog.getByRole("alert")).toContainText("QA 참관자 배정 실패");
@@ -1243,7 +1366,7 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     await candidate.click();
     await save.click();
     await expect.poll(() => api.assignments.find((assignment) => assignment.assignee_company_member_id === 171)?.role).toBe("watcher");
-    await expect(addRole).toContainText("담당자");
+    await expect(addRole).toHaveCount(0);
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([
       { method: "POST", path, body: { assignee_company_member_id: 171, role: "watcher" } },
       { method: "POST", path, body: { assignee_company_member_id: 171, role: "watcher" } },
@@ -1280,7 +1403,7 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     await expect(more).toBeDisabled();
     await more.evaluate((element) => { if (element instanceof HTMLButtonElement) element.click(); });
     await expect(page.getByRole("menuitem")).toHaveCount(0);
-    await expect(dialog.getByRole("button", { name: "추가 담당자 배정 역할", exact: true })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "담당자 추가", exact: true })).toBeDisabled();
     await expect(dialog.getByRole("textbox", { name: "프로젝트 구성원 검색", exact: true })).toBeDisabled();
     await expect(dialog.getByRole("button", { name: "닫기", exact: true })).toBeDisabled();
     await page.keyboard.press("Escape");
@@ -1351,7 +1474,7 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     expect(api.requests.every((request) => request.method === "GET")).toBe(true);
   });
 
-  test("담당자 3명의 이름·배정 상태·역할·교체·더 보기는 320부터 1280px에서 한 행을 유지한다", async ({ page }, testInfo) => {
+  test("담당자 3명의 이름·배정 상태·역할·교체·더 보기는 320부터 1280px에서 화면 안에 배치된다", async ({ page }, testInfo) => {
     api = await installMembersApi(page);
     const longName = "QA 김개발 아주 긴 담당자 이름의 말줄임 표시를 확인합니다";
     api.directory.find((member) => member.company_member_id === 172)!.name = longName;
@@ -1375,15 +1498,27 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
           const role = current.getByRole("button", { name: `${name} 배정 역할`, exact: true });
           const replace = current.getByRole("button", { name: `${name} 담당자 교체`, exact: true });
           const more = current.getByRole("button", { name: `${name} 배정 더 보기`, exact: true });
+          await current.scrollIntoViewIfNeeded();
           await expect(role).toBeEnabled();
+          await expect(role).toBeInViewport();
           await expect(replace).toBeInViewport();
           await expect(more).toBeInViewport();
           const [personBounds, roleBounds, replaceBounds, moreBounds] = await Promise.all([
             identity.boundingBox(), role.boundingBox(), replace.boundingBox(), more.boundingBox(),
           ]);
-          const centers = [personBounds!, roleBounds!, replaceBounds!, moreBounds!].map((bounds) => bounds.y + bounds.height / 2);
-          expect(Math.max(...centers) - Math.min(...centers)).toBeLessThanOrEqual(8);
-          expect(personBounds!.x + personBounds!.width).toBeLessThanOrEqual(roleBounds!.x + 1);
+          if (width < 640) {
+            expect(personBounds!.y + personBounds!.height).toBeLessThanOrEqual(roleBounds!.y + 1);
+            expect(personBounds!.width).toBeGreaterThan(roleBounds!.width);
+            const nameDimensions = await current.locator(".work-assignment-current-name").evaluate((element) => ({
+              overflow: getComputedStyle(element).overflowWrap,
+              width: element.clientWidth,
+              content: element.scrollWidth,
+            }));
+            expect(nameDimensions.overflow).toBe("anywhere");
+            expect(nameDimensions.content).toBeLessThanOrEqual(nameDimensions.width + 1);
+          } else {
+            expect(personBounds!.x + personBounds!.width).toBeLessThanOrEqual(roleBounds!.x + 1);
+          }
           expect(roleBounds!.x + roleBounds!.width).toBeLessThanOrEqual(replaceBounds!.x + 1);
           expect(replaceBounds!.x + replaceBounds!.width).toBeLessThanOrEqual(moreBounds!.x + 1);
           expect(moreBounds!.x + moreBounds!.width).toBeLessThanOrEqual(width + 1);
@@ -1478,7 +1613,7 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     await expect.poll(() => api.assignments[0].role).toBe("reviewer");
     await expect(dialog.getByRole("status")).toContainText("배정 역할을 변경했습니다.");
     await expect(role).toContainText("검토자");
-    await expect(dialog.getByRole("textbox", { name: "프로젝트 구성원 검색", exact: true })).toBeFocused();
+    await expect(role).toBeFocused();
     await expect(role).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([

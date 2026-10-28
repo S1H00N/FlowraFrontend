@@ -75,6 +75,7 @@ function ProjectMembersContent({ onOpenChange, project, membership, embedded = f
   const alive = useRef(true);
   const submissionLock = useRef(false);
   const roleControls = useRef(new Map<number, HTMLDivElement>());
+  const companyControls = useRef(new Map<number, HTMLButtonElement>());
   useEffect(() => {
     alive.current = true;
     return () => { alive.current = false; onBusyChange?.(false); };
@@ -86,7 +87,10 @@ function ProjectMembersContent({ onOpenChange, project, membership, embedded = f
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<number | null>(null);
   const [addRole, setAddRole] = useState<CompanyProjectMemberRole>("member");
+  const [editingAddRole, setEditingAddRole] = useState(false);
+  const [managing, setManaging] = useState<Record<number, boolean>>({});
   const [roleDrafts, setRoleDrafts] = useState<Record<number, CompanyProjectMemberRole>>({});
+  const [confirmClose, setConfirmClose] = useState(false);
   const [removing, setRemoving] = useState<number | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState("");
@@ -133,11 +137,28 @@ function ProjectMembersContent({ onOpenChange, project, membership, embedded = f
   const pageCount = Math.max(1, Math.ceil(count / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const hasRoleDrafts = Object.entries(roleDrafts).some(([id, role]) =>
+    projectMembers.find((member) => memberId(member) === Number(id))?.role !== role,
+  );
+  const hasUnsavedChanges = hasRoleDrafts || (selected !== null && !joinedById.has(selected));
+
+  useEffect(() => {
+    onBusyChange?.(pending || (canManage && hasUnsavedChanges));
+  }, [pending, canManage, hasUnsavedChanges, onBusyChange]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) setConfirmClose(false);
+  }, [hasUnsavedChanges]);
+
+  function requestClose() {
+    if (pending || submissionLock.current) return;
+    if (hasUnsavedChanges) setConfirmClose(true);
+    else onOpenChange?.(false);
+  }
 
   async function performAction(action: () => Promise<unknown>, onSuccess: () => void) {
     if (submissionLock.current || controlsDisabled) return;
     submissionLock.current = true;
-    onBusyChange?.(true);
     setError(null);
     setNotice("");
     try {
@@ -147,14 +168,12 @@ function ProjectMembersContent({ onOpenChange, project, membership, embedded = f
       if (alive.current) setError(failure);
     } finally {
       submissionLock.current = false;
-      if (alive.current) onBusyChange?.(false);
     }
   }
 
   function changeTab(next: "project" | "company") {
     setTab(next);
     setPage(1);
-    setSelected(null);
     setRemoving(null);
   }
 
@@ -162,7 +181,17 @@ function ProjectMembersContent({ onOpenChange, project, membership, embedded = f
     if (!selectedMember || directory.isFetching || directory.isError || joinedById.has(selectedMember.company_member_id) || (selectedMember.status && selectedMember.status !== "active")) return;
     void performAction(() => create.mutateAsync({ companyProjectId: project.company_project_id, payload: { company_member_id: selectedMember.company_member_id, role: addRole } }), () => {
       setSelected(null);
+      setEditingAddRole(false);
       setNotice("프로젝트 구성원을 추가했습니다.");
+      restoreCompanyFocus(selectedMember.company_member_id);
+    });
+  }
+
+  function restoreCompanyFocus(id: number) {
+    requestAnimationFrame(() => {
+      if (!alive.current) return;
+      if (document.activeElement !== document.body && !document.getElementById(`${prefix}-add-confirmation`)?.contains(document.activeElement)) return;
+      (companyControls.current.get(id) ?? document.getElementById(`${prefix}-search`))?.focus({ preventScroll: true });
     });
   }
 
@@ -196,19 +225,38 @@ function ProjectMembersContent({ onOpenChange, project, membership, embedded = f
     const roleLabel = ROLE_OPTIONS.find((option) => option.value === member.role)?.label ?? "역할 정보 확인 필요";
     const roleChanged = role !== member.role;
     const savingRole = update.isPending && update.variables?.projectMemberId === id && update.variables.payload.role !== undefined;
+    const expanded = id !== undefined && managing[id];
     const companyMember = companyMembers.find((entry) => entry.company_member_id === member.company_member_id);
     const canRejoin = companyMember && (!companyMember.status || companyMember.status === "active");
     return <li key={member.company_member_id} className="project-member-row">
       <MemberIdentity name={name} department={projectMemberDepartment(member, companyMembers, membership)} />
-      <span className="project-member-department" title={projectMemberDepartment(member, companyMembers, membership) || "부서 정보 없음"}>{projectMemberDepartment(member, companyMembers, membership) || "부서 정보 없음"}</span>
-      {canManage && id ? <div className="project-member-role-control" ref={(node) => { if (node) roleControls.current.set(id, node); else roleControls.current.delete(id); }}>
+      <span className="project-member-role">프로젝트 역할: {roleLabel}{roleChanged && <small className="project-member-role-current"> · 변경 미저장</small>}</span>
+      <div className="project-member-state">
+        <span className={`project-status ${active ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground"}`}>{active ? "참여 중" : member.status === "inactive" ? "참여 종료" : "상태 확인 필요"}</span>
+      </div>
+      <div className="project-member-management">
+        {canManage && id && <Button size="sm" variant="outline" aria-label={`${name} 구성원 관리`} aria-expanded={!!expanded} aria-controls={`${prefix}-member-${id}-management`} disabled={controlsDisabled} onClick={() => {
+          if (expanded && roleChanged) {
+            setNotice("변경할 프로젝트 역할을 저장하거나 취소해 주세요.");
+            return;
+          }
+          setManaging((current) => ({ ...current, [id]: !current[id] }));
+          setRemoving(null);
+        }}>관리</Button>}
+        {canManage && id && member.status === "inactive" && <Button size="sm" variant="outline" aria-label={`${name} 다시 참여`} disabled={controlsDisabled || !canRejoin || directory.isFetching || directory.isError} title={!canRejoin ? "활성 회사 구성원만 다시 참여할 수 있습니다." : undefined} onClick={() => rejoin(member)}>다시 참여</Button>}
+      </div>
+      {canManage && id && expanded && <div id={`${prefix}-member-${id}-management`} className="project-member-editor" role="group" aria-label={`${name} 구성원 관리 설정`}>
+        <p className="project-member-role-current">현재 역할: {roleLabel}</p>
+        <div className="project-member-editor-fields">
+        <div className="project-member-role-control" ref={(node) => { if (node) roleControls.current.set(id, node); else roleControls.current.delete(id); }}>
+        <span className="project-member-role-current">변경할 프로젝트 역할</span>
         <CustomSelect value={role} options={ROLE_OPTIONS} ariaLabel={`${name} 프로젝트 역할`} disabled={controlsDisabled} onChange={(value) => {
           const selectedRole = ROLE_OPTIONS.find((option) => option.value === value)?.value;
           if (selectedRole === member.role) clearRoleDraft(id);
           else if (selectedRole) setRoleDrafts((current) => ({ ...current, [id]: selectedRole }));
         }} showFallbackMarker={false} className="project-member-role-select h-9 border-input bg-background" />
+        </div>
         {roleChanged && <>
-        <small className="project-member-role-current">현재 역할: {roleLabel}</small>
         <div className="project-member-role-actions">
         <Button size="sm" variant="outline" aria-label={`${name} 역할 변경 취소`} disabled={pending} onClick={() => {
           clearRoleDraft(id);
@@ -226,14 +274,9 @@ function ProjectMembersContent({ onOpenChange, project, membership, embedded = f
         }}>{savingRole ? "저장 중..." : "변경 저장"}</Button>
         </div>
         </>}
-      </div> : <span className="project-member-role">{roleLabel}</span>}
-      <div className="project-member-state">
-        <span className={`project-status ${active ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground"}`}>{active ? "참여 중" : member.status === "inactive" ? "참여 종료" : "상태 확인 필요"}</span>
-      </div>
-      <div className="project-member-management">
-        {canManage && id && (active ? <Button size="sm" variant="outline" aria-label={`${name} 프로젝트 참여 종료`} disabled={controlsDisabled} onClick={() => { setRemoving(id); setError(null); }}>참여 종료</Button>
-          : member.status === "inactive" && <Button size="sm" variant="outline" aria-label={`${name} 다시 참여`} disabled={controlsDisabled || !canRejoin || directory.isFetching || directory.isError} title={!canRejoin ? "활성 회사 구성원만 다시 참여할 수 있습니다." : undefined} onClick={() => rejoin(member)}>다시 참여</Button>)}
-      </div>
+        {active && <Button size="sm" variant="outline" aria-label={`${name} 프로젝트 참여 종료`} disabled={controlsDisabled || roleChanged} onClick={() => { setRemoving(id); setError(null); }}>참여 종료</Button>}
+        </div>
+      </div>}
       {removing === id && id && <div className="project-member-confirm" role="group" aria-label={`${name} 참여 종료 확인`}>
         <p>{name} 님의 프로젝트 참여를 종료할까요? 참여 기록과 기존 업무 배정은 유지됩니다.</p>
         <div><Button size="sm" variant="outline" disabled={pending} onClick={() => setRemoving(null)}>취소</Button><Button size="sm" variant="destructive" disabled={controlsDisabled} onClick={() => void performAction(() => remove.mutateAsync({ companyProjectId: project.company_project_id, projectMemberId: id }), () => { setRemoving(null); setNotice("프로젝트 참여를 종료했습니다."); })}>참여 종료 확인</Button></div>
@@ -248,7 +291,6 @@ function ProjectMembersContent({ onOpenChange, project, membership, embedded = f
     const joinedId = joined && memberId(joined);
     return <li key={member.company_member_id} className="project-member-row project-company-member-row">
       <MemberIdentity name={member.name || "이름 정보 없음"} department={member.department?.name ?? ""} />
-      <span className="project-member-department" title={member.department?.name || "부서 정보 없음"}>{member.department?.name || "부서 정보 없음"}</span>
       <span className="project-member-role">{roleLabel}</span>
       <div className="project-member-state">
       {joined ? <span className={`project-status ${activeProjectMember(joined) ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground"}`}>{activeProjectMember(joined) ? "참여 중" : joined.status === "inactive" ? "참여 종료" : "상태 확인 필요"}</span>
@@ -256,17 +298,27 @@ function ProjectMembersContent({ onOpenChange, project, membership, embedded = f
           : <span className="project-member-role">{canManage ? "—" : "미참여"}</span>}
       </div>
       <div className="project-member-management">
-      {canManage && !joined && available && <Button size="sm" variant="outline" disabled={controlsDisabled || directory.isFetching || directory.isError} onClick={() => { setSelected(member.company_member_id); setAddRole("member"); setError(null); setNotice(""); }}>프로젝트에 추가</Button>}
+      {canManage && !joined && available && <Button ref={(node) => { if (node) companyControls.current.set(member.company_member_id, node); else companyControls.current.delete(member.company_member_id); }} size="sm" variant="outline" aria-pressed={selected === member.company_member_id} disabled={controlsDisabled || directory.isFetching || directory.isError} onClick={() => {
+        setSelected(member.company_member_id);
+        setAddRole("member");
+        setEditingAddRole(false);
+        setError(null);
+        setNotice("");
+        requestAnimationFrame(() => document.getElementById(`${prefix}-add-confirmation`)?.focus());
+      }}>프로젝트에 추가</Button>}
       {canManage && joined?.status === "inactive" && joinedId && <Button size="sm" variant="outline" aria-label={`${member.name || "이름 정보 없음"} 다시 참여`} disabled={controlsDisabled || !available || directory.isFetching || directory.isError} title={!available ? "활성 회사 구성원만 다시 참여할 수 있습니다." : undefined} onClick={() => rejoin(joined)}>다시 참여</Button>}
       </div>
-      {selectedMember?.company_member_id === member.company_member_id && canManage && !joined && <div className="project-member-add" role="group" aria-label="프로젝트 구성원 추가 확인"><p><strong>{selectedMember.name}</strong> 님을 프로젝트에 추가합니다. 초대 수락을 기다리지 않고 바로 참여합니다.</p><div><CustomSelect<CompanyProjectMemberRole> value={addRole} options={ROLE_OPTIONS} ariaLabel="추가할 프로젝트 역할" onChange={setAddRole} disabled={controlsDisabled} className="h-9 border-input bg-background" /><Button variant="ghost" size="sm" disabled={pending} onClick={() => setSelected(null)}>취소</Button><Button size="sm" disabled={controlsDisabled || directory.isFetching || directory.isError} onClick={addMember}>추가</Button></div></div>}
     </li>;
   }
 
-  const body = <div ref={embedded ? undefined : setPortal} className="project-members-body" aria-busy={pending}>
+  const body = <div ref={embedded ? undefined : setPortal} className="project-members-body project-members-compact" aria-busy={pending}>
           {members.isLoading ? <FullSpinner message="프로젝트 구성원을 불러오는 중..." /> : members.isError ? <ProjectError error={members.error} onRetry={() => void members.refetch()} retrying={members.isFetching} /> : !canView ? <EmptyState title="구성원 조회 권한이 없습니다" description="활성 프로젝트 소유자 또는 관리자만 구성원을 조회할 수 있습니다." /> : <>
             <div className="project-members-summary">
               <p><strong>참여 중 {activeCount}명</strong><span>참여 종료 {inactiveCount}명</span></p>
+              {canManage && tab === "project" && <Button size="sm" variant="outline" disabled={pending} onClick={() => {
+                changeTab("company");
+                requestAnimationFrame(() => document.getElementById(`${prefix}-search`)?.focus());
+              }}>구성원 추가</Button>}
             </div>
             <div className="projects-detail-tabs" role="tablist" aria-label="구성원 목록 선택">
               {([['project', '프로젝트 구성원'], ['company', '회사 구성원']] as const).map(([value, label]) => <Button key={value} id={`${prefix}-${value}-tab`} role="tab" variant="ghost" disabled={pending} aria-selected={tab === value} aria-controls={`${prefix}-${value}-panel`} tabIndex={tab === value ? 0 : -1} onClick={() => changeTab(value)} onKeyDown={(event) => {
@@ -285,12 +337,26 @@ function ProjectMembersContent({ onOpenChange, project, membership, embedded = f
             {directory.isError && <ProjectError error={directory.error} onRetry={() => void directory.refetch()} retrying={directory.isFetching} />}
             {error !== null && <p role="alert" className="project-members-error">{getErrorMessage(error, "구성원 변경을 저장하지 못했습니다. 최신 목록을 확인한 후 다시 시도해 주세요.")}</p>}
             {notice && <p role="status" className="projects-note">{notice}</p>}
+            {tab === "company" && selected !== null && canManage && <div id={`${prefix}-add-confirmation`} tabIndex={-1} className="project-member-add" role="group" aria-label="프로젝트 구성원 추가 확인">
+              <p>{selectedMember ? <><strong>{selectedMember.name || "이름 정보 없음"}</strong>{selectedMember.department?.name ? ` · ${selectedMember.department.name}` : ""}</> : "선택한 구성원 정보를 확인할 수 없습니다."}</p>
+              {joinedById.has(selected) && <p>프로젝트 참여 상태가 변경되었습니다. 현재 구성원 목록을 확인해 주세요.</p>}
+              {selectedMember && <p>프로젝트 역할: <strong>{ROLE_OPTIONS.find((option) => option.value === addRole)?.label}</strong></p>}
+              <div>
+                {selectedMember && <div id={`${prefix}-add-role`}>{editingAddRole
+                  ? <CustomSelect<CompanyProjectMemberRole> value={addRole} options={ROLE_OPTIONS} ariaLabel="추가할 프로젝트 역할" onChange={setAddRole} disabled={controlsDisabled} className="h-9 border-input bg-background" />
+                  : <Button variant="outline" size="sm" aria-label="추가할 프로젝트 역할 변경" disabled={controlsDisabled} onClick={() => {
+                    setEditingAddRole(true);
+                    requestAnimationFrame(() => document.getElementById(`${prefix}-add-role`)?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true }));
+                  }}>역할 변경</Button>}</div>}
+                <Button variant="ghost" size="sm" disabled={pending} onClick={() => { setSelected(null); setEditingAddRole(false); restoreCompanyFocus(selected); }}>취소</Button>
+                <Button size="sm" disabled={controlsDisabled || !selectedMember || joinedById.has(selected) || directory.isFetching || directory.isError} onClick={addMember}>추가</Button>
+              </div>
+            </div>}
             <div id={`${prefix}-${tab}-panel`} role="tabpanel" aria-labelledby={`${prefix}-${tab}-tab`} className="project-members-panel">
-              {count > 0 && (tab === "project" || !directory.isError) && <div className="project-members-columns" aria-hidden="true"><span>구성원</span><span>부서</span><span>프로젝트 역할</span><span>참여 상태</span><span>관리</span></div>}
+              {count > 0 && (tab === "project" || !directory.isError) && <div className="project-members-columns" aria-hidden="true"><span>구성원</span><span>프로젝트 역할</span><span>참여 상태</span><span>관리</span></div>}
               {tab === "company" && directory.isLoading ? <FullSpinner message="회사 구성원을 불러오는 중..." /> : tab === "company" && directory.isError ? null : count === 0 ? <EmptyState title={search || department !== "all" ? "검색 결과가 없습니다" : "표시할 구성원이 없습니다"} description={search || department !== "all" ? "다른 이름이나 부서를 선택해 주세요." : undefined} /> : <ul className="project-members-list" aria-label={tab === "project" ? "프로젝트 구성원 목록" : "회사 구성원 목록"}>{tab === "project" ? filteredProject.slice(pageStart, pageStart + PAGE_SIZE).map(projectRow) : filteredCompany.slice(pageStart, pageStart + PAGE_SIZE).map(companyRow)}</ul>}
             </div>
             {count > 0 && <div className="project-members-pagination"><span>{count}명 중 {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, count)}명</span><div><Button size="icon" variant="ghost" aria-label="구성원 이전 페이지" disabled={pending || currentPage <= 1} onClick={() => setPage(currentPage - 1)}><ChevronLeft /></Button><span>{currentPage} / {pageCount}</span><Button size="icon" variant="ghost" aria-label="구성원 다음 페이지" disabled={pending || currentPage >= pageCount} onClick={() => setPage(currentPage + 1)}><ChevronRight /></Button></div></div>}
-            {tab === "company" && <p className="projects-note">회사 구성원을 프로젝트에 추가할 수 있습니다.</p>}
           </>}
         </div>;
 
@@ -299,19 +365,34 @@ function ProjectMembersContent({ onOpenChange, project, membership, embedded = f
     {body}
   </section>;
 
-  return <Dialog open onOpenChange={(next) => { if (!next && !pending && !submissionLock.current) onOpenChange?.(false); }}>
+  return <Dialog open onOpenChange={(next) => { if (!next) requestClose(); }}>
     <DialogContent className="project-members-dialog left-3 right-3 top-[5dvh] mx-auto flex max-h-[90dvh] w-auto max-w-[760px] translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-2xl border-border bg-background p-0 text-foreground" style={{ transform: "none", translate: "none" }}
       onOpenAutoFocus={(event) => { event.preventDefault(); titleRef.current?.focus(); }}
-      onCloseAutoFocus={(event) => { event.preventDefault(); if (openerRef.current?.isConnected) openerRef.current.focus({ preventScroll: true }); }}
-      onEscapeKeyDown={(event) => { if (pending || submissionLock.current || portal?.querySelector('[aria-expanded="true"]')) event.preventDefault(); }}
+      onCloseAutoFocus={(event) => {
+        event.preventDefault();
+        const visible = (element: HTMLElement | null) => element?.isConnected && element.getClientRects().length > 0 && !element.closest('[inert], [aria-hidden="true"]');
+        if (visible(openerRef.current)) openerRef.current?.focus({ preventScroll: true });
+        else {
+          const fallback = [...document.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]')]
+            .find((element) => !element.closest(".project-members-dialog") && visible(element));
+          fallback?.focus({ preventScroll: true });
+        }
+      }}
+      onEscapeKeyDown={(event) => { if (pending || submissionLock.current || portal?.querySelector('[aria-haspopup="listbox"][aria-expanded="true"]')) event.preventDefault(); }}
       onInteractOutside={(event) => { if (pending || submissionLock.current) event.preventDefault(); }}>
       <FloatingPanelPortalProvider value={portal}>
         <DialogHeader className="shrink-0 px-5 pb-4 pt-5 text-left sm:px-6">
           <DialogTitle ref={titleRef} tabIndex={-1} className="pr-7 leading-6 outline-none">프로젝트 구성원 관리</DialogTitle>
-          <DialogDescription className="text-muted-foreground">{project.name} · 회사 구성원과 프로젝트 참여를 구분하여 관리합니다.</DialogDescription>
+          <DialogDescription className="text-muted-foreground">{project.name}</DialogDescription>
         </DialogHeader>
         {body}
-        <DialogFooter className="shrink-0 border-t border-border px-5 py-4 sm:px-6"><Button variant="outline" disabled={pending} onClick={() => onOpenChange?.(false)}>닫기</Button></DialogFooter>
+        <DialogFooter className="shrink-0 flex-wrap gap-2 border-t border-border px-5 py-4 sm:px-6">
+          {confirmClose ? <>
+            <p role="alert" className="w-full text-sm text-muted-foreground">저장하지 않은 구성원 변경이 있습니다. 변경 내용을 버리고 닫을까요?</p>
+            <Button variant="outline" disabled={pending} onClick={() => { setConfirmClose(false); titleRef.current?.focus({ preventScroll: true }); }}>계속 편집</Button>
+            <Button variant="destructive" disabled={pending} onClick={() => onOpenChange?.(false)}>변경 내용 버리고 닫기</Button>
+          </> : <Button variant="outline" disabled={pending} onClick={requestClose}>닫기</Button>}
+        </DialogFooter>
       </FloatingPanelPortalProvider>
     </DialogContent>
   </Dialog>;
