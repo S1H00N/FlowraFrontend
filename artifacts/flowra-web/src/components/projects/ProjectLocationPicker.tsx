@@ -337,7 +337,7 @@ export default function ProjectLocationPicker({
           data-project-location-current
         >
           <p className="text-xs font-medium text-muted-foreground">
-            현재 적용된 위치
+            현재 위치
           </p>
           <p
             className="truncate font-medium"
@@ -415,7 +415,7 @@ export default function ProjectLocationPicker({
                 </span>
               ))}
             </nav>
-            <details className="text-xs text-muted-foreground">
+            {path.length >= 4 && <details className="text-xs text-muted-foreground">
               <summary className="w-fit cursor-pointer rounded py-1 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20">
                 전체 경로 보기
               </summary>
@@ -437,11 +437,7 @@ export default function ProjectLocationPicker({
                   </li>
                 ))}
               </ol>
-            </details>
-            <p className="text-xs text-muted-foreground">
-              항목을 선택하면 하위 위치로 이동합니다.
-              {phased && " 연결 단계는 별도로 선택할 수 있습니다."}
-            </p>
+            </details>}
           </div>
           <div
             ref={childrenRef}
@@ -530,7 +526,7 @@ export default function ProjectLocationPicker({
                   key={child}
                   type="button"
                   aria-label={locationTitle(tree, child)}
-                  aria-description={`${action}${selected ? " 현재 선택된 위치입니다." : ""}${restriction ? ` 상위 지정 불가: ${restriction}` : ""}`}
+                  aria-description={`${action}${selected ? " 현재 적용된 위치입니다." : ""}${restriction ? ` 상위 지정 불가: ${restriction}` : ""}`}
                   onClick={() => navigate(child)}
                   className={`flex min-h-11 w-full items-center gap-2 border-b border-border px-3 py-2 text-left text-sm last:border-b-0 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/30 ${selected ? "bg-accent/50" : ""}`}
                 >
@@ -553,7 +549,7 @@ export default function ProjectLocationPicker({
                   </span>
                   {selected && (
                     <span aria-hidden className="shrink-0 text-xs text-primary">
-                      선택됨
+                      현재 위치
                     </span>
                   )}
                   <ChevronRight
@@ -567,19 +563,19 @@ export default function ProjectLocationPicker({
         </div>
         <div
           ref={candidateRef}
-          className="space-y-2 border-t border-border pt-3 text-sm"
+          className="space-y-2 rounded-xl border border-border bg-muted/30 p-3 text-sm"
           aria-label="선택할 소속 관계"
           data-project-location-candidate
           data-modified={candidateChanged}
         >
           <div className="flex items-center justify-between gap-2 text-xs">
-            <p className="font-medium">선택 후보</p>
+            <p className="font-medium">적용할 위치</p>
             <span
               className={
                 candidateChanged ? "text-primary" : "text-muted-foreground"
               }
             >
-              {candidateChanged ? "변경됨 · 적용 전" : "적용 전"}
+              {candidateChanged ? "변경됨 · 적용 전" : "현재 위치와 같음"}
             </span>
           </div>
           <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2">
@@ -660,7 +656,7 @@ export default function ProjectLocationPicker({
       </div>
       <DialogFooter className="shrink-0 flex-row flex-wrap justify-end gap-2 border-t border-border px-5 py-3 sm:px-6 sm:space-x-0">
         <Button type="button" variant="outline" onClick={onCancel}>
-          취소
+          돌아가기
         </Button>
         <Button
           type="button"
