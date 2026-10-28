@@ -1266,9 +1266,9 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(metadata).toContainText("높음");
     await expect(metadata).toContainText(QA_USER.name);
     await expect(page.getByTestId("gantt-bar-501").locator(".gantt-progress-text")).toHaveText("37%");
-    await expect(ganttRow(page, 551).getByRole("button", { name: "QA 옵션 미설정 기간 계획 기간 미설정", exact: true })).toHaveCount(1);
+    await expect(ganttRow(page, 551).getByRole("button", { name: "QA 옵션 미설정 기간 예정 기간 미설정", exact: true })).toHaveCount(1);
     await setGanttDisplayOption(page, "기간 미설정 표시", false);
-    await expect(ganttRow(page, 551).getByRole("button", { name: "QA 옵션 미설정 기간 계획 기간 미설정", exact: true })).toHaveCount(0);
+    await expect(ganttRow(page, 551).getByRole("button", { name: "QA 옵션 미설정 기간 예정 기간 미설정", exact: true })).toHaveCount(0);
     await page.getByRole("tab", { name: "업무 목록", exact: true }).click();
     await page.getByRole("tab", { name: "간트 차트", exact: true }).click();
     await expect(separator).toHaveAttribute("aria-valuenow", "390");
@@ -1794,6 +1794,10 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
 
   test("간트: summary 하위 조회 실패·재시도 후 새 full 응답에 이전 branch snapshot을 복원하지 않는다", async ({ page }) => {
     api = await installWorkApi(page, { summary: true });
+    Object.assign(api.dependencies[0], { dependency_type: "finish_to_start", lag_days: 2 });
+    api.dependencies.push(Object.assign({ company_project_work_dependency_id: 802,
+      predecessor_work_item_id: 521, successor_work_item_id: 531 },
+    { dependency_type: "start_to_start", lag_days: -1 }));
     const branchKey = "GET /company-projects/901/work-items/511/children";
     api.failures.set(branchKey, { status: 503, code: "INTERNAL_SERVER_ERROR", message: "QA 간트 하위 조회 실패" });
     await page.goto("/projects/901");
@@ -1803,14 +1807,33 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(ganttRow(page, 511)).toBeVisible();
     expect(api.requests.filter((request) => request.path.endsWith("/children"))).toEqual([]);
     await ganttRow(page, 511).getByRole("button", { name: "QA 인증 시스템 펼치기", exact: true }).click();
-    const retry = ganttRow(page, 511).getByRole("button", { name: "QA 인증 시스템 하위 업무 다시 조회", exact: true });
+    const retry = ganttRow(page, 511).getByRole("button", { name: "QA 인증 시스템 세부 업무 다시 조회", exact: true });
     await expect(retry).toBeVisible();
-    await expect(gantt).toContainText("하위 업무 조회에 실패했습니다.");
+    await expect(gantt).toContainText("세부 업무 조회에 실패했습니다.");
     await expect(ganttRow(page, 521)).toHaveCount(0);
+    await expect(page.getByTestId("gantt-dependency-details")).toHaveCount(0);
     api.failures.delete(branchKey);
     await retry.click();
     await expect(ganttRow(page, 521)).toHaveCount(1);
     expect(api.requests.filter((request) => request.path.endsWith("/511/children"))).toHaveLength(2);
+    const relations = page.getByTestId("gantt-dependency-details");
+    await expect(relations.locator("summary")).toHaveText("조회된 업무 연결 2개");
+    await relations.locator("summary").click();
+    await expect(relations.locator("li")).toHaveCount(2);
+    await expect(relations).toContainText("FS · 종료 → 시작");
+    await expect(relations).toContainText("lag_days +2일");
+    await expect(relations).toContainText("현재 Gantt 조회 범위에 없습니다.");
+    if (await page.getByTestId("gantt-scroll").isVisible())
+      await expect(page.getByTestId("gantt-dependencies").locator('[data-dependency-id="801"]')).toHaveCount(1);
+    await ganttRow(page, 521).getByRole("button", { name: "QA 로그인 API 펼치기", exact: true }).click();
+    await expect(ganttRow(page, 531)).toHaveCount(1);
+    // Both branches return #802; one current relation remains after merging.
+    await expect(relations.locator("li")).toHaveCount(2);
+    await expect(relations).toContainText("SS · 시작 → 시작");
+    await expect(relations).toContainText("lag_days -1일");
+    await expect(relations).not.toContainText("현재 Gantt 조회 범위에 없습니다.");
+    if (await page.getByTestId("gantt-scroll").isVisible())
+      await expect(page.getByTestId("gantt-dependencies").locator('[data-dependency-id]')).toHaveCount(2);
     // A new full response removes this child while its new branch query is pending.
     // The previous auto/2 snapshot must never repopulate the authoritative full/5 base.
     for (let index = api.workItems.length - 1; index >= 0; index--) {
@@ -1822,9 +1845,11 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect.poll(() => api.requests.filter((request) => request.path.endsWith("/gantt")).length).toBe(2);
     await expect.poll(() => api.requests.filter((request) => request.path.endsWith("/511/children")).length).toBe(3);
     await expect(ganttRow(page, 521)).toHaveCount(0);
+    await expect(relations).toHaveCount(0);
     gate.release();
     await expect(ganttRow(page, 511).getByRole("button", { name: "QA 인증 시스템 접기", exact: true })).toHaveCount(0);
     await expect(ganttRow(page, 521)).toHaveCount(0);
+    await expect(relations).toHaveCount(0);
     expect(api.requests.filter((request) => request.path.endsWith("/gantt")).map((request) => request.query))
       .toEqual([{ mode: "auto", max_depth: "2" }, { mode: "full", max_depth: "5" }]);
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
@@ -1941,16 +1966,16 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(page.getByTestId("gantt-bar-1206")).toHaveAccessibleName(/QA 시작만.*2026-09-10 시작 · 종료일 미설정/);
     await expect(page.getByTestId("gantt-bar-1207")).toHaveAccessibleName(/QA 종료만.*2026-09-20 종료 · 시작일 미설정/);
     for (const id of [1208, 1209, 1210]) await expect(page.getByTestId(`gantt-bar-${id}`)).toHaveCount(0);
-    const unset = ganttRow(page, 1208).getByRole("button", { name: "QA 기간 없음 계획 기간 미설정", exact: true });
+    const unset = ganttRow(page, 1208).getByRole("button", { name: "QA 기간 없음 예정 기간 미설정", exact: true });
     await expect(unset).toHaveText("—");
     await expect(ganttRow(page, 1208)).not.toContainText("기간 미설정");
     await unset.hover();
-    await expect(page.getByRole("tooltip", { name: "계획 기간이 설정되지 않았습니다.", exact: true })).toBeVisible();
+    await expect(page.getByRole("tooltip", { name: "예정 기간이 설정되지 않았습니다.", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
     await page.mouse.move(0, 0);
-    await expect(page.getByRole("tooltip", { name: "계획 기간이 설정되지 않았습니다.", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("tooltip", { name: "예정 기간이 설정되지 않았습니다.", exact: true })).toHaveCount(0);
     await unset.focus();
-    await expect(page.getByRole("tooltip", { name: "계획 기간이 설정되지 않았습니다.", exact: true })).toBeVisible();
+    await expect(page.getByRole("tooltip", { name: "예정 기간이 설정되지 않았습니다.", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(unset).toBeFocused();
     await expect(page.getByTestId("gantt-bar-1211").locator(".gantt-progress-fill")).toHaveAttribute("style", "width: 50%;");
@@ -1962,7 +1987,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(page.getByTestId("gantt-bar-1217")).toHaveAccessibleName(/1일 지연/);
     await expect(page.getByTestId("gantt-bar-1217").locator(".gantt-delay-mark")).toHaveText("!");
     await expect(page.getByTestId("gantt-bar-1213")).toHaveCount(0);
-    await expect(ganttRow(page, 1213).getByRole("button", { name: "QA 기간 없는 부모 계획 기간 미설정", exact: true })).toHaveText("—");
+    await expect(ganttRow(page, 1213).getByRole("button", { name: "QA 기간 없는 부모 예정 기간 미설정", exact: true })).toHaveText("—");
     const parent = await page.getByTestId("gantt-bar-1215").evaluate((element) => ({ left: parseFloat(element.style.left), width: parseFloat(element.style.width) }));
     const child = await page.getByTestId("gantt-bar-1216").evaluate((element) => ({ left: parseFloat(element.style.left), width: parseFloat(element.style.width) }));
     expect(parent.width).toBe(4 * 43);
@@ -1973,8 +1998,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(phase.locator(".gantt-progress-fill")).toHaveCount(0);
     await expect(gantt.locator(".gantt-legend-phase").locator("..")).toContainText("단계 일정");
     await expect(gantt.locator(".gantt-phase-row").filter({ hasText: "QA 운영 단계" }).locator(".gantt-phase-bar")).toHaveCount(0);
-    await expect(gantt.locator('[aria-label="QA 운영 단계 계획 기간 미설정"]')).toHaveText("—");
-    await expect(gantt.locator('[aria-label="QA 운영 단계 계획 기간 미설정"]')).toHaveAttribute("tabindex", "0");
+    await expect(gantt.locator('[aria-label="QA 운영 단계 예정 기간 미설정"]')).toHaveText("—");
+    await expect(gantt.locator('[aria-label="QA 운영 단계 예정 기간 미설정"]')).toHaveAttribute("tabindex", "0");
     await expect(ganttRow(page, 1209)).toContainText("계획 날짜 확인 필요");
     await expect(ganttRow(page, 1210)).toContainText("계획 날짜 확인 필요");
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);

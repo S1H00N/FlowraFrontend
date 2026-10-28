@@ -229,7 +229,7 @@ export function useCompanyProjectMembers(
         !member || typeof member !== "object" || !Number.isSafeInteger(member.company_member_id) ||
         member.company_member_id <= 0 || typeof member.role !== "string" ||
         (member.status !== undefined && typeof member.status !== "string"),
-      )) throw new Error("프로젝트 멤버 응답 형식을 확인할 수 없습니다.");
+      )) throw new Error("프로젝트 구성원 응답 형식을 확인할 수 없습니다.");
       return res.data.members;
     },
   });
@@ -377,7 +377,7 @@ export function useCompanyProjectWorkItemChildren(
         { signal },
       );
       if (!res.success) {
-        throw new Error(res.message || "하위 업무를 불러오지 못했습니다.");
+        throw new Error(res.message || "세부 업무를 불러오지 못했습니다.");
       }
       return res.data;
     },

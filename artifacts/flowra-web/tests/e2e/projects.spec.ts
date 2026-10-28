@@ -724,7 +724,7 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     await expect(additional).toHaveAttribute("aria-expanded", "false");
     await expect(dialog.getByRole("textbox", { name: "설명", exact: true })).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: "생성 상태", exact: true })).toHaveCount(0);
-    await expect(dialog.getByRole("button", { name: "운영 방식", exact: true })).toContainText("단계형");
+    await expect(dialog.getByRole("button", { name: "관리 방식", exact: true })).toContainText("단계형");
     await expect(dialog.getByText("생성 후 변경할 수 없습니다.", { exact: true })).toBeVisible();
     await expect(dialog.getByRole("button", { name: "공개 범위", exact: true })).toContainText("부서 및 하위 부서");
     await dialog.getByRole("textbox", { name: "프로젝트명", exact: true }).fill("QA 이름만 입력한 프로젝트");
@@ -747,7 +747,7 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     let dialog = page.getByRole("dialog", { name: "프로젝트 수정", exact: true });
     await expect(dialog.getByRole("button", { name: /^추가 설정/ })).toHaveAttribute("aria-expanded", "false");
     await expect(dialog.getByRole("button", { name: "프로젝트 상태 변경", exact: true })).toBeVisible();
-    await expect(dialog.getByRole("button", { name: "운영 방식", exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "관리 방식", exact: true })).toHaveCount(0);
     await dialog.getByRole("textbox", { name: "프로젝트명", exact: true }).fill("QA 기본 수정 프로젝트");
     await dialog.getByRole("button", { name: "저장", exact: true }).click();
     await expect(dialog).toHaveCount(0);
@@ -804,7 +804,7 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
       await page.getByRole("button", { name: "프로젝트 만들기", exact: true }).click();
       const dialog = page.getByRole("dialog", { name: "프로젝트 만들기", exact: true });
       await expect(dialog.getByRole("button", { name: /^추가 설정/ })).toHaveAttribute("aria-expanded", "false");
-      for (const label of ["운영 방식", "공개 범위"]) {
+      for (const label of ["관리 방식", "공개 범위"]) {
         const control = dialog.getByRole("button", { name: label, exact: true });
         await control.focus();
         await control.press("Enter");
@@ -1350,7 +1350,7 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     await fillDate(page, "예정 종료일", "2026-09-30");
     await selectOption(page, "공개 범위", "프로젝트 구성원");
     await selectOption(page, "생성 상태", "진행 중");
-    await selectOption(page, "운영 방식", /^단계 없음/);
+    await selectOption(page, "관리 방식", /^단계 없음/);
     await expect(
       dialog.getByRole("button", { name: "만들기", exact: true }),
     ).toBeEnabled();
@@ -1383,7 +1383,7 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
       dialog.getByRole("button", { name: "생성 상태", exact: true }),
     ).toContainText("진행 중");
     await expect(
-      dialog.getByRole("button", { name: "운영 방식", exact: true }),
+      dialog.getByRole("button", { name: "관리 방식", exact: true }),
     ).toContainText("단계 없음");
     expect(
       api.projects.some((project) => project.name === "QA 정책 거절 프로젝트"),
@@ -1587,13 +1587,13 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     await create.click({ trial: true });
     await cancel.click({ trial: true });
     const trigger = dialog.getByRole("button", {
-      name: "운영 방식",
+      name: "관리 방식",
       exact: true,
     });
     await trigger.focus();
     await trigger.press("ArrowDown");
     const menu = dialog.getByRole("listbox", {
-      name: "운영 방식",
+      name: "관리 방식",
       exact: true,
     });
     const phased = menu.getByRole("option", { name: /^단계형/ });
@@ -1625,7 +1625,7 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     expect(menuBounds.x + menuBounds.width).toBeLessThanOrEqual(width + 1);
     expect(menuBounds.y).toBeGreaterThanOrEqual(0);
     expect(menuBounds.y + menuBounds.height).toBeLessThanOrEqual(500);
-    await expectProjectMenuInsideFields(page, "운영 방식");
+    await expectProjectMenuInsideFields(page, "관리 방식");
     await expect(phased).toBeFocused();
     await page.keyboard.press("ArrowDown");
     await expect(phaseLess).toBeFocused();
@@ -1675,7 +1675,7 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     for (const { label, next } of [
       { label: "공개 범위", next: "프로젝트 구성원" },
       { label: "생성 상태", next: "진행 중" },
-      { label: "운영 방식", next: "단계 없음" },
+      { label: "관리 방식", next: "단계 없음" },
     ]) {
       const trigger = dialog.getByRole("button", { name: label, exact: true });
       await trigger.click();
@@ -1741,7 +1741,7 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     });
     await name.fill("QA 작은 화면 입력 유지");
     const trigger = dialog.getByRole("button", {
-      name: "운영 방식",
+      name: "관리 방식",
       exact: true,
     });
     await trigger.evaluate((element) => {
@@ -1755,10 +1755,10 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     });
     await trigger.click();
     const menu = dialog.getByRole("listbox", {
-      name: "운영 방식",
+      name: "관리 방식",
       exact: true,
     });
-    const beforeScroll = await expectProjectMenuInsideFields(page, "운영 방식");
+    const beforeScroll = await expectProjectMenuInsideFields(page, "관리 방식");
     const menuMetrics = await menu.evaluate((element) => ({
       height: element.clientHeight,
       scrollHeight: element.scrollHeight,
@@ -1789,12 +1789,12 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     await expect
       .poll(async () => (await trigger.boundingBox())!.y)
       .toBeGreaterThan(beforeScroll.trigger.top + 10);
-    await expectProjectMenuInsideFields(page, "운영 방식");
+    await expectProjectMenuInsideFields(page, "관리 방식");
     await page.setViewportSize({
       width: width < 640 ? 360 : 1000,
       height: 500,
     });
-    await expectProjectMenuInsideFields(page, "운영 방식");
+    await expectProjectMenuInsideFields(page, "관리 방식");
     await expect(menu).toBeVisible();
     await page.keyboard.press("ArrowDown");
     await expect(
@@ -1939,10 +1939,10 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
         .click({ trial: true });
       await capture(`${theme}-project-create-modal`);
       await dialog
-        .getByRole("button", { name: "운영 방식", exact: true })
+        .getByRole("button", { name: "관리 방식", exact: true })
         .click();
       const menu = dialog.getByRole("listbox", {
-        name: "운영 방식",
+        name: "관리 방식",
         exact: true,
       });
       await expect(

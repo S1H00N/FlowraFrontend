@@ -413,7 +413,7 @@ function ProjectFormSession({
       !PHASE_MODE_OPTIONS.some(({ value }) => value === draft.phaseMode)
     ) {
       revealInvalidField("phaseMode");
-      return "지원하는 운영 방식을 선택해 주세요.";
+      return "지원하는 관리 방식을 선택해 주세요.";
     }
     return null;
   }
@@ -659,7 +659,7 @@ function ProjectFormSession({
                     value={draft.phaseMode}
                     options={PHASE_MODE_OPTIONS}
                     onChange={(value) => change("phaseMode", value)}
-                    ariaLabel="운영 방식"
+                    ariaLabel="관리 방식"
                     triggerLabel={`${phaseModeLabel} · 변경`}
                     disabled={fieldsDisabled}
                     className={selectClassName}
