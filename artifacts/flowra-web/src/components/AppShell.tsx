@@ -41,6 +41,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import AiChatWidget from "@/components/AiChatWidget";
 import SidebarMiniCalendar from "@/components/SidebarMiniCalendar";
+import BrandLogo from "@/components/BrandLogo";
 import { formatCompanyAffiliation } from "@/lib/companyAffiliation";
 
 
@@ -129,14 +130,14 @@ function ProfileMenu({
           }
         >
           <Avatar
-            className={`rounded-lg ${
+            className={`rounded-lg bg-muted ${
               isCard ? "h-8 w-8" : compact ? "h-7 w-7" : "h-8 w-8"
             }`}
           >
             {profileImageUrl && (
-              <AvatarImage src={profileImageUrl} alt={displayName} />
+              <AvatarImage src={profileImageUrl} alt={displayName} className="object-cover" />
             )}
-            <AvatarFallback className="rounded-lg bg-violet-500 text-sm font-semibold text-white">
+            <AvatarFallback className="rounded-lg bg-violet-500 text-sm font-semibold text-white dark:bg-accent dark:text-accent-foreground">
               {initials}
             </AvatarFallback>
           </Avatar>
@@ -158,27 +159,27 @@ function ProfileMenu({
         side={isCard ? "top" : "right"}
         align={isCard ? "start" : "end"}
         sideOffset={8}
-        className="w-44 rounded-lg border-slate-200 bg-white p-2 text-slate-900 shadow-xl shadow-slate-900/10"
+        className="w-44 rounded-lg border-border bg-background p-2 text-popover-foreground shadow-xl shadow-slate-900/10"
       >
         <DropdownMenuItem
           onSelect={() => {
             onOpenSettings();
           }}
-          className="h-10 cursor-pointer gap-2.5 rounded-lg px-3 text-sm font-medium text-slate-700 focus:bg-violet-50 focus:text-violet-700"
+          className="h-10 cursor-pointer gap-2.5 rounded-lg px-3 text-sm font-medium text-[var(--flowra-text)] focus:bg-accent focus:text-accent-foreground"
         >
-          <Settings className="h-4 w-4 text-slate-500" />
+          <Settings className="h-4 w-4" />
           설정
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={onLogout}
-          className="h-10 cursor-pointer gap-2.5 rounded-lg px-3 text-sm font-medium text-red-500 focus:bg-red-50 focus:text-red-600"
+          className="h-10 cursor-pointer gap-2.5 rounded-lg px-3 text-sm font-medium text-red-500 focus:bg-destructive/10 focus:text-red-600"
         >
           <LogOut className="h-4 w-4" />
           로그아웃
         </DropdownMenuItem>
         {!isCard && displayEmail && (
-          <div className="mt-1 border-t border-slate-100 px-3 pt-2">
-            <p className="truncate text-[11px] font-medium text-slate-400">
+          <div className="mt-1 border-t border-border px-3 pt-2">
+            <p className="truncate text-[11px] font-medium text-muted-foreground">
               {displayEmail}
             </p>
           </div>
@@ -354,12 +355,7 @@ export default function AppShell({
           </button>
           {!showSidebarIconRail && (
             <Link to="/" className="flex min-w-0 items-center gap-2">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 text-xs font-bold text-white">
-                F
-              </span>
-              <span className="truncate text-sm font-bold text-slate-700">
-                Flowra
-              </span>
+              <BrandLogo className="h-7" />
             </Link>
           )}
         </div>
@@ -503,10 +499,7 @@ export default function AppShell({
                   <PanelLeft className="h-4 w-4" />
                 </button>
                 <Link to="/" className="flex items-center gap-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 text-xs font-bold text-white">
-                    F
-                  </span>
-                  <span className="text-sm font-bold text-slate-700">Flowra</span>
+                  <BrandLogo className="h-7" />
                 </Link>
               </div>
               {splitSummaryHeader ? (

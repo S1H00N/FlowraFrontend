@@ -115,7 +115,7 @@ async function initializeFirebaseMessaging() {
       return;
     }
 
-    const title = data.title || "Flowra";
+    const title = data.title || "Flowit";
     const body = data.body || data.message || "";
     const appBaseUrl = getAppBaseUrl();
     const icon = data.icon || new URL("favicon.svg", appBaseUrl).href;

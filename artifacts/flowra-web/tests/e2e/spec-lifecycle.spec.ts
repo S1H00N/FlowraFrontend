@@ -27,7 +27,7 @@ test("채팅의 과거 내역·제목·보관·복원이 서버 상태와 일치
   });
   await page.goto("/tasks");
   await page.getByRole("button", { name: "AI 채팅 열기", exact: true }).click();
-  const panel = page.getByRole("region", { name: "Flowra AI 채팅" });
+  const panel = page.getByRole("region", { name: "Flowit AI 채팅" });
   await expect(panel.getByText("최근 답변", { exact: true })).toBeVisible();
   await panel.getByRole("button", { name: "이전 메시지 더 보기", exact: true }).click();
   await expect(panel.getByText("이전 질문", { exact: true })).toBeVisible();
@@ -58,7 +58,7 @@ test("메시지 저장 후 응답 실패는 재조회로 복구하고 자동 재
   });
   await page.goto("/tasks");
   await page.getByRole("button", { name: "AI 채팅 열기", exact: true }).click();
-  const panel = page.getByRole("region", { name: "Flowra AI 채팅" });
+  const panel = page.getByRole("region", { name: "Flowit AI 채팅" });
   await expect(panel.getByRole("button", { name: "대화 제목 수정", exact: true })).toBeVisible();
   await panel.getByPlaceholder("AI에게 요청하기").fill("저장된 요청");
   await panel.getByPlaceholder("AI에게 요청하기").press("Enter");

@@ -74,7 +74,7 @@ export default function GoogleAccountSettings() {
     event.preventDefault();
     if (!pending || busyRef.current) return;
     if (!password) {
-      setError("현재 Flowra 계정의 비밀번호를 입력하세요.");
+      setError("현재 Flowit 계정의 비밀번호를 입력하세요.");
       return;
     }
     busyRef.current = true;
@@ -115,7 +115,7 @@ export default function GoogleAccountSettings() {
           <p className="break-all text-sm text-slate-600">연결할 Google 계정: {pending.google_profile?.email ?? "선택한 Google 계정"}</p>
           <p className="text-xs leading-5 text-slate-500">현재 로그인한 {user?.email} 계정의 비밀번호로 연결을 확인해 주세요.</p>
           <label className="block text-sm text-slate-700 dark:text-slate-300">
-            현재 Flowra 비밀번호
+            현재 Flowit 비밀번호
             <input type="password" autoComplete="current-password" value={password} disabled={busy} onChange={(event) => setPassword(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100" />
           </label>
           <div className="flex items-center gap-3">
@@ -125,7 +125,7 @@ export default function GoogleAccountSettings() {
         </form>
       ) : (
         <div className="mt-3 space-y-3">
-          <p className="text-sm text-slate-500">Google 계정을 선택하고 Flowra 비밀번호를 확인하면 Google로 로그인할 수 있습니다.</p>
+          <p className="text-sm text-slate-500">Google 계정을 선택하고 Flowit 비밀번호를 확인하면 Google로 로그인할 수 있습니다.</p>
           <GoogleIdButton disabled={busy} onCredential={(idToken) => void prepare(idToken)} />
           {busy && <p className="text-xs text-slate-500" role="status">Google 계정을 확인하고 있습니다.</p>}
         </div>

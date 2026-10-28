@@ -28,7 +28,7 @@ for (const status of [200, 404, 500]) {
     });
     await page.goto('/tasks');
     await page.getByRole('button', { name: 'AI 채팅 열기', exact: true }).click();
-    const panel = page.getByRole('region', { name: 'Flowra AI 채팅' });
+    const panel = page.getByRole('region', { name: 'Flowit AI 채팅' });
     await expect(panel.getByText('기존 답변', { exact: true })).toBeVisible();
     const remove = panel.getByRole('button', { name: '삭제 테스트 대화 삭제' });
     page.once('dialog', (dialog) => dialog.dismiss());
@@ -77,7 +77,7 @@ for (const lateStatus of [200, 404]) {
     });
     await page.goto('/tasks');
     await page.getByRole('button', { name: 'AI 채팅 열기', exact: true }).click();
-    const panel = page.getByRole('region', { name: 'Flowra AI 채팅' });
+    const panel = page.getByRole('region', { name: 'Flowit AI 채팅' });
     const remove = panel.getByRole('button', { name: '응답 대기 대화 대화 삭제' });
     await expect(remove).toBeVisible();
     const input = panel.getByPlaceholder('AI에게 요청하기');

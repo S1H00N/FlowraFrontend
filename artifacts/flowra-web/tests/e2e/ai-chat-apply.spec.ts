@@ -59,7 +59,7 @@ test(`AI 일정 적용 실패를 카드에 표시하고 재시도할 수 있다:
 
   await page.goto('/tasks');
   await page.getByRole('button', { name: 'AI 채팅 열기', exact: true }).click();
-  const panel = page.getByRole('region', { name: 'Flowra AI 채팅' });
+  const panel = page.getByRole('region', { name: 'Flowit AI 채팅' });
   const apply = panel.getByRole('button', { name: '적용', exact: true });
   await apply.click();
   await expect(panel.getByRole('alert')).toHaveText(`${failure.expected} (${failure.code})`);

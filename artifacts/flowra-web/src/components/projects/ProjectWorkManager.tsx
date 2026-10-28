@@ -18,6 +18,7 @@ import {
   ListTree,
   Loader2,
   MoreHorizontal,
+  PanelRight,
   Pencil,
   Search,
   SlidersHorizontal,
@@ -83,7 +84,8 @@ import type {
   CompanyProjectWorkItem,
 } from "@/types";
 import "./ProjectWorkManager.css";
-import { aggregateProjectDelays } from "@/lib/projectSchedule";
+import { aggregateProjectDelays, projectSchedule } from "@/lib/projectSchedule";
+import { projectGanttDependencyTypeLabel } from "@/lib/projectGanttDependencies";
 import { ProjectScheduleLabel, useProjectToday } from "./ProjectSchedulePresentation";
 
 type CancelTarget =
@@ -99,6 +101,7 @@ interface WorkSelection {
 }
 
 type WorkPanelMode = "docked" | "overlay" | "fullscreen";
+type WorkPanelSection = "path" | "description" | "children" | "dependencies" | "additional";
 type GanttPanelPreference = "auto" | "docked" | "overlay";
 const panelWidth = 380;
 const ganttPanelOptions = [
@@ -118,9 +121,54 @@ function canFocus(element: HTMLElement | null | undefined): element is HTMLEleme
   return style.visibility === "visible" && style.display !== "none";
 }
 
+function WorkPanelDescription({ description, expanded, onExpandedChange, contentId }: {
+  description: string;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
+  contentId: string;
+}) {
+  const descriptionRef = useRef<HTMLParagraphElement>(null);
+  const [overflows, setOverflows] = useState(false);
+  useLayoutEffect(() => {
+    const element = descriptionRef.current;
+    if (!element) return;
+    function measure() {
+      if (!element || !element.getClientRects().length || element.clientWidth === 0) return;
+      const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
+      setOverflows(element.scrollHeight > lineHeight * 3 + 1);
+    }
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [description, expanded]);
+  return (
+    <section aria-label="업무 설명" className="work-panel-description">
+      <p id={contentId} ref={descriptionRef} className="work-description" data-expanded={expanded}>
+        {description}
+      </p>
+      {overflows && <Button variant="ghost" size="sm" className="work-description-toggle"
+        aria-expanded={expanded} aria-controls={contentId} onClick={() => onExpandedChange(!expanded)}>
+        {expanded ? "설명 접기" : "설명 더 보기"}
+      </Button>}
+    </section>
+  );
+}
+
+function workPanelChildSummary(item: CompanyProjectWorkItem, loadedCount: number, complete: boolean) {
+  if (complete) return `세부 업무 ${loadedCount}개`;
+  const count = item.rollup?.child_count;
+  if (typeof count === "number" && Number.isInteger(count) && count >= 0)
+    return `세부 업무 ${count}개 · 서버 집계 (${loadedCount}개 조회됨)`;
+  return loadedCount > 0 ? `세부 업무 ${loadedCount}개 조회됨 · 전체 미확인` : "세부 업무 미조회";
+}
+
 export default function ProjectWorkManager({
   detail,
   detailUpdatedAt,
+  detailCurrent = true,
+  detailRefreshing = false,
+  onRetryDetail,
   membership,
   active,
   view = "work",
@@ -129,6 +177,9 @@ export default function ProjectWorkManager({
 }: {
   detail: CompanyProjectDetailData;
   detailUpdatedAt: number;
+  detailCurrent?: boolean;
+  detailRefreshing?: boolean;
+  onRetryDetail?: () => Promise<unknown>;
   membership: CompanyMembership;
   active: boolean;
   view?: "work" | "gantt";
@@ -190,7 +241,13 @@ export default function ProjectWorkManager({
     .filter((query) => query !== undefined);
   const selectionError = selectionQueries.find((query) => query.isError);
   const selectionLoading = selectionQueries.some((query) => query.isFetching);
-  const preview = selected ?? (selection?.source === "gantt"
+  // A Gantt preview must not resurrect fields removed by an authoritative refresh.
+  const resolvedSelectionRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (selected) resolvedSelectionRef.current = selectedId;
+    else if (resolvedSelectionRef.current !== selectedId) resolvedSelectionRef.current = null;
+  }, [selectedId, selected]);
+  const preview = selected ?? (selection?.source === "gantt" && resolvedSelectionRef.current !== selectedId
     ? ganttItems.find((item) => item.company_project_work_item_id === selectedId) : undefined);
   const selectionReady = Boolean(selected && (selection?.source !== "gantt" ||
     (tree.assignmentKnownIds.has(selectedId!) && !selectionLoading &&
@@ -204,6 +261,20 @@ export default function ProjectWorkManager({
   }, []);
   const panelTitleRef = useRef<HTMLHeadingElement>(null);
   const panelContentRef = useRef<HTMLDivElement>(null);
+  const summaryToggleRef = useRef<HTMLButtonElement>(null);
+  const panelScrollPosition = useRef({ id: selectedId, top: 0 });
+  const [panelSections, setPanelSections] = useState<{
+    id: number | null; open: Partial<Record<WorkPanelSection, boolean>>;
+  }>({ id: null, open: {} });
+  function sectionOpen(section: WorkPanelSection) {
+    return panelSections.id === selectedId && Boolean(panelSections.open[section]);
+  }
+  function setSectionOpen(section: WorkPanelSection, open: boolean) {
+    setPanelSections((current) => {
+      if (current.id === selectedId && Boolean(current.open[section]) === open) return current;
+      return { id: selectedId, open: { ...(current.id === selectedId ? current.open : {}), [section]: open } };
+    });
+  }
   const [assignmentRefresh, setAssignmentRefresh] = useState<{ id: number; scroll: number; restoreFocus: boolean; complete: boolean } | null>(null);
   function beginAssignmentRefresh() {
     const snapshot = { id: selectedId!, scroll: panelContentRef.current?.scrollTop ?? 0,
@@ -314,6 +385,10 @@ export default function ProjectWorkManager({
   }
 
   function select(item: CompanyProjectWorkItem, focusAssignees = false) {
+    if (!focusAssignees && panelOpen && selectedId === item.company_project_work_item_id) {
+      closePanel();
+      return;
+    }
     setSelectionRetryError(null);
     // A newly created child may not be included in a summary detail response.
     // Load its parent branch and keep that request in the panel's loading path.
@@ -337,7 +412,11 @@ export default function ProjectWorkManager({
     });
     tree.loadChildren(item);
   }
-  function selectGantt(item: CompanyProjectWorkItem, sourceItems: readonly CompanyProjectWorkItem[]) {
+  function selectGantt(item: CompanyProjectWorkItem, sourceItems: readonly CompanyProjectWorkItem[], togglePanel = true) {
+    if (togglePanel && panelOpen && selectedId === item.company_project_work_item_id) {
+      closePanel();
+      return;
+    }
     setSelectionRetryError(null);
     const byId = new Map(sourceItems.map((source) => [source.company_project_work_item_id, source]));
     const path = [item];
@@ -384,6 +463,12 @@ export default function ProjectWorkManager({
     }
   });
   function closePanel() {
+    // Respect the close/save protection of any dialog above the detail panel.
+    if (editTarget || cancelTarget || assignmentWorkId !== null ||
+      [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].some((element) =>
+        element !== panelRef.current && canFocus(element))) return;
+    if (panelContentRef.current && selectedId !== null && selected && !selectionLoading && !selectedChildrenLoading)
+      panelScrollPosition.current = { id: selectedId, top: panelContentRef.current.scrollTop };
     const path = selection
       ? [...selection.ancestorIds, selection.id].reverse()
       : [];
@@ -397,7 +482,7 @@ export default function ProjectWorkManager({
         .find((button) => canFocus(button ?? null));
       const currentSearch = view === "gantt" ? currentView?.querySelector<HTMLInputElement>('[data-gantt-search]') : searchRef.current;
       const fallback = canFocus(currentSearch) ? currentSearch : null;
-      (target ?? fallback)?.focus({ preventScroll: true });
+      (canFocus(summaryToggleRef.current) ? summaryToggleRef.current : target ?? fallback)?.focus({ preventScroll: true });
     });
   }
   function focusGantt() {
@@ -512,9 +597,19 @@ export default function ProjectWorkManager({
     if (focused instanceof HTMLElement && canFocus(focused) && panelRef.current?.contains(focused)) return;
     panelTitleRef.current?.focus({ preventScroll: true });
   }, [selectedId, panelOpen, fullscreenPanel, editTarget, cancelTarget]);
-  useEffect(() => {
-    if (panelOpen && panelContentRef.current) panelContentRef.current.scrollTop = 0;
-  }, [selectedId, panelOpen]);
+  useLayoutEffect(() => {
+    setPanelSections((current) => current.id === selectedId ? current : { id: selectedId, open: {} });
+    if (panelScrollPosition.current.id !== selectedId)
+      panelScrollPosition.current = { id: selectedId, top: 0 };
+    if (!panelOpen || !panelContentRef.current) return;
+    const content = panelContentRef.current;
+    const top = panelScrollPosition.current.top;
+    content.scrollTop = top;
+    const frame = requestAnimationFrame(() => {
+      if (content.isConnected) content.scrollTop = top;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [selectedId, panelOpen, panelMode, view, selected, selectionLoading, selectedChildrenLoading]);
   useEffect(() => {
     if (assigneeFocusRequest === null) return;
     if (panelOpen && selectedId === assigneeFocusRequest) {
@@ -531,7 +626,7 @@ export default function ProjectWorkManager({
       // Nested menus and dialogs consume Escape before the underlying panel.
       const floatingLayer = [
         ...document.querySelectorAll<HTMLElement>(
-          "[role='dialog'], [role='menu'], [role='listbox']",
+          "[role='dialog'], [role='menu'], [role='listbox'], [role='tooltip']",
         ),
       ].some(
         (element) =>
@@ -1081,8 +1176,36 @@ export default function ProjectWorkManager({
       first.focus();
     }
   }
+  const summaryCurrent = selected && selectionReady && detailCurrent && !selectionError;
+  const selectedSchedule = summaryCurrent ? projectSchedule(selected, today) : null;
+  const summaryReadError = !detailCurrent || selectionError ||
+    (selectedId !== null && tree.queryById.get(selectedId)?.isError);
   return (
     <div ref={workspaceRef} className={`project-work-layout ${panelOpen ? "has-work-panel" : ""}`}>
+      {active && selection && !panelVisible && (
+        <section className="work-selection-summary flowra-surface" aria-label="선택 업무 요약" data-work-id={selectedId}>
+          <div className="work-selection-summary-content">
+            <span className="work-selection-summary-title" title={summaryCurrent ? selected.title : undefined}>
+              {summaryCurrent ? selected.title : "선택 업무 확인 필요"}
+            </span>
+            {summaryCurrent && <WorkStatusBadge status={selected.status} />}
+            {selectedSchedule && ["delayed", "invalid"].includes(selectedSchedule.kind) &&
+              <span className="text-xs text-destructive">{selectedSchedule.label}</span>}
+            {summaryCurrent && Boolean(delays.work.get(selectedId!)?.size) &&
+              <span className="text-xs text-destructive">세부 업무 {delays.work.get(selectedId!)!.size}건 지연{delaysPartial ? " (조회 기준)" : ""}</span>}
+            {!summaryCurrent && <span role="status" className="work-selection-summary-note">
+              {selectionLoading ? "선택한 업무를 다시 불러오는 중입니다." : "현재 조회 결과에서 업무를 확인할 수 없습니다. 펼쳐서 다시 확인해 주세요."}
+            </span>}
+            {summaryReadError && <span role="alert" className="work-selection-summary-note text-destructive">
+              최신 정보를 불러오지 못했습니다. 펼쳐서 조회 상태를 확인해 주세요.
+            </span>}
+          </div>
+          <Button ref={summaryToggleRef} variant="ghost" size="icon" className="min-w-11" aria-label="업무 상세 펼치기" title="업무 상세 펼치기"
+            aria-expanded={false} aria-controls="project-work-detail" onClick={() => setPanelVisible(true)}>
+            <PanelRight aria-hidden="true" />
+          </Button>
+        </section>
+      )}
       <div id="project-work-panel" role="tabpanel" aria-labelledby="project-work-tab" hidden={view !== "work"}>
       <section
         className="project-work-list flowra-surface"
@@ -1314,9 +1437,11 @@ export default function ProjectWorkManager({
           assigneeOptions={assigneeOptions}
           directory={directory} membership={membership} />
       </div>
-      {panelOpen && (
+      {active && selection && (
         <WorkPanelPortal>
           <aside
+            id="project-work-detail"
+            hidden={!panelOpen}
             ref={registerPanel}
             className="project-work-panel flowra-surface"
             data-panel-mode={panelMode}
@@ -1333,12 +1458,13 @@ export default function ProjectWorkManager({
             } as CSSProperties}
             aria-label="업무 상세"
             role={fullscreenPanel ? "dialog" : "complementary"}
-            aria-modal={fullscreenPanel ? true : undefined}
+            aria-modal={panelOpen && fullscreenPanel ? true : undefined}
             inert={editTarget !== null || cancelTarget !== null}
             onKeyDown={trapPanelFocus}
           >
             <div className="work-panel-header">
-              <details className="work-panel-path" key={selectedId}>
+              <details className="work-panel-path" key={selectedId} open={sectionOpen("path")}
+                onToggle={(event) => setSectionOpen("path", event.currentTarget.open)}>
                 <summary aria-label="업무 전체 경로" title={selected ? workPath(selected) : selection?.path}>
                   <span>{selected ? workPath(selected) : selection?.path}</span>
                   <ChevronDown aria-hidden className="h-3 w-3 shrink-0" />
@@ -1366,7 +1492,7 @@ export default function ProjectWorkManager({
                           <Pencil aria-hidden="true" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent onEscapeKeyDown={closePanel}>업무 수정</TooltipContent>
+                      <TooltipContent>업무 수정</TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
                 )}
@@ -1374,10 +1500,13 @@ export default function ProjectWorkManager({
                 <Button
                   variant="ghost"
                   size="icon"
-                  aria-label="업무 상세 닫기"
+                  aria-label="업무 상세 접기"
+                  title="업무 상세 접기"
+                  aria-expanded={true}
+                  aria-controls="project-work-detail"
                   onClick={closePanel}
                 >
-                  <X aria-hidden="true" />
+                  <PanelRight aria-hidden="true" />
                 </Button>
               </div>
               {view === "gantt" && <div className="work-panel-display-options" onKeyDown={ganttPreferenceKeyDown}>
@@ -1397,7 +1526,22 @@ export default function ProjectWorkManager({
                   panelMode === "fullscreen" ? "전체 화면 · 공간이 넓어지면 선택한 방식으로 돌아갑니다." : "도킹 · 간트와 상세를 함께 봅니다."}</p>
               </div>}
             </div>
-            <div className="work-panel-content" ref={panelContentRef}>
+            <div className="work-panel-content" key={selectedId} ref={panelContentRef} onScroll={(event) => {
+              if (panelOpen && selected && !selectionLoading && !selectedChildrenLoading)
+                panelScrollPosition.current = { id: selectedId, top: event.currentTarget.scrollTop };
+            }}>
+              {!detailCurrent && <div className="work-panel-error" role="alert">
+                <p>최신 업무 정보를 불러오지 못했습니다. 표시된 정보는 이전 조회 결과입니다.</p>
+                {onRetryDetail && <Button variant="outline" size="sm" disabled={detailRefreshing} onClick={() => {
+                  const restoreFocus = () => requestAnimationFrame(() => {
+                    if (document.activeElement === document.body && canFocus(panelTitleRef.current))
+                      panelTitleRef.current.focus({ preventScroll: true });
+                  });
+                  void onRetryDetail().then(restoreFocus, restoreFocus);
+                }}>
+                  {detailRefreshing ? "불러오는 중..." : "업무 정보 다시 조회"}
+                </Button>}
+              </div>}
               {preview ? (
                 <>
                   <div className="work-panel-badges">
@@ -1405,9 +1549,8 @@ export default function ProjectWorkManager({
                     <WorkPriorityBadge priority={preview.priority} />
                   </div>
                   <section aria-label="업무 기본 정보">
-                    <h4>기본 정보</h4>
-                    <dl className="work-panel-fields">
-                      <div className="work-panel-field-wide">
+                    <dl className="work-panel-fields work-panel-core-fields">
+                      <div>
                         <dt>예정 기간</dt>
                         <dd>
                           {preview.planned_start_date || preview.planned_end_date
@@ -1415,16 +1558,17 @@ export default function ProjectWorkManager({
                             : "미정"}
                         </dd>
                       </div>
-                      {phased && <div><dt>단계</dt><dd>{phases.find((phase) => phase.company_project_phase_id === preview.company_project_phase_id)?.name ?? "단계 미지정"}</dd></div>}
-                      {(preview.planned_start_date || preview.planned_end_date) && <div><dt>일정 상태</dt><dd><ProjectScheduleLabel source={preview} today={today} /></dd></div>}
-                      {Boolean(delays.work.get(preview.company_project_work_item_id)?.size) && <div className="work-panel-delay"><dt>세부 업무 지연</dt><dd>{delays.work.get(preview.company_project_work_item_id)!.size}건{delaysPartial ? " (조회된 업무 기준)" : ""}</dd></div>}
-                      <div className="work-panel-field-wide work-panel-progress">
+                      <div className="work-panel-progress">
                         <dt className="sr-only">진행률</dt>
                         <dd>
                           <WorkProgress item={preview} label="진행률" />
                         </dd>
                       </div>
                     </dl>
+                    {["delayed", "due", "invalid"].includes(projectSchedule(preview, today).kind) &&
+                      <div className="work-panel-schedule-warning"><ProjectScheduleLabel source={preview} today={today} /></div>}
+                    {Boolean(delays.work.get(preview.company_project_work_item_id)?.size) &&
+                      <p className="work-panel-delay work-panel-delay-note">세부 업무 {delays.work.get(preview.company_project_work_item_id)!.size}건 지연{delaysPartial ? " (조회된 업무 기준)" : ""}</p>}
                   </section>
                 </>
               ) : null}
@@ -1452,19 +1596,41 @@ export default function ProjectWorkManager({
                 onRetryDirectory={() => void directoryQuery.refetch()} />
               {selected ? (
                 <>
-                  <section aria-label="업무 설명">
-                    <h4>설명</h4>
-                    <p className={selected.description ? "work-description" : "work-panel-empty"}>
-                      {selected.description || "설명 없음"}
-                    </p>
-                  </section>
-                  <section aria-label="세부 업무">
-                    <div className="work-panel-section-heading">
-                      <h4>세부 업무</h4>
+                  {selected.description?.trim() && <WorkPanelDescription description={selected.description}
+                    contentId={`work-description-${selectedId}`} expanded={sectionOpen("description")}
+                    onExpandedChange={(open) => setSectionOpen("description", open)} />}
+                  <section aria-label="세부 업무" className="work-panel-child-section">
+                    <div className="work-panel-disclosure-row">
+                      <details className="work-panel-disclosure" data-section="children"
+                        open={sectionOpen("children")} onToggle={(event) => setSectionOpen("children", event.currentTarget.open)}>
+                        <summary>{workPanelChildSummary(selected, tree.children.get(selectedId!)?.length ?? 0, tree.completeSiblingSets.has(selectedId!))}</summary>
+                        <ul className="work-panel-children">
+                          {[...(tree.children.get(selectedId!) ?? [])]
+                            .sort(compareWorkItems)
+                            .map((child) => (
+                              <li key={child.company_project_work_item_id}>
+                                <button title={child.title} onClick={() => select(child)}>
+                                  <span>{child.title}</span>
+                                  <WorkStatusBadge status={child.status} />
+                                </button>
+                              </li>
+                            ))}
+                        </ul>
+                        {!tree.children.get(selectedId!)?.length && tree.completeSiblingSets.has(selectedId!) &&
+                          <p className="work-panel-empty">세부 업무 없음</p>}
+                        {tree.needsChildren(selected) &&
+                          !tree.queryById.get(selectedId!)?.isFetching &&
+                          !tree.queryById.get(selectedId!)?.isError && (
+                            <Button variant="outline" size="sm" onClick={() => tree.loadChildren(selected)}>
+                              세부 업무 불러오기
+                            </Button>
+                          )}
+                      </details>
                       {canManage && selectionReady && (
                         <Button
                           variant="ghost"
                           size="sm"
+                          className="work-panel-child-add"
                           disabled={pending || !canAddChild(selected)}
                           title={!canAddChild(selected) ? "업무는 최대 5단계까지 추가할 수 있습니다." : undefined}
                           onClick={() => openEditor({ kind: "work", parent: selected })}
@@ -1495,44 +1661,16 @@ export default function ProjectWorkManager({
                         </Button>
                       </div>
                     )}
-                    <ul className="work-panel-children">
-                      {[...(tree.children.get(selectedId!) ?? [])]
-                        .sort(compareWorkItems)
-                        .map((child) => (
-                          <li key={child.company_project_work_item_id}>
-                            <button
-                              title={child.title}
-                              onClick={() => select(child)}
-                            >
-                              <span>{child.title}</span>
-                              <WorkStatusBadge status={child.status} />
-                            </button>
-                          </li>
-                        ))}
-                    </ul>
-                    {!tree.children.get(selectedId!)?.length &&
-                      !tree.hasChildren(selected) && (
-                        <p className="work-panel-empty">세부 업무 없음</p>
-                      )}
-                    {tree.needsChildren(selected) &&
-                      !tree.queryById.get(selectedId!)?.isFetching &&
-                      !tree.queryById.get(selectedId!)?.isError && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => tree.loadChildren(selected)}
-                        >
-                          세부 업무 불러오기
-                        </Button>
-                      )}
                   </section>
                   {tree.dependencies.some(
                     (dependency) =>
                       dependency.predecessor_work_item_id === selectedId ||
                       dependency.successor_work_item_id === selectedId,
                   ) && (
-                    <section>
-                      <h4>연결된 업무</h4>
+                    <section aria-label="업무 연결 관계">
+                      <details className="work-panel-disclosure" data-section="dependencies"
+                        open={sectionOpen("dependencies")} onToggle={(event) => setSectionOpen("dependencies", event.currentTarget.open)}>
+                      <summary>조회된 연결 관계 {tree.dependencies.filter((dependency) => dependency.predecessor_work_item_id === selectedId || dependency.successor_work_item_id === selectedId).length}개</summary>
                       <ul className="work-dependencies">
                         {tree.dependencies
                           .filter(
@@ -1556,15 +1694,20 @@ export default function ProjectWorkManager({
                                 {predecessor ? "선행" : "후행"}:{" "}
                                 {tree.byId.get(otherId)?.title ??
                                   `업무 ${otherId}`}
+                                <span className="work-dependency-meta">{` · ${projectGanttDependencyTypeLabel(dependency.dependency_type)} · ${Number.isFinite(dependency.lag_days)
+                                  ? `간격 ${dependency.lag_days > 0 ? "+" : ""}${dependency.lag_days}일` : "간격 확인 필요"}`}</span>
                               </li>
                             );
                           })}
                       </ul>
+                      </details>
                     </section>
                   )}
-                  <details className="work-panel-additional" key={selectedId}>
+                  <details className="work-panel-additional" key={selectedId}
+                    open={sectionOpen("additional")} onToggle={(event) => setSectionOpen("additional", event.currentTarget.open)}>
                     <summary>자세히 보기</summary>
                     <dl className="work-panel-fields">
+                      {phased && <div><dt>단계</dt><dd>{phases.find((phase) => phase.company_project_phase_id === selected.company_project_phase_id)?.name ?? "단계 미지정"}</dd></div>}
                       {getWorkItemUiDepth(tree.graph, selected.company_project_work_item_id) !== null && <div>
                         <dt>업무 계층</dt>
                         <dd title="프로젝트를 포함한 업무 계층이며, 단계는 깊이에 포함하지 않습니다.">

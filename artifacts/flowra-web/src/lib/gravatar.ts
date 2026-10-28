@@ -37,7 +37,8 @@ export async function getGravatarProfileImageUrl(
   const params = new URLSearchParams({
     s: String(normalizeAvatarSize(size)),
     r: "g",
-    d: "mp",
+    // Let the themed AvatarFallback handle accounts without a Gravatar photo.
+    d: "404",
   });
 
   return `${GRAVATAR_BASE_URL}/${hash}?${params.toString()}`;

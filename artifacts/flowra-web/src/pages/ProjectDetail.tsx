@@ -224,6 +224,9 @@ export default function ProjectDetail() {
                   key={`${id}:${membership.company_member_id}`}
                   detail={detail.data}
                   detailUpdatedAt={detail.dataUpdatedAt}
+                  detailCurrent={!detail.isError}
+                  detailRefreshing={detail.isFetching}
+                  onRetryDetail={() => detail.refetch()}
                   membership={membership}
                   active={workActive}
                   view={tab === "gantt" ? "gantt" : "work"}
