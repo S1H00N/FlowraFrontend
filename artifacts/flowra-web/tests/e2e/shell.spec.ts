@@ -192,7 +192,7 @@ test('설정의 각 영역을 열고 화면 표시 옵션을 변경한다', asyn
 test('AI 채팅과 대화 목록을 열고 닫으며 작성 중인 내용이 유지된다', async ({ page }, testInfo) => {
   await page.goto('/tasks');
   await page.getByRole('button', { name: 'AI 채팅 열기', exact: true }).click();
-  const panel = page.getByRole('region', { name: 'Flowra AI 채팅', exact: true });
+  const panel = page.getByRole('region', { name: 'Flowit AI 채팅', exact: true });
   await expect(panel).toBeVisible();
   await expect(panel.getByText('저장된 대화가 없습니다.', { exact: true })).toBeVisible();
   await expect(panel.getByRole('button', { name: '메시지 보내기', exact: true })).toBeDisabled();

@@ -34,8 +34,10 @@ import {
   Sparkles,
   Table2,
   Trash2,
+  UsersRound,
   Wand2,
   X,
+  Zap,
 } from "lucide-react";
 import {
   MEMOS_QUERY_KEY,
@@ -86,6 +88,7 @@ import ErrorState from "@/components/ui/ErrorState";
 import { FullSpinner } from "@/components/ui/Spinner";
 import AppShell from "@/components/AppShell";
 import CategorySelect from "@/components/CategorySelect";
+import CustomSelect from "@/components/ui/CustomSelect";
 import { useCategories } from "@/hooks/useCategories";
 import { memoSchema, type MemoFormValues } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
@@ -95,10 +98,23 @@ type MemoWorkspaceMode = "read" | "create";
 
 const MEMO_AI_PANEL_WIDTH = "380px";
 
+const MEMO_TYPE_OPTIONS = MEMO_TYPES.map((type) => ({
+  value: type,
+  label: MEMO_TYPE_LABELS[type],
+  icon:
+    type === "quick" ? (
+      <Zap className="h-3.5 w-3.5" />
+    ) : type === "meeting" ? (
+      <UsersRound className="h-3.5 w-3.5" />
+    ) : (
+      <FileText className="h-3.5 w-3.5" />
+    ),
+}));
+
 const parseStatusBadge: Record<ParseStatus, string> = {
   pending: "bg-slate-100 text-slate-500",
   processing: "bg-sky-100 text-sky-700",
-  completed: "bg-violet-100 text-violet-700",
+  completed: "bg-violet-100 text-violet-700 dark:bg-accent",
   failed: "bg-red-50 text-red-600",
 };
 
@@ -719,23 +735,20 @@ function MemoCreatePanel({
           )}
         >
           <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-2.5 sm:px-5">
-            <label className="relative inline-flex">
-              <select
-                {...register("memo_type")}
-                aria-label="메모 유형"
-                className="h-7 min-w-[78px] appearance-none rounded-lg border border-violet-200 bg-violet-50/70 pl-3 pr-7 text-[11px] font-semibold text-violet-700 outline-none transition focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
-              >
-                {MEMO_TYPES.map((type) => (
-                  <option key={type} value={type}>
-                    {MEMO_TYPE_LABELS[type]}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-violet-500"
-                aria-hidden
-              />
-            </label>
+            <Controller
+              control={control}
+              name="memo_type"
+              render={({ field }) => (
+                <CustomSelect
+                  value={field.value}
+                  options={MEMO_TYPE_OPTIONS}
+                  onChange={field.onChange}
+                  ariaLabel="메모 유형"
+                  className="h-8 w-auto min-w-[112px] max-w-full gap-2 border-violet-200 bg-accent px-2.5 text-xs shadow-none hover:border-violet-300 hover:bg-accent hover:shadow-none [&>span>span]:gap-2 [&_.font-semibold]:text-accent-foreground [&_svg]:text-accent-foreground"
+                  contentClassName="shadow-lg shadow-slate-900/10 [&_[role=option]]:min-h-10 [&_[role=option]]:text-xs dark:[&_[role=option]]:bg-transparent dark:[&_[role=option]]:hover:bg-accent dark:[&_[role=option]]:focus:bg-accent dark:[&_[role=option][aria-selected=true]]:bg-accent"
+                />
+              )}
+            />
             <Controller
               control={control}
               name="category_id"
@@ -744,7 +757,8 @@ function MemoCreatePanel({
                   type="memo"
                   value={field.value as number | "" | undefined}
                   onChange={field.onChange}
-                  className="h-7 min-w-[108px] max-w-[150px] rounded-lg border-slate-200 px-2.5 py-1 text-[11px] shadow-none"
+                  variant="custom"
+                  className="max-w-[180px]"
                 />
               )}
             />

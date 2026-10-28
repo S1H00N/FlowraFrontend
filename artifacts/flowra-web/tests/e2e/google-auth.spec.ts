@@ -104,8 +104,8 @@ test("matching Google email requires explicit existing-account credentials and a
   const form = page.getByRole("form", { name: "Google 기존 계정 연결" });
   await expect(form).toBeVisible();
   expect((await readAuth(page)).access).toBeNull();
-  await form.getByLabel("Flowra 이메일", { exact: true }).fill("different@example.invalid");
-  await form.getByLabel("Flowra 비밀번호", { exact: true }).fill("password123");
+  await form.getByLabel("Flowit 이메일", { exact: true }).fill("different@example.invalid");
+  await form.getByLabel("Flowit 비밀번호", { exact: true }).fill("password123");
   await form.getByRole("button", { name: "계정 연결 후 로그인" }).click();
   await expect(page).toHaveURL(/\/$/);
   expect(linkPayload).toEqual({ link_ticket: LINK_TICKET, email: "different@example.invalid", password: "password123" });
@@ -127,7 +127,7 @@ test("Google authoritative-email signup creates a local-password session without
   await page.getByRole("button", { name: "Google 계정으로 계속", exact: true }).click();
   const form = page.getByRole("form", { name: "Google 회원가입" });
   await form.getByLabel("표시 이름", { exact: true }).fill("가입 QA");
-  await form.getByLabel("Flowra 비밀번호", { exact: true }).fill("password123");
+  await form.getByLabel("Flowit 비밀번호", { exact: true }).fill("password123");
   await form.getByRole("button", { name: "Google 계정으로 가입" }).click();
   await expect(page).toHaveURL(/\/$/);
   expect(signupPayload).toEqual({ link_ticket: LINK_TICKET, name: "가입 QA", password: "password123", timezone: "Asia/Seoul" });
@@ -148,7 +148,7 @@ test("202 Google signup keeps the user signed out until the existing verify-emai
   await page.goto("/signup");
   await page.getByRole("button", { name: "Google 계정으로 계속", exact: true }).click();
   const form = page.getByRole("form", { name: "Google 회원가입" });
-  await form.getByLabel("Flowra 비밀번호", { exact: true }).fill("password123");
+  await form.getByLabel("Flowit 비밀번호", { exact: true }).fill("password123");
   await form.getByRole("button", { name: "Google 계정으로 가입" }).click();
   await expect(page.getByText("인증 링크를 확인하면 회원가입이 완료됩니다.", { exact: false })).toBeVisible();
   const before = await readAuth(page);
@@ -176,8 +176,8 @@ test("expired anonymous tickets return to Google selection without refresh or pe
   await page.goto("/login");
   await page.getByRole("button", { name: "Google 계정으로 계속", exact: true }).click();
   const form = page.getByRole("form", { name: "Google 기존 계정 연결" });
-  await form.getByLabel("Flowra 이메일", { exact: true }).fill("qa@example.invalid");
-  await form.getByLabel("Flowra 비밀번호", { exact: true }).fill("password123");
+  await form.getByLabel("Flowit 이메일", { exact: true }).fill("qa@example.invalid");
+  await form.getByLabel("Flowit 비밀번호", { exact: true }).fill("password123");
   await form.getByRole("button", { name: "계정 연결 후 로그인" }).click();
   await expect(form).toHaveCount(0);
   await expect(page.getByRole("alert")).toContainText("다시");
@@ -220,7 +220,7 @@ test("settings session-bound ticket is discarded after refresh and can be prepar
   const section = page.getByRole("region", { name: "Google 계정 연결", exact: true });
   await section.getByRole("button", { name: "Google 계정으로 계속", exact: true }).click();
   const form = section.getByRole("form", { name: "현재 계정에 Google 연결" });
-  await form.getByLabel("현재 Flowra 비밀번호", { exact: true }).fill("password123");
+  await form.getByLabel("현재 Flowit 비밀번호", { exact: true }).fill("password123");
   await form.getByRole("button", { name: "Google 계정 연결 확인", exact: true }).click();
   await expect(form).toHaveCount(0);
   await expect(section.getByRole("alert")).toContainText("다시");
@@ -228,8 +228,8 @@ test("settings session-bound ticket is discarded after refresh and can be prepar
   expect(mock.requests.filter((request) => request.path === "/auth/refresh")).toHaveLength(1);
   await section.getByRole("button", { name: "Google 계정으로 계속", exact: true }).click();
   await expect(form).toBeVisible();
-  await expect(form.getByLabel("현재 Flowra 비밀번호", { exact: true })).toHaveValue("");
-  await form.getByLabel("현재 Flowra 비밀번호", { exact: true }).fill("password123");
+  await expect(form.getByLabel("현재 Flowit 비밀번호", { exact: true })).toHaveValue("");
+  await form.getByLabel("현재 Flowit 비밀번호", { exact: true }).fill("password123");
   await form.getByRole("button", { name: "Google 계정 연결 확인", exact: true }).click();
   await expect(section.getByText("Google 계정이 연결되어 있습니다.", { exact: true })).toBeVisible();
   expect(prepareCalls).toBe(2);
@@ -252,11 +252,11 @@ test("wrong session-link password keeps the active Flowra session and permits an
   await section.getByRole("button", { name: "Google 계정으로 계속", exact: true }).click();
   const form = section.getByRole("form", { name: "현재 계정에 Google 연결" });
   await expect(form.getByText("연결할 Google 계정: 선택한 Google 계정", { exact: true })).toBeVisible();
-  await form.getByLabel("현재 Flowra 비밀번호", { exact: true }).fill("wrongpassword");
+  await form.getByLabel("현재 Flowit 비밀번호", { exact: true }).fill("wrongpassword");
   await form.getByRole("button", { name: "Google 계정 연결 확인", exact: true }).click();
   await expect(section.getByRole("alert")).toContainText("비밀번호");
   await expect(form).toBeVisible();
-  await expect(form.getByLabel("현재 Flowra 비밀번호", { exact: true })).toHaveValue("");
+  await expect(form.getByLabel("현재 Flowit 비밀번호", { exact: true })).toHaveValue("");
   expect((await readAuth(page)).access).toBe("qa-access-token");
   expect(mock.requests.filter((request) => request.path === "/auth/refresh")).toHaveLength(0);
 });

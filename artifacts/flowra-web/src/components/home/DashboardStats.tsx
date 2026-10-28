@@ -52,6 +52,9 @@ export default function DashboardStats({
       {stats.map((stat, index) => (
         <div
           key={stat.label}
+          data-flowra-home-stat={
+            index === 2 && !!overdueCount ? "overdue" : undefined
+          }
           className={cn(
             "min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm",
             index === 2 && !!overdueCount && "border-amber-200 bg-amber-50/50",

@@ -36,6 +36,11 @@ export const projectGanttDependencyHiddenLabel: Record<ProjectGanttDependencyHid
   "unknown-type": "관계 유형을 확인해야 하므로 연결선을 표시하지 않습니다.",
 };
 
+export function projectGanttDependencyTypeLabel(value: unknown) {
+  const type = typeof value === "string" ? value : "";
+  return Object.hasOwn(endpoints, type) ? endpoints[type].label : type.trim() ? type : "관계 유형 확인 필요";
+}
+
 export function projectGanttDependencyLagLabel(dependency: Pick<CompanyProjectWorkDependency, "lag_days">) {
   const lag = dependency.lag_days;
   return typeof lag === "number" && Number.isFinite(lag)
@@ -75,7 +80,7 @@ export function buildProjectGanttDependencies(
     const type = typeof dependency.dependency_type === "string" ? dependency.dependency_type : "";
     const endpoint = Object.hasOwn(endpoints, type) ? endpoints[type] : undefined;
     const relation: ProjectGanttDependencyRelation = {
-      dependency, predecessor, successor, typeLabel: endpoint?.label ?? (type.trim() ? type : "관계 유형 확인 필요"),
+      dependency, predecessor, successor, typeLabel: projectGanttDependencyTypeLabel(type),
       hiddenReason: null, geometry: null,
     };
     relations.push(relation);

@@ -190,8 +190,8 @@ export default function ProjectAssignments({
         <h4>담당자</h4>
         {canManage && <DialogTrigger asChild><Button ref={manageButton} aria-label="담당자 관리" variant="ghost" size="sm" disabled={pending || !assignmentsKnown}>관리</Button></DialogTrigger>}
       </div>
-      <WorkAssignees assignments={assignments} directory={directory} membership={membership} known={assignmentsKnown} />
-      {assignmentsKnown && people.length > 3 && <details className="mt-2">
+      <WorkAssignees assignments={assignments} directory={directory} membership={membership} known={assignmentsKnown} compact />
+      {assignmentsKnown && people.length > 1 && <details className="mt-2">
         <summary className="cursor-pointer text-xs text-muted-foreground">담당자 전체 보기</summary>
         <ul className="work-assignment-list max-h-56 overflow-y-auto" aria-label="전체 업무 담당자">
           {people.map((assignment, index) => {

@@ -44,7 +44,7 @@ export default function ForgotPassword() {
             <h1 className="text-xl font-semibold text-slate-950">
               비밀번호 찾기
             </h1>
-            <p className="text-sm text-slate-500">Flowra 계정 이메일</p>
+            <p className="text-sm text-slate-500">Flowit 계정 이메일</p>
           </div>
         </div>
 

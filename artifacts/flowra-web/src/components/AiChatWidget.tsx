@@ -140,7 +140,7 @@ function EmptyChatState({
       </p>
       {!isLoading && (
         <p className="mt-1 max-w-56 text-xs leading-5 text-slate-500">
-          일정, 할 일, 메모를 자연스럽게 적으면 Flowra AI가 이어서 정리합니다.
+          일정, 할 일, 메모를 자연스럽게 적으면 Flowit AI가 이어서 정리합니다.
         </p>
       )}
     </div>
@@ -736,7 +736,7 @@ export default function AiChatWidget({
       {open && (
         <section
           id={PANEL_ID}
-          aria-label="Flowra AI 채팅"
+          aria-label="Flowit AI 채팅"
           className="fixed inset-x-3 bottom-[calc(var(--flowra-mobile-nav-height)+0.75rem)] top-16 z-50 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl shadow-slate-900/20 transition-[right,width] duration-200 min-[600px]:inset-auto min-[600px]:bottom-24 min-[600px]:right-[calc(1.5rem+var(--flowra-ai-chat-button-offset,0px))] min-[600px]:h-[min(72dvh,620px)] min-[600px]:w-[var(--flowra-ai-chat-panel-width)]"
           style={panelStyle}
         >
@@ -747,7 +747,7 @@ export default function AiChatWidget({
               </div>
               <div className="min-w-0">
                 <h2 className="truncate text-sm font-semibold text-slate-950">
-                  Flowra AI
+                  Flowit AI
                 </h2>
                 <p className="truncate text-xs font-medium text-slate-500">
                   {activeSessionId

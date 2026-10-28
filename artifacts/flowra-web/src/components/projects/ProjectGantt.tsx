@@ -34,7 +34,7 @@ interface ProjectGanttProps {
   detailUpdatedAt: number;
   active: boolean;
   selectedId: number | null;
-  onSelect: (item: CompanyProjectWorkItem, items: readonly CompanyProjectWorkItem[]) => void;
+  onSelect: (item: CompanyProjectWorkItem, items: readonly CompanyProjectWorkItem[], togglePanel?: boolean) => void;
   onItemsChange?: (items: readonly CompanyProjectWorkItem[]) => void;
   onWbsWidthChange?: (width: number) => void;
   assignments: CompanyProjectAssignment[];
@@ -787,7 +787,7 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
                     <div className="gantt-rows">
                       {showDependencies && <ProjectGanttDependencies relations={dependencyRelations} width={axis.width}
                         height={visibleRows.length * 46} wbsWidth={wbsWidth} selectedId={selectedId}
-                        onSelectRelation={(relation) => { const item = relation.successor ?? relation.predecessor; if (item) onSelect(item, items); }} />}
+                        onSelectRelation={(relation) => { const item = relation.successor ?? relation.predecessor; if (item) onSelect(item, items, false); }} />}
                       <div className="gantt-grid-lines" aria-hidden="true" style={{ left: wbsWidth, width: axis.width }}>
                         {headers.minor.map((tick) => <span key={tick.key} className={tick.weekend ? "gantt-weekend" : ""} style={{ left: tick.x, width: tick.width }} />)}
                         {todayX !== null && todayX >= 0 && todayX <= axis.width && <div className="gantt-today-line" data-testid="gantt-today-line" style={{ left: todayX }}><span>오늘</span></div>}
@@ -816,7 +816,7 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
                   </div>}
                 </div>)}</div>
             </>}
-    <ProjectGanttDependencyDetails relations={dependencyRelations} selectedId={selectedId} onSelectWork={(item) => onSelect(item, items)} />
+    <ProjectGanttDependencyDetails relations={dependencyRelations} selectedId={selectedId} onSelectWork={(item) => onSelect(item, items, false)} />
     {data && !gantt.isError && Object.values(legend).some(Boolean) && <div className="gantt-footer"><div className="gantt-legend" aria-label="일정 범례">
       {legend.plan && <span><i className="gantt-legend-plan" />계획</span>}
       {legend.progress && <span><i className="gantt-legend-progress" />진행률</span>}

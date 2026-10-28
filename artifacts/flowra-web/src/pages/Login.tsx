@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Sparkles } from "lucide-react";
+import BrandLogo from "@/components/BrandLogo";
 import { useAuth } from "@/contexts/AuthContext";
 import { loginSchema, type LoginFormValues } from "@/lib/schemas";
 import { getErrorCode, getErrorMessage } from "@/lib/error";
@@ -63,14 +63,9 @@ export default function Login() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 py-10">
       <div className="w-full max-w-sm">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-600 text-white shadow-sm">
-            <Sparkles className="h-5 w-5" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-slate-950">Flowra</p>
-            <p className="text-xs text-slate-500">Personal productivity</p>
-          </div>
+        <div className="mb-6">
+          <BrandLogo className="h-10" />
+          <p className="mt-1 text-xs text-slate-500">Personal productivity</p>
         </div>
 
         <div className="rounded-lg border border-slate-200 bg-white p-8 shadow-sm">

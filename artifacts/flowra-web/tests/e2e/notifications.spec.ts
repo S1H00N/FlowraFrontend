@@ -116,6 +116,74 @@ async function enableReceiptStorage(page: import('@playwright/test').Page) {
   })).toBe('9001');
 }
 
+for (const theme of ['light', 'dark'] as const) {
+  test(`notification popover and full inbox follow the ${theme} theme`, async ({ page }) => {
+    const mockApi = await installMockApi(page);
+    await page.addInitScript((theme) => {
+      localStorage.setItem('flowra:user-settings', JSON.stringify({ theme }));
+    }, theme);
+    await enableReceiptStorage(page);
+    await expect(page.locator('html')).toHaveAttribute('data-resolved-theme', theme);
+    const colors = await page.evaluate(() => {
+      const probe = document.createElement('span');
+      document.body.append(probe);
+      const color = (token: string) => {
+        probe.style.color = `var(--flowra-${token})`;
+        return getComputedStyle(probe).color;
+      };
+      const palette = {
+        surface: color('surface'), strong: color('text-strong'),
+        accent: color('accent-bg'), accentText: color('accent-text'),
+        primary: color('primary'), primaryText: color('primary-foreground'),
+      };
+      probe.remove();
+      return palette;
+    });
+    await receivePush(page, 'theme-read');
+    await page.getByRole('button', { name: '알림', exact: true }).click();
+    const inbox = page.getByRole('region', { name: '알림 수신함', exact: true });
+    const items = inbox.getByRole('button', { name: '알림 읽기: 수신함 보관 테스트', exact: true });
+    await items.click();
+    await expect(inbox.getByRole('button', { name: '모두 읽음', exact: true })).toBeDisabled();
+    await receivePush(page, 'theme-unread');
+    await expect(items).toHaveCount(2);
+    await expect(inbox).toHaveCSS('background-color', colors.surface);
+    const heading = inbox.getByRole('heading', { name: '알림', exact: true });
+    await expect(heading).toHaveCSS('color', colors.strong);
+    const activeTab = inbox.getByRole('tab', { name: '전체', exact: true });
+    await expect(activeTab).toHaveAttribute('aria-selected', 'true');
+    await expect(activeTab).toHaveCSS('color', colors.accentText);
+    if (theme === 'dark') await expect(activeTab).toHaveCSS('background-color', colors.accent);
+    await page.screenshot({ path: test.info().outputPath(`notification-inbox-${theme}.png`) });
+    await heading.hover();
+    const rows = inbox.getByRole('listitem');
+    const rowBackgrounds = await rows.evaluateAll((elements) => elements.map((element) => getComputedStyle(element).backgroundColor));
+    expect(new Set(rowBackgrounds).size).toBe(2);
+    if (await page.evaluate(() => matchMedia('(hover: hover)').matches)) {
+      const initialHoverBackground = await items.first().evaluate((element) => getComputedStyle(element).backgroundColor);
+      await items.first().hover();
+      await expect.poll(() => items.first().evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(initialHoverBackground);
+    }
+    await inbox.getByRole('button', { name: '선택 관리', exact: true }).click();
+    const selectAll = inbox.getByRole('checkbox', { name: '표시된 알림 전체 선택' });
+    await selectAll.check();
+    await expect(selectAll).toBeChecked();
+    await expect(selectAll).toHaveCSS('background-color', colors.primary);
+    await expect(selectAll).toHaveCSS('color', colors.primaryText);
+    await expect(inbox.getByRole('checkbox', { name: '알림 선택: 수신함 보관 테스트', exact: true }).first()).toBeChecked();
+    await inbox.getByRole('button', { name: '선택 읽음', exact: true }).click();
+    await expect(inbox.getByText('읽지 않은 알림 0개', { exact: true })).toBeVisible();
+    await inbox.getByRole('link', { name: '전체 알림 보기' }).click();
+    await expect(page).toHaveURL(/\/notifications$/);
+    const fullInbox = page.getByRole('region', { name: '전체 알림 수신함', exact: true });
+    await expect(fullInbox).toHaveCSS('background-color', colors.surface);
+    await expect(fullInbox.locator('..')).toHaveCSS('background-color', colors.surface);
+    await expect(fullInbox.getByRole('heading', { name: '알림', exact: true })).toHaveCSS('color', colors.strong);
+    await expect(fullInbox.getByRole('button', { name: '알림 읽기: 수신함 보관 테스트', exact: true })).toHaveCount(2);
+    expect(mockApi.unhandled).toEqual([]);
+  });
+}
+
 test('push-only receipts survive reload, deduplicate deliveries, and support read-all', async ({ page }) => {
   const mockApi = await installMockApi(page);
   await enableReceiptStorage(page);

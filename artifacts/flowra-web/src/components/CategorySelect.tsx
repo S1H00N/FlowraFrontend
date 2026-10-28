@@ -1,5 +1,9 @@
 import { useMemo } from "react";
+import CustomSelect, {
+  type CustomSelectOption,
+} from "@/components/ui/CustomSelect";
 import { useCategories } from "@/hooks/useCategories";
+import { cn } from "@/lib/utils";
 import type { CategoryType } from "@/types";
 
 interface CategorySelectProps {
@@ -9,6 +13,7 @@ interface CategorySelectProps {
   className?: string;
   includeNone?: boolean;
   disabled?: boolean;
+  variant?: "native" | "custom";
 }
 
 export function CategoryDot({ color }: { color: string }) {
@@ -28,6 +33,7 @@ export default function CategorySelect({
   className = "",
   includeNone = true,
   disabled,
+  variant = "native",
 }: CategorySelectProps) {
   const { data: categories = [], isLoading } = useCategories(type);
 
@@ -45,6 +51,32 @@ export default function CategorySelect({
     () => options.find((o) => o.id === value),
     [options, value],
   );
+
+  if (variant === "custom") {
+    const customOptions: CustomSelectOption<number | "">[] = [
+      ...(includeNone ? [{ value: "" as const, label: "카테고리 없음" }] : []),
+      ...options.map((option) => ({
+        value: option.id,
+        label: option.name,
+        colorDot: option.color,
+      })),
+    ];
+
+    return (
+      <CustomSelect<number | "">
+        value={value ?? ""}
+        options={customOptions}
+        onChange={onChange}
+        ariaLabel="카테고리"
+        disabled={disabled || isLoading}
+        className={cn(
+          "h-8 w-auto min-w-[136px] max-w-full gap-2 px-2.5 text-xs shadow-none hover:bg-slate-50 hover:shadow-none [&>span>span]:gap-2",
+          className,
+        )}
+        contentClassName="shadow-lg shadow-slate-900/10 [&_[role=option]]:min-h-10 [&_[role=option]]:text-xs dark:[&_[role=option]]:bg-transparent dark:[&_[role=option]]:hover:bg-accent dark:[&_[role=option]]:focus:bg-accent dark:[&_[role=option][aria-selected=true]]:bg-accent"
+      />
+    );
+  }
 
   return (
     <div

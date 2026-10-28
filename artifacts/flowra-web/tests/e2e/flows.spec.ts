@@ -187,6 +187,27 @@ test.describe("사용자 기능 · 가상 API", () => {
     await page.getByRole("button", { name: "저장", exact: true }).click();
     await expect(page.getByText("메모 내용을 입력하세요.", { exact: true })).toBeVisible();
     await page.getByPlaceholder("메모를 입력하세요...").fill(initialText);
+    const memoType = page.getByRole("button", { name: "메모 유형", exact: true });
+    const memoTypes = page.getByRole("listbox", { name: "메모 유형", exact: true });
+    await memoType.press("Enter");
+    await expect(memoTypes.getByRole("option", { name: "퀵 메모", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(memoTypes.getByRole("option", { name: "퀵 메모", exact: true })).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(memoTypes.getByRole("option", { name: "회의", exact: true })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(memoTypes).toHaveCount(0);
+    await expect(memoType).toHaveText("회의");
+    await expect(memoType).toBeFocused();
+    const category = page.getByRole("button", { name: "카테고리", exact: true });
+    const categories = page.getByRole("listbox", { name: "카테고리", exact: true });
+    await category.click();
+    await categories.getByRole("option", { name: "아이디어", exact: true }).click();
+    await expect(category).toHaveText("아이디어");
+    await category.press("Enter");
+    await expect(categories.getByRole("option", { name: "아이디어", exact: true })).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("Escape");
+    await expect(categories).toHaveCount(0);
+    await expect(category).toBeFocused();
     const autoParse = page.getByRole("checkbox", { name: "저장 후 AI 분석", exact: true });
     if (await autoParse.isChecked()) {
       await page.locator("label").filter({ has: autoParse }).click();
@@ -197,6 +218,9 @@ test.describe("사용자 기능 · 가상 API", () => {
     });
     await page.getByRole("button", { name: "저장", exact: true }).click();
     await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
+    const createRequests = api.requests.filter((request) => request.method === "POST" && request.path === "/memos");
+    expect(createRequests).toHaveLength(1);
+    expect(createRequests[0].body).toMatchObject({ memo_type: "meeting", category_id: "31" });
     const reader = page.locator("section").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
     await page.getByRole("button", { name: "편집", exact: true }).click();
     await page.getByPlaceholder("메모를 입력하세요...").fill("QA 취소할 수정");
@@ -212,6 +236,10 @@ test.describe("사용자 기능 · 가상 API", () => {
     await page.locator("aside").getByText(title, { exact: true }).click();
     await expect(reader.getByText(editedText, { exact: true })).toBeVisible();
     expect(api.state.memos.filter((memo) => memo.raw_text === editedText)).toHaveLength(1);
+    await expect(reader.getByText("아이디어", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "편집", exact: true }).click();
+    await expect(reader.getByRole("combobox").first()).toHaveValue("meeting");
+    await expect(reader.getByRole("combobox").last()).toHaveValue("31");
   });
 
   test("메모 삭제 확인을 취소하면 유지되고 확인하면 목록에서 제거된다", async ({ page }) => {

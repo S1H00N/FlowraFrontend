@@ -5,7 +5,7 @@ export default function Notifications() {
   return (
     <AppShell>
       <div className="mx-auto w-full max-w-3xl p-4 sm:p-6">
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <NotificationInbox full />
         </div>
       </div>

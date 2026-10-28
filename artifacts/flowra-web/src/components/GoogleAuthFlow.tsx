@@ -157,7 +157,7 @@ export default function GoogleAuthFlow({
           <p className="break-all text-sm font-medium text-slate-700">Google 계정: {pending.google_profile.email}</p>
           {pending.existing_account && (
             <p className="text-xs leading-5 text-slate-500">
-              {pending.existing_account.name}님의 기존 Flowra 계정이 있습니다.
+              {pending.existing_account.name}님의 기존 Flowit 계정이 있습니다.
               {pending.existing_account.masked_email ?? pending.existing_account.email_masked ?? ""}
               {" "}연결할 계정의 이메일과 비밀번호를 직접 입력해 주세요.
             </p>
@@ -171,7 +171,7 @@ export default function GoogleAuthFlow({
           <form onSubmit={submit} noValidate className="space-y-3" aria-label={mode === "link" ? "Google 기존 계정 연결" : "Google 회원가입"}>
             {mode === "link" ? (
               <label className="block text-sm text-slate-700">
-                Flowra 이메일
+                Flowit 이메일
                 <input type="email" value={email} disabled={controlsDisabled} onChange={(event) => setEmail(event.target.value)} autoComplete="email" className={inputClass} />
               </label>
             ) : (
@@ -181,10 +181,10 @@ export default function GoogleAuthFlow({
               </label>
             )}
             <label className="block text-sm text-slate-700">
-              Flowra 비밀번호
+              Flowit 비밀번호
               <input type="password" value={password} disabled={controlsDisabled} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "link" ? "current-password" : "new-password"} className={inputClass} />
             </label>
-            {mode === "signup" && <p className="text-xs leading-5 text-slate-500">Flowra 비밀번호를 설정하면 이메일 로그인과 계정 복구에도 사용할 수 있습니다.</p>}
+            {mode === "signup" && <p className="text-xs leading-5 text-slate-500">Flowit 비밀번호를 설정하면 이메일 로그인과 계정 복구에도 사용할 수 있습니다.</p>}
             <button type="submit" disabled={controlsDisabled} className="w-full rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-60">
               {busy ? "처리 중..." : mode === "link" ? "계정 연결 후 로그인" : "Google 계정으로 가입"}
             </button>

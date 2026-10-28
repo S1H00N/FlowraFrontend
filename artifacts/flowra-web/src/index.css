@@ -521,6 +521,19 @@ body {
   border-color: rgba(251, 191, 36, 0.36);
 }
 
+.dark [data-flowra-home-stat="overdue"] {
+  background-color: #26231c;
+  border-color: #6b5124;
+}
+
+.dark [data-flowra-home-stat="overdue"] :where([class~="text-slate-500"]) {
+  color: var(--flowra-text-strong);
+}
+
+.dark [data-flowra-home-stat="overdue"] :where([class~="text-slate-400"]) {
+  color: var(--flowra-text);
+}
+
 .dark
   :where(
     [class~="hover:bg-slate-50"]:hover,

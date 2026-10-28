@@ -480,6 +480,18 @@ function panel(page: Page) {
     .getByRole("complementary", { name: "업무 상세", exact: true })
     .or(page.getByRole("dialog", { name: "업무 상세", exact: true }));
 }
+function selectedWorkSummary(page: Page) {
+  return page.getByRole("region", { name: "선택 업무 요약", exact: true });
+}
+async function expandPanelChildren(page: Page) {
+  const section = panel(page).locator('details[data-section="children"]');
+  if (!(await section.evaluate((element) => element.hasAttribute("open"))))
+    await section.locator("summary").click();
+}
+async function expandPanelDescription(page: Page) {
+  const expand = panel(page).getByRole("button", { name: "설명 더 보기", exact: true });
+  if (await expand.count()) await expand.click();
+}
 async function openGanttSettings(page: Page) {
   const settings = page.getByRole("dialog", { name: "간트 보기 설정 메뉴", exact: true });
   if (!(await settings.isVisible()))
@@ -713,7 +725,7 @@ async function attachLayout(page: Page, testInfo: TestInfo, label: string) {
       "[data-radix-popper-content-wrapper]",
       '[role="menu"]',
       '[role="menuitem"]:not([data-disabled])',
-      '[aria-label="업무 상세 닫기"]',
+      '[aria-label="업무 상세 접기"]',
     ];
     return {
       innerWidth: innerWidth,
@@ -744,7 +756,7 @@ async function attachLayout(page: Page, testInfo: TestInfo, label: string) {
         ".work-title-button",
         ".project-work-panel",
         ".work-panel-header",
-        '[aria-label="업무 상세 닫기"]',
+        '[aria-label="업무 상세 접기"]',
       ].map(async (selector) => {
         const target = page.locator(selector).first();
         return [
@@ -770,7 +782,7 @@ async function confirmCancellation(
   testInfo?: TestInfo,
 ) {
   if (phase && await panel(page).count())
-    await panel(page).getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+    await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
   const scope =
     !phase && (await panel(page).getByRole("button", { name: `${target} 더 보기`, exact: true }).count())
       ? panel(page)
@@ -801,7 +813,7 @@ async function confirmCancellation(
 
 async function editResource(page: Page, title: string, phase = false) {
   if (phase && await panel(page).count())
-    await panel(page).getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+    await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
   const scope = phase ? page.getByRole("treegrid", { name: "계층형 업무", exact: true }) : panel(page);
   const action = scope.getByRole("button", { name: `${title} 더 보기`, exact: true });
   if (page.viewportSize()!.width <= 700) {
@@ -894,7 +906,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       await gantt.getByRole("group", { name: "간트 날짜 확대 수준", exact: true }).getByRole("button", { name: "월", exact: true }).click();
     await ganttRow(page, 501).getByRole("button", { name: "QA 백엔드 개발", exact: true }).click();
     await expect(panel(page).getByRole("heading", { name: "QA 백엔드 개발", exact: true })).toBeVisible();
-    await panel(page).getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+    await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
     await expect(relations.locator("summary")).toContainText("선택 업무 연결 6개 · 선행 0 · 후행 6");
     await expect(svg.locator('g[data-selected="true"]')).toHaveCount(4);
     if (!isMobile) {
@@ -952,7 +964,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     if (!isMobile) await monthly.click();
     await ganttRow(page, 541).getByRole("button", { name: "QA 4-3 대상 업무", exact: true }).click();
     await expect(panel(page).getByRole("heading", { name: "QA 4-3 대상 업무", exact: true })).toBeVisible();
-    await panel(page).getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+    await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
     await page.getByRole("tab", { name: "업무 목록", exact: true }).click();
     await expect(listSearch).toHaveValue("운영");
     await expect(rowTitle(page, "QA 운영 검토")).toBeVisible();
@@ -1347,11 +1359,12 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(detail).toHaveAttribute("role", "complementary");
     await expect(page.locator("#root")).toHaveJSProperty("inert", false);
     await expect(detail.getByRole("button", { name: "간트 상세 표시 방식", exact: true })).toContainText("자동");
-    await detail.getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+    await detail.getByRole("button", { name: "업무 상세 접기", exact: true }).click();
     const fullChartWidth = (await gantt.boundingBox())!.width;
     await title.click();
     await expect(detail).toHaveAttribute("data-panel-mode", "overlay");
     expect((await gantt.boundingBox())!.width).toBeCloseTo(fullChartWidth, 0);
+    await expandPanelDescription(page);
     const content = detail.locator(".work-panel-content");
     await content.evaluate((element) => { element.scrollTop = 200; });
     const preference = detail.getByRole("button", { name: "간트 상세 표시 방식", exact: true });
@@ -1388,7 +1401,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     }
     expect(preferenceFocus).toEqual([
       { key: "Tab", insidePanel: true, name: "담당자 관리" },
-      { key: "Shift+Tab", insidePanel: true, name: "업무 상세 닫기" },
+      { key: "Shift+Tab", insidePanel: true, name: "업무 상세 접기" },
       { key: "Escape", insidePanel: true, name: "간트 상세 표시 방식" },
     ]);
     await content.evaluate((element) => { element.scrollTop = 200; });
@@ -1441,8 +1454,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.setViewportSize({ width: 1920, height: 1000 });
     await expect(detail).toHaveAttribute("data-panel-mode", "docked");
     await expect(detail.getByRole("heading", { name: "QA 백엔드 개발", exact: true })).toBeVisible();
-    await detail.getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
-    await expect(title).toBeFocused();
+    await detail.getByRole("button", { name: "업무 상세 접기", exact: true }).click();
+    await expect(selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
     expect(api.requests.filter((request) => request.path.endsWith("/gantt"))).toHaveLength(1);
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
   });
@@ -1483,15 +1496,21 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(detail).toHaveAttribute("data-panel-mode", "overlay");
     await expect(edit).toBeFocused();
     await expect(detail).toHaveJSProperty("inert", false);
+    const editTooltip = page.getByRole("tooltip", { name: "업무 수정", exact: true });
+    await expect(editTooltip).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(editTooltip).toHaveCount(0);
+    await expect(detail).toHaveAttribute("data-panel-mode", "overlay");
+    await expect(edit).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(detail).toHaveCount(0);
-    await expect(title).toBeFocused();
+    await expect(selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
     await title.click();
     await detail.getByRole("button", { name: "간트로 이동", exact: true }).click();
     await search.fill("백엔드");
     await expect(ganttRow(page, 502)).toHaveCount(0);
-    await detail.getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
-    await expect(search).toBeFocused();
+    await detail.getByRole("button", { name: "업무 상세 접기", exact: true }).click();
+    await expect(selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
   });
 
@@ -1548,8 +1567,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(rowTitle(page, "QA 운영 검토")).toHaveCount(0);
     await expect(rowTitle(page, "QA 백엔드 개발")).toBeVisible();
     await expect(panel(page).getByRole("heading", { name: "QA 운영 검토", exact: true })).toBeVisible();
-    await panel(page).getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
-    await expect(listSearch).toBeFocused();
+    await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
+    await expect(selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
   });
 
@@ -2046,7 +2065,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(form).toHaveCount(0);
     await expect(panel(page).getByRole("heading", { name: "QA 간트에서 수정한 업무", exact: true })).toBeVisible();
     await expect.poll(() => api.requests.filter((request) => request.path.endsWith("/gantt")).length).toBeGreaterThan(reads);
-    await panel(page).getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+    await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
     await expect(ganttRow(page, 502)).toContainText("QA 간트에서 수정한 업무");
     const newPeriod = await page.getByTestId("gantt-bar-502").evaluate((element) => ({ left: parseFloat(element.style.left), width: parseFloat(element.style.width) }));
     expect(newPeriod.left - oldPeriod.left).toBe(4 * 43);
@@ -2090,7 +2109,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(panel(page).getByLabel("업무 담당자", { exact: true })).toContainText("QA 생성 담당자");
     await expect(opener).toBeFocused();
     await expect.poll(() => api.requests.filter((request) => request.path.endsWith("/gantt")).length).toBeGreaterThan(initialGanttReads);
-    await panel(page).getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+    await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
     await expect(ganttSearch).toHaveValue("인증");
     await expect(ganttRow(page, 511)).toHaveClass(/gantt-selected/);
     expect(api.requests.filter((request) => request.method === "POST")).toEqual([{ method: "POST", path: "/company-projects/901/work-items/511/assignments", query: {}, body: { assignee_company_member_id: 172, role: "assignee" } }]);
@@ -2426,10 +2445,10 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(phase.getByLabel("일정: 일정 정상", { exact: true })).toHaveCount(0);
     await expect(phase).toContainText("업무 지연 2건");
     await page.getByRole("button", { name: "전체 펼치기", exact: true }).click();
-    const row = page.locator('[data-work-id="511"]');
+    const row = page.locator('tr[data-work-id="511"]');
     await expect(row).toContainText("대기");
     await expect(row).toContainText("37%");
-    await expect(page.locator('[data-work-id="531"]').getByLabel(/일정:.*지연/)).toHaveCount(0);
+    await expect(page.locator('tr[data-work-id="531"]').getByLabel(/일정:.*지연/)).toHaveCount(0);
     if (page.viewportSize()!.width <= 700) {
       await expect(row.locator(".work-mobile-status").getByLabel("일정: 1일 지연", { exact: true })).toBeVisible();
       await rowTitle(page, "QA 인증 시스템").click();
@@ -2448,7 +2467,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     for (const item of api.workItems) { item.planned_start_date = null; item.planned_end_date = null; }
     api.workItems[0].planned_end_date = "2026-10-13";
     await page.goto("/projects/901");
-    const row = page.locator('[data-work-id="501"]');
+    const row = page.locator('tr[data-work-id="501"]');
     await expect(page.getByLabel("프로젝트 지연 현황")).toHaveCount(0);
     const mobile = page.viewportSize()!.width <= 700;
     if (mobile) {
@@ -2461,7 +2480,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(schedule.getByLabel("일정: 1일 지연", { exact: true })).toBeVisible();
     if (mobile) {
-      await panel(page).getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+      await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
       await expect(row.locator(".work-mobile-status").getByLabel("일정: 1일 지연", { exact: true })).toBeVisible();
     }
     await expect(page.getByLabel("프로젝트 지연 현황")).toContainText("1건 · 조회된 업무 기준");
@@ -2677,7 +2696,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       parent_work_item_id: 501, depth_level: 2, status: "cancelled", company_project_phase_id: 502,
     }));
     await page.goto("/projects/901");
-    const parentCount = page.locator('[data-work-id="501"] .work-child-count');
+    const parentCount = page.locator('tr[data-work-id="501"] .work-child-count');
     const phaseCount = page.locator('[data-hierarchy-key="phase:501"] .work-phase-count');
     await expect(parentCount).toHaveText("세부 2개");
     await expect(parentCount).toHaveAttribute("title", "직계 세부 업무 2개 · 조회 완료 기준 · 취소 포함");
@@ -2705,7 +2724,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     api.workItems.find((item) => item.company_project_work_item_id === 501)!.rollup = { child_count: 2 };
     api.workItems.push(work(512, "QA 아직 조회하지 않은 직계 자식", { parent_work_item_id: 501, depth_level: 2 }));
     await page.goto("/projects/901");
-    const parentCount = page.locator('[data-work-id="501"] .work-child-count');
+    const parentCount = page.locator('tr[data-work-id="501"] .work-child-count');
     const phaseCount = page.locator('[data-hierarchy-key="phase:501"] .work-phase-count');
     await expect(parentCount).toHaveText("세부 2개");
     await expect(parentCount).toHaveAttribute("title", "직계 세부 업무 2개 · 서버 집계 기준 · 취소 포함");
@@ -2735,7 +2754,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       items: [],
     });
     await page.goto("/projects/901");
-    const parentCount = page.locator('[data-work-id="501"] .work-child-count');
+    const parentCount = page.locator('tr[data-work-id="501"] .work-child-count');
     const phaseCount = page.locator('[data-hierarchy-key="phase:501"] .work-phase-count');
     await expect(parentCount).toHaveText("조회 세부 2개");
     await expect(parentCount).toHaveAttribute("title", "현재 불러온 직계 세부 업무 2개 · 전체 개수는 확인되지 않았습니다.");
@@ -2745,7 +2764,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.getByRole("button", { name: "QA 백엔드 개발 세부 업무 펼치기", exact: true }).click();
     await expect(parentCount).toHaveText("세부 2개");
     await expect(parentCount).toHaveAttribute("title", "직계 세부 업무 2개 · 조회 완료 기준 · 취소 포함");
-    const nestedCount = page.locator('[data-work-id="511"] .work-child-count');
+    const nestedCount = page.locator('tr[data-work-id="511"] .work-child-count');
     await expect(nestedCount).toHaveText("세부 9개");
     await expect(nestedCount).toHaveAttribute("title", "직계 세부 업무 9개 · 서버 집계 기준 · 취소 포함");
     await page.getByRole("button", { name: "QA 인증 시스템 세부 업무 펼치기", exact: true }).click();
@@ -3415,6 +3434,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.getByRole("button", { name: "소속 위치 선택", exact: true }).click();
     const picker = page.getByRole("dialog", { name: "소속 위치 선택", exact: true });
     await picker.getByRole("button", { name: "1. QA 구현 단계", exact: true }).click();
+    await expect(picker.locator("[data-project-location-picker]")).toHaveAttribute("data-scroll-mode", "list");
     const scroller = await singleLocationScroller(picker);
     const metrics = await locationScrollMetrics(picker);
     const scrollbarWidth = metrics.children.scrollable ? metrics.children.scrollbarWidth : metrics.body.scrollbarWidth;
@@ -3536,8 +3556,9 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.getByRole("button", { name: "QA 로그인 API 세부 업무 펼치기", exact: true }).click();
     await expect(page.getByRole("button", { name: /QA 로그인 API 세부 업무/ })).toHaveCount(0);
     await rowTitle(page, "QA 로그인 API").click();
+    await expandPanelChildren(page);
     await expect(panel(page)).toContainText("세부 업무 없음");
-    await page.getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+    await page.getByRole("button", { name: "업무 상세 접기", exact: true }).click();
     expect(api.requests.filter((request) => request.path.endsWith("/521/children"))).toHaveLength(1);
     await expect(rowTitle(page, "QA 백엔드 개발")).toHaveText("1.1. QA 백엔드 개발");
   });
@@ -3559,13 +3580,13 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     api.workItems.push(work(540, title, { parent_work_item_id: 531, depth_level: 5 }));
     await page.goto("/projects/901");
     await page.getByRole("button", { name: "전체 펼치기", exact: true }).click();
-    const deepest = page.locator('[data-work-id="540"] .work-title-button');
+    const deepest = page.locator('tr[data-work-id="540"] .work-title-button');
     await expect(deepest).toHaveText(`1.1.1.1.1.1. ${title}`);
     await expect(deepest).toHaveAttribute("title", `1.1.1.1.1.1. ${title}`);
     await expect(deepest).toHaveCSS("font-weight", "400");
     await expect(deepest).toHaveCSS("font-size", "14px");
     const mobile = page.viewportSize()!.width <= 700;
-    await expect(page.locator('[data-work-id="540"] .work-name')).toHaveCSS("padding-left", mobile ? "60px" : "110px");
+    await expect(page.locator('tr[data-work-id="540"] .work-name')).toHaveCSS("padding-left", mobile ? "60px" : "110px");
     await expect(page.locator('[data-hierarchy-key="phase:501"] .work-phase-title')).toHaveCSS("font-weight", "600");
     await expect(page.locator('[data-hierarchy-key="phase:501"] .work-phase-title')).toHaveCSS("font-size", "14px");
     expect(await deepest.evaluate((element) => element.clientWidth)).toBeGreaterThan(60);
@@ -3577,7 +3598,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       await scroller.evaluate((element) => { element.scrollLeft = 100; });
       expect(await scroller.evaluate((element) => element.scrollLeft)).toBe(0);
       expect(await deepest.evaluate((element) => element.clientHeight)).toBeLessThanOrEqual(44);
-      expect(await page.locator('[data-work-id="540"]').evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(56);
+      expect(await page.locator('tr[data-work-id="540"]').evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(56);
     } else {
       await expect(deepest.locator(".work-wbs-number")).toBeVisible();
       const titleText = deepest.locator(".work-title-text");
@@ -3607,7 +3628,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     for (let index = 1; index < boxes.length; index++)
       expect(boxes[index].left).toBeGreaterThanOrEqual(boxes[index - 1].right);
     await expect(detail.getByRole("button", { name: "업무 수정", exact: true })).toBeVisible();
-    await detail.getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+    await detail.getByRole("button", { name: "업무 상세 접기", exact: true }).click();
   });
 
   test("단계 없는 프로젝트의 업무를 탐색하고 키보드로 상세 패널을 전환·닫는다", async ({
@@ -3640,6 +3661,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       panel(page).getByText(QA_USER.name, { exact: true }),
     ).toBeVisible();
     if (page.viewportSize()!.width <= 700) {
+      await expandPanelChildren(page);
       await panel(page)
         .getByRole("button", { name: /^QA 인증 시스템/ })
         .click();
@@ -3654,10 +3676,10 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     if (page.viewportSize()!.width <= 700)
       await attachLayout(page, testInfo, "before-close");
     await page
-      .getByRole("button", { name: "업무 상세 닫기", exact: true })
+      .getByRole("button", { name: "업무 상세 접기", exact: true })
       .click();
     await expect(panel(page)).toHaveCount(0);
-    await expect(page.locator('[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator('tr[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
     await page.getByRole("tab", { name: "개요", exact: true }).click();
     await expect(
       page.getByText("프로젝트 개요가 업무와 함께 유지됩니다.", {
@@ -3797,6 +3819,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     expect(createdWork.company_project_phase_id).toBe(502);
     expect(createdWork.depth_level).toBe(2);
     expect(api.departments.some((item) => item.company_project_work_item_id === createdWork.company_project_work_item_id)).toBe(false);
+    await expandPanelChildren(page);
     await panel(page).getByRole("button", { name: /^QA 새 하위 업무/ }).click();
     const edit = await editResource(page, "QA 새 하위 업무");
     await edit.getByLabel("업무명", { exact: true }).fill("QA 이동한 루트 업무");
@@ -4017,7 +4040,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       expect(body).toEqual(commitManual ? { progress_percent: 0 } : { title: "QA 자동 상태 유지 제목" });
       expect(item.progress_override_percent).toBe(commitManual ? 0 : null);
       expect(item.progress_percent).toBe(0);
-      await page.getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+      await page.getByRole("button", { name: "업무 상세 접기", exact: true }).click();
     }
   });
 
@@ -4350,6 +4373,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await dialog.getByLabel("업무명", { exact: true }).fill("QA 최대 깊이 업무");
     await dialog.getByRole("button", { name: /^(저장|업무 추가|단계 추가)$/, exact: true }).click();
     await expect(dialog).toHaveCount(0);
+    await expandPanelChildren(page);
     await panel(page).getByRole("button", { name: /^QA 최대 깊이 업무/ }).click();
     await panel(page).locator("summary").filter({ hasText: "자세히 보기" }).click();
     await expect(panel(page).getByText("D6", { exact: true })).toBeVisible();
@@ -4357,6 +4381,229 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     const deepest = api.workItems.find((item) => item.title === "QA 최대 깊이 업무")!;
     expect(deepest.depth_level).toBe(5);
     expect(api.requests.filter((request) => request.method === "POST")).toHaveLength(1);
+  });
+
+  test("UX2A: 핵심 정보만 표시하고 접기·펼치기가 선택·세부 영역·스크롤과 포커스를 보존한다", async ({ page }, testInfo) => {
+    api = await installWorkApi(page);
+    api.workItems[0].description = "QA 설명 줄바꿈을 보존합니다.\n".repeat(80);
+    api.dependencies[0].predecessor_work_item_id = 501;
+    api.dependencies[0].successor_work_item_id = 502;
+    await page.goto("/projects/901");
+    const table = page.locator(".work-table-scroll");
+    const originalWidth = await table.evaluate((element) => element.getBoundingClientRect().width);
+    await rowTitle(page, "QA 백엔드 개발").click();
+    const detail = panel(page);
+    const content = detail.locator(".work-panel-content");
+    const children = detail.locator('details[data-section="children"]');
+    const dependencies = detail.locator('details[data-section="dependencies"]');
+    const additional = detail.locator("details.work-panel-additional");
+    await expect(detail.getByRole("heading", { name: "기본 정보", exact: true })).toHaveCount(0);
+    await expect(children).not.toHaveAttribute("open", "");
+    await expect(dependencies).not.toHaveAttribute("open", "");
+    await expect(additional).not.toHaveAttribute("open", "");
+    const description = detail.getByRole("button", { name: "설명 더 보기", exact: true });
+    await expect(description).toHaveAttribute("aria-expanded", "false");
+    await expect(children.getByRole("button", { name: /^QA 인증 시스템/ })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("ux2a-detail-default.png"), animations: "disabled" });
+    await description.focus();
+    await page.keyboard.press("Enter");
+    await expect(detail.getByRole("button", { name: "설명 접기", exact: true })).toHaveAttribute("aria-expanded", "true");
+    await children.locator("summary").click();
+    await dependencies.locator("summary").click();
+    await additional.locator("summary").click();
+    await expect(children.getByRole("button", { name: /^QA 인증 시스템/ })).toBeVisible();
+    await content.evaluate((element) => { element.scrollTop = 200; });
+    const scrollTop = await content.evaluate((element) => element.scrollTop);
+    expect(scrollTop).toBeGreaterThan(0);
+    const reads = api.requests.filter((request) => request.method === "GET").length;
+    const originalPanel = await detail.elementHandle();
+    const collapse = detail.getByRole("button", { name: "업무 상세 접기", exact: true });
+    await expect(collapse).toHaveAttribute("aria-expanded", "true");
+    await collapse.click();
+    await expect(panel(page)).toHaveCount(0);
+    const summary = selectedWorkSummary(page);
+    await expect(summary).toHaveAttribute("data-work-id", "501");
+    await expect(summary).toContainText("QA 백엔드 개발");
+    await expect(summary).toContainText("진행 중");
+    await expect(summary).not.toContainText("QA 설명 줄바꿈");
+    const reopen = summary.getByRole("button", { name: "업무 상세 펼치기", exact: true });
+    await expect(reopen).toHaveAttribute("aria-expanded", "false");
+    await expect(reopen).toBeFocused();
+    await expect(page.locator("#root")).toHaveJSProperty("inert", false);
+    await expect.poll(() => table.evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(originalWidth, 0);
+    await page.screenshot({ path: testInfo.outputPath("ux2a-selection-summary.png"), animations: "disabled" });
+    await page.keyboard.press("Enter");
+    await expect(detail.getByRole("heading", { name: "QA 백엔드 개발", exact: true })).toBeFocused();
+    expect(await detail.evaluate((element, previous) => element === previous, originalPanel)).toBe(true);
+    await expect(children).toHaveAttribute("open", "");
+    await expect(dependencies).toHaveAttribute("open", "");
+    await expect(additional).toHaveAttribute("open", "");
+    await expect(detail.getByRole("button", { name: "설명 접기", exact: true })).toHaveAttribute("aria-expanded", "true");
+    await expect.poll(() => content.evaluate((element) => element.scrollTop)).toBe(scrollTop);
+    expect(api.requests.filter((request) => request.method === "GET")).toHaveLength(reads);
+    expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
+  });
+
+  test("UX2A: 접힌 상태에서 다른 업무를 선택하면 새 업무를 열고 이전 세부 영역과 스크롤을 초기화한다", async ({ page }) => {
+    api = await installWorkApi(page);
+    api.workItems[0].description = "QA 이전 업무의 긴 설명\n".repeat(80);
+    await page.goto("/projects/901");
+    await rowTitle(page, "QA 백엔드 개발").click();
+    await expandPanelDescription(page);
+    await expandPanelChildren(page);
+    await panel(page).locator("details.work-panel-additional > summary").click();
+    await panel(page).locator(".work-panel-content").evaluate((element) => { element.scrollTop = 200; });
+    await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
+    await rowTitle(page, "QA 운영 검토").click();
+    const detail = panel(page);
+    await expect(detail.getByRole("heading", { name: "QA 운영 검토", exact: true })).toBeFocused();
+    await expect(selectedWorkSummary(page)).toHaveCount(0);
+    await expect(detail.locator('details[data-section="children"]')).not.toHaveAttribute("open", "");
+    await expect(detail.locator("details.work-panel-additional")).not.toHaveAttribute("open", "");
+    await expect(detail.getByLabel("업무 설명", { exact: true })).toHaveText("QA 운영 검토 설명");
+    await expect.poll(() => detail.locator(".work-panel-content").evaluate((element) => element.scrollTop)).toBe(0);
+    await detail.getByRole("button", { name: "업무 상세 접기", exact: true }).click();
+    await expect(selectedWorkSummary(page)).toHaveAttribute("data-work-id", "502");
+    await expect(selectedWorkSummary(page)).toContainText("QA 운영 검토");
+    await expect(selectedWorkSummary(page)).not.toContainText("QA 백엔드 개발");
+  });
+
+  test("UX2A: 목록·간트 전환 후 접힌 선택과 세부 영역·스크롤을 복원하고 요약바가 차트를 가리지 않는다", async ({ page }) => {
+    api = await installWorkApi(page);
+    api.workItems[0].description = "QA 탭 전환 복원 설명\n".repeat(80);
+    await page.goto("/projects/901");
+    await rowTitle(page, "QA 백엔드 개발").click();
+    await expandPanelDescription(page);
+    await expandPanelChildren(page);
+    await panel(page).locator(".work-panel-content").evaluate((element) => { element.scrollTop = 200; });
+    const originalScroll = await panel(page).locator(".work-panel-content").evaluate((element) => element.scrollTop);
+    await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
+    await page.getByRole("tab", { name: "간트 차트", exact: true }).click();
+    await expect(panel(page)).toHaveCount(0);
+    const summary = selectedWorkSummary(page);
+    await expect(summary).toHaveAttribute("data-work-id", "501");
+    const chart = page.getByTestId("project-gantt");
+    await expect(chart).toBeVisible();
+    const summaryBounds = (await summary.boundingBox())!;
+    const chartBounds = (await chart.boundingBox())!;
+    expect(summaryBounds.y + summaryBounds.height).toBeLessThanOrEqual(chartBounds.y + 1);
+    await summary.getByRole("button", { name: "업무 상세 펼치기", exact: true }).click();
+    await expect(panel(page).getByRole("heading", { name: "QA 백엔드 개발", exact: true })).toBeFocused();
+    await expect(panel(page).locator('details[data-section="children"]')).toHaveAttribute("open", "");
+    await expect.poll(() => panel(page).locator(".work-panel-content").evaluate((element) => element.scrollTop)).toBe(originalScroll);
+    await page.keyboard.press("Escape");
+    await expect(summary.getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
+    await page.getByRole("tab", { name: "업무 목록", exact: true }).click();
+    await expect(summary).toHaveAttribute("data-work-id", "501");
+    await expect(page.locator('tr[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
+    await expectNoPageOverflow(page);
+    expect(api.requests.filter((request) => request.path.endsWith("/children"))).toHaveLength(0);
+    expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
+  });
+
+  test("UX2A: 동일 lazy 업무 재조회 중 접어도 세부 영역과 스크롤을 보존하고 최신 응답으로 복원한다", async ({ page }) => {
+    api = await installWorkApi(page, { partial: true });
+    const child = api.workItems.find((item) => item.company_project_work_item_id === 511)!;
+    child.description = "QA 재조회 중에도 보존하는 상세 설명\n".repeat(80);
+    await page.goto("/projects/901");
+    await page.getByRole("button", { name: "QA 백엔드 개발 세부 업무 펼치기", exact: true }).click();
+    await rowTitle(page, "QA 인증 시스템").click();
+    await expandPanelDescription(page);
+    await expandPanelChildren(page);
+    await expect(panel(page).getByRole("button", { name: /^QA 로그인 API/ })).toBeVisible();
+    await panel(page).locator('details[data-section="dependencies"] > summary').click();
+    await panel(page).locator("details.work-panel-additional > summary").click();
+    const content = panel(page).locator(".work-panel-content");
+    await content.evaluate((element) => { element.scrollTop = 200; });
+    const scrollTop = await content.evaluate((element) => element.scrollTop);
+    expect(scrollTop).toBeGreaterThan(0);
+    await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
+
+    const path = "/company-projects/901/work-items/501/children";
+    const requestsBefore = api.requests.filter((request) => request.path === path).length;
+    const gate = deferred();
+    api.gates.set(`GET ${path}`, gate.promise);
+    child.title = "QA 최신 인증 시스템";
+    await page.getByRole("button", { name: "프로젝트 새로고침", exact: true }).click();
+    await expect.poll(() => api.requests.filter((request) => request.path === path).length).toBeGreaterThan(requestsBefore);
+    const summary = selectedWorkSummary(page);
+    await expect(summary).toContainText("선택 업무 확인 필요");
+    await summary.getByRole("button", { name: "업무 상세 펼치기", exact: true }).click();
+    await expect(panel(page).getByRole("status").filter({ hasText: "선택한 업무를 다시 불러오는 중" })).toBeVisible();
+    await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
+    await expect(summary.getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
+    gate.release();
+    await expect(summary).toContainText("QA 최신 인증 시스템");
+    await summary.getByRole("button", { name: "업무 상세 펼치기", exact: true }).click();
+    await expect(panel(page).getByRole("heading", { name: "QA 최신 인증 시스템", exact: true })).toBeFocused();
+    await expect(panel(page).getByRole("button", { name: "설명 접기", exact: true })).toHaveAttribute("aria-expanded", "true");
+    for (const section of ['details[data-section="children"]', 'details[data-section="dependencies"]', "details.work-panel-additional"])
+      await expect(panel(page).locator(section)).toHaveAttribute("open", "");
+    await expect.poll(() => panel(page).locator(".work-panel-content").evaluate((element) => element.scrollTop)).toBe(scrollTop);
+    expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
+  });
+
+  test("UX2A: 연결 관계를 접어 두고 펼치면 방향·FS·SS·FF·SF와 양수·0·음수 간격을 유지한다", async ({ page }) => {
+    api = await installWorkApi(page);
+    const types = ["finish_to_start", "start_to_start", "finish_to_finish", "start_to_finish"];
+    api.dependencies.splice(0, api.dependencies.length, ...types.map((dependency_type, index) => ({
+      company_project_work_dependency_id: 8700 + index,
+      predecessor_work_item_id: 501,
+      successor_work_item_id: 502,
+      dependency_type,
+      lag_days: [2, 0, -1, 0][index],
+    })));
+    await page.goto("/projects/901");
+    await rowTitle(page, "QA 백엔드 개발").click();
+    const section = panel(page).locator('details[data-section="dependencies"]');
+    await expect(section.locator("summary")).toHaveText("조회된 연결 관계 4개");
+    await expect(section).not.toHaveAttribute("open", "");
+    await section.locator("summary").focus();
+    await page.keyboard.press("Enter");
+    for (const type of ["FS · 종료 → 시작", "SS · 시작 → 시작", "FF · 종료 → 종료", "SF · 시작 → 종료"])
+      await expect(section).toContainText(type);
+    for (const gap of ["간격 +2일", "간격 0일", "간격 -1일"])
+      await expect(section).toContainText(gap);
+    await expect(section.locator("li")).toHaveCount(4);
+    await expect(section).toContainText("후행");
+    await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
+    await rowTitle(page, "QA 운영 검토").click();
+    const nextSection = panel(page).locator('details[data-section="dependencies"]');
+    await expect(nextSection).not.toHaveAttribute("open", "");
+    await nextSection.locator("summary").click();
+    await expect(nextSection).toContainText("선행");
+    await expect(nextSection).toContainText("QA 백엔드 개발");
+    expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
+  });
+
+  test("UX2A: 접힌 선택의 최신 조회 실패를 표시하고 재조회 후 갱신하며 프로젝트 전환 시 선택을 해제한다", async ({ page }) => {
+    api = await installWorkApi(page);
+    await page.goto("/projects/901");
+    await rowTitle(page, "QA 백엔드 개발").click();
+    await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
+    const key = "GET /company-projects/901";
+    api.failures.set(key, { status: 503, code: "INTERNAL_SERVER_ERROR", message: "QA 최신 업무 정보 조회 실패" });
+    await page.getByRole("button", { name: "프로젝트 새로고침", exact: true }).click();
+    const summary = selectedWorkSummary(page);
+    await expect(summary.getByRole("alert")).toBeVisible();
+    await expect(summary).toContainText("선택 업무 확인 필요");
+    await expect(summary).not.toContainText("QA 백엔드 개발");
+    await summary.getByRole("button", { name: "업무 상세 펼치기", exact: true }).click();
+    await expect(panel(page).getByRole("alert")).toContainText("최신");
+    api.failures.delete(key);
+    api.workItems[0].title = "QA 최신 응답으로 갱신한 업무";
+    await panel(page).getByRole("button", { name: "업무 정보 다시 조회", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await expect(panel(page).getByRole("heading", { name: "QA 최신 응답으로 갱신한 업무", exact: true })).toBeVisible();
+    await expect(panel(page).getByRole("heading", { name: "QA 최신 응답으로 갱신한 업무", exact: true })).toBeFocused();
+    await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
+    await expect(summary).toContainText("QA 최신 응답으로 갱신한 업무");
+    await expect(summary.getByRole("alert")).toHaveCount(0);
+    await page.goto("/projects/902");
+    await expect(rowTitle(page, "QA 다른 프로젝트 업무")).toBeVisible();
+    await expect(panel(page)).toHaveCount(0);
+    await expect(selectedWorkSummary(page)).toHaveCount(0);
+    expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
   });
 
   test("상세 기본 정보는 양쪽·한쪽·미정 기간과 서버 진행률 0%를 하나의 항목으로 표시한다", async ({ page }) => {
@@ -4389,10 +4636,10 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       const progress = basic.locator(".work-panel-progress");
       await expect(progress.getByText(`${value.progress}%`, { exact: true })).toHaveCount(1);
       await expect(progress.getByRole("progressbar", { name: "업무 진행률", exact: true })).toHaveAttribute("aria-valuenow", String(value.progress));
-      await expect(detail.getByText("설명 없음", { exact: true })).toHaveCount(1);
-      await expect(detail.getByText("세부 업무 없음", { exact: true })).toHaveCount(1);
+      await expect(detail.getByText("설명 없음", { exact: true })).toHaveCount(0);
+      await expect(detail.locator('details[data-section="children"]')).not.toHaveAttribute("open", "");
       await expect(detail.getByText(/지연 0건/)).toHaveCount(0);
-      await detail.getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+      await detail.getByRole("button", { name: "업무 상세 접기", exact: true }).click();
     }
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
   });
@@ -4453,7 +4700,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(refreshError).toBeVisible();
     await expect(refreshError).toContainText("QA 일시적인 서버 오류");
     await expect(page.locator(".project-work-panel")).toHaveAttribute("data-panel-mode", "docked");
-    await expect(page.locator('[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator('tr[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
     expect(api.workItems[0].title).toBe("QA 백엔드 개발");
     for (const key of [update, detail, permission]) api.failures.delete(key);
     await form.getByRole("button", { name: "권한 다시 확인", exact: true }).click();
@@ -4474,7 +4721,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(panel(page).getByRole("button", { name: "QA 실패 후 보존한 수정 더 보기", exact: true })).toHaveCount(0);
     await expect(page.locator(".project-work-panel")).toHaveJSProperty("inert", false);
     expect(api.workItems[0].title).toBe("QA 실패 후 보존한 수정");
-    await panel(page).getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+    await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
     await expect(panel(page)).toHaveCount(0);
   });
 
@@ -4533,11 +4780,12 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await rowTitle(page, "QA 백엔드 개발").click();
     await expect(panel(page)).toBeVisible();
     gate.release();
+    await expandPanelChildren(page);
     await expect(
       panel(page).getByRole("button", { name: /^QA 인증 시스템/ }),
     ).toHaveCount(1);
     await page
-      .getByRole("button", { name: "업무 상세 닫기", exact: true })
+      .getByRole("button", { name: "업무 상세 접기", exact: true })
       .click();
     await expect(rowTitle(page, "QA 인증 시스템")).toHaveCount(1);
     await page
@@ -4621,7 +4869,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       }),
     ).toBeEnabled();
     await page
-      .getByRole("button", { name: "업무 상세 닫기", exact: true })
+      .getByRole("button", { name: "업무 상세 접기", exact: true })
       .click();
     await selectOption(page, "업무 상태", "대기");
     await expect(rowTitle(page, "QA 운영 검토")).toBeVisible();
@@ -4784,16 +5032,17 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await rowTitle(page, "QA 긴 상세 제목").click();
     const detail = panel(page);
     await expect(detail).toBeVisible();
+    await expandPanelDescription(page);
     const content = detail.locator(".work-panel-content");
     expect(await content.evaluate((element) => element.clientHeight)).toBeGreaterThan(120);
     const additional = detail.locator("summary").filter({ hasText: "자세히 보기" });
     await additional.click();
     await expect(detail.getByText("WBS 코드", { exact: true })).toBeVisible();
     expect(await content.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-    const close = detail.getByRole("button", { name: "업무 상세 닫기", exact: true });
+    const close = detail.getByRole("button", { name: "업무 상세 접기", exact: true });
     await close.click();
     await expect(detail).toHaveCount(0);
-    await expect(rowTitle(page, "QA 긴 상세 제목")).toBeFocused();
+    await expect(selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
     await expectNoPageOverflow(page);
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
   });
@@ -4827,13 +5076,13 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     expect(opened.scrollTop).toBe(before.scrollTop);
     await rowTitle(page, "QA 운영 검토").click();
     await expect(panel(page)).toContainText("QA 운영 검토 설명");
-    await expect(page.locator('[data-work-id="502"]')).toHaveAttribute("aria-selected", "true");
-    await expect(page.locator('[data-work-id="501"]')).toHaveAttribute("aria-selected", "false");
+    await expect(page.locator('tr[data-work-id="502"]')).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator('tr[data-work-id="501"]')).toHaveAttribute("aria-selected", "false");
     expect(await readTable()).toEqual(opened);
     await page.keyboard.press("Escape");
     await expect(panel(page)).toHaveCount(0);
-    await expect(rowTitle(page, "QA 운영 검토")).toBeFocused();
-    await expect(page.locator('[data-work-id="502"]')).toHaveAttribute("aria-selected", "true");
+    await expect(selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
+    await expect(page.locator('tr[data-work-id="502"]')).toHaveAttribute("aria-selected", "true");
     expect(await readTable()).toEqual(before);
     await expectNoPageOverflow(page);
   });
@@ -4870,12 +5119,12 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     }
     await expect(page.locator("#root")).toHaveJSProperty("inert", false);
     await page.screenshot({ path: testInfo.outputPath("project-work-docked-sidebar.png") });
-    await detail.getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+    await detail.getByRole("button", { name: "업무 상세 접기", exact: true }).click();
     await expect.poll(() => header.evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(headerWidth, 0);
     await expect.poll(() => table.evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(tableWidth, 0);
     await expect.poll(() => notification.evaluate((element) => element.getBoundingClientRect().right)).toBeCloseTo(notificationRight, 0);
-    await expect(rowTitle(page, "QA 백엔드 개발")).toBeFocused();
-    await expect(page.locator('[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
+    await expect(selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
+    await expect(page.locator('tr[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
     await expectNoPageOverflow(page);
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
   });
@@ -4893,6 +5142,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     const additional = detail.locator("details.work-panel-additional");
     await additional.locator("summary").click();
     const edit = detail.getByRole("button", { name: "업무 수정", exact: true });
+    await expandPanelDescription(page);
     await edit.focus();
     const content = detail.locator(".work-panel-content");
     await content.evaluate((element) => { element.scrollTop = 200; });
@@ -4904,10 +5154,10 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     expect(await detail.evaluate((element, previous) => element === previous, original)).toBe(true);
     await expect(additional).toHaveAttribute("open", "");
     expect(await content.evaluate((element) => element.scrollTop)).toBe(scrollTop);
-    await expect(page.locator('[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator('tr[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
     await expect.poll(() => page.evaluate(() => localStorage.getItem("flowra-project-work-panel-layout"))).toBe("floating");
     await expect(detail.getByRole("button", { name: /^업무 상세 도킹/ })).toHaveCount(0);
-    await detail.getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+    await detail.getByRole("button", { name: "업무 상세 접기", exact: true }).click();
     await rowTitle(page, "QA 백엔드 개발").click();
     await expect(detail).toHaveAttribute("data-panel-mode", "docked");
     await page.reload();
@@ -4942,8 +5192,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       const expectPreserved = async (title: string) => {
         await expect(detail).toHaveAttribute("data-panel-mode", "docked");
         await expect(detail.getByRole("heading", { name: title, exact: true })).toBeVisible();
-        await expect(page.locator('[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
-        await expect(page.locator('[data-work-id="501"]')).toHaveAttribute("aria-expanded", "true");
+        await expect(page.locator('tr[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
+        await expect(page.locator('tr[data-work-id="501"]')).toHaveAttribute("aria-expanded", "true");
         await expect(rowTitle(page, "QA 인증 시스템")).toHaveCount(1);
         await expect(search).toHaveValue("QA");
         await expect(page.getByRole("button", { name: "연결 단계 필터 해제", exact: true })).toContainText("QA 구현 단계");
@@ -5012,7 +5262,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto("/projects/901");
       await page.getByRole("button", { name: "전체 펼치기", exact: true }).click();
-      const row = page.locator('[data-work-id="540"]');
+      const row = page.locator('tr[data-work-id="540"]');
       await expect(row.locator("td:visible")).toHaveCount(2);
       await expect(row.locator("td").first().getByText("진행 중", { exact: true })).toBeVisible();
       await expect(row.locator(".work-mobile-status").getByLabel("일정: 1일 지연", { exact: true })).toBeVisible();
@@ -5035,8 +5285,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       await name.click();
       await expect(panel(page)).toHaveAttribute("aria-modal", "true");
       await page.screenshot({ path: testInfo.outputPath(`project-work-detail-${width}.png`), animations: "disabled" });
-      await panel(page).getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
-      await expect(name).toBeFocused();
+      await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
+      await expect(selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
       await expect(row).toHaveAttribute("aria-selected", "true");
       await page.getByRole("button", { name: "업무 추가", exact: true }).click();
       const form = page.getByRole("dialog", { name: "업무 추가", exact: true });
@@ -5064,6 +5314,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await rowTitle(page, "QA 백엔드 개발").click();
     const detail = panel(page);
     await expect(detail).toHaveAttribute("data-panel-mode", "docked");
+    await expandPanelDescription(page);
+    await detail.getByRole("heading", { name: "QA 백엔드 개발", exact: true }).focus();
     const content = detail.locator(".work-panel-content");
     await content.evaluate((element) => { element.scrollTop = 200; });
     await page.setViewportSize({ width: 1280, height: 260 });
@@ -5076,9 +5328,9 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(detail).toHaveAttribute("data-panel-mode", "docked");
     await expect(page.locator("#root")).toHaveJSProperty("inert", false);
     expect(await content.evaluate((element) => element.scrollTop)).toBe(200);
-    await detail.getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
-    await expect(rowTitle(page, "QA 백엔드 개발")).toBeFocused();
-    await expect(page.locator('[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
+    await detail.getByRole("button", { name: "업무 상세 접기", exact: true }).click();
+    await expect(selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
+    await expect(page.locator('tr[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
   });
 
   test("스크롤바가 있는 경계 너비의 전체 화면 상세는 표시 모드와 배경 너비가 반복 전환되지 않는다", async ({ page }) => {
@@ -5105,7 +5357,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await page.keyboard.press("Escape");
     await expect(detail).toHaveCount(0);
     await expect(page.locator("#root")).toHaveJSProperty("inert", false);
-    await expect(rowTitle(page, "QA 백엔드 개발")).toBeFocused();
+    await expect(selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
   });
 
   test("600·701·800px의 펼친 사이드바에서는 실제 작업 폭에 맞춰 상세를 모달로 열고 닫기 포커스를 복구한다", async ({ page }, testInfo) => {
@@ -5123,7 +5375,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       await expect(detail).toHaveAttribute("aria-modal", "true");
       await expect(detail.getByRole("button", { name: /^업무 상세 도킹/ })).toHaveCount(0);
       await expect(page.locator("#root")).toHaveJSProperty("inert", true);
-      const close = detail.getByRole("button", { name: "업무 상세 닫기", exact: true });
+      const close = detail.getByRole("button", { name: "업무 상세 접기", exact: true });
       await expect(close).toBeInViewport();
       await page.screenshot({ path: testInfo.outputPath(`project-detail-responsive-${width}-sidebar-open.png`), animations: "disabled" });
       await close.focus();
@@ -5131,11 +5383,16 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
         await page.keyboard.press("Tab");
         expect(await detail.evaluate((element) => element.contains(document.activeElement))).toBe(true);
       }
+      const editTooltip = page.getByRole("tooltip", { name: "업무 수정", exact: true });
+      await expect(editTooltip).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(editTooltip).toHaveCount(0);
+      await expect(detail).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(detail).toHaveCount(0);
       await expect(page.locator("#root")).toHaveJSProperty("inert", false);
-      await expect(title).toBeFocused();
-      await expect(page.locator('[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
+      await expect(selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
+      await expect(page.locator('tr[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
       await expectNoPageOverflow(page);
     }
   });
@@ -5157,7 +5414,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       await page.setViewportSize({ width, height: 900 });
       await expect(panel(page)).toHaveAttribute("data-panel-mode", mode);
       await expect(panel(page).getByRole("heading", { name: "QA 백엔드 개발", exact: true })).toBeVisible();
-      await expect(page.locator('[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
+      await expect(page.locator('tr[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
       expect(await page.evaluate(() => localStorage.getItem("flowra-project-work-panel-layout"))).toBeNull();
       const bounds = await panel(page).boundingBox();
       expect(bounds!.x).toBeGreaterThanOrEqual(0);
@@ -5166,8 +5423,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       await page.screenshot({ path: testInfo.outputPath(`project-detail-responsive-${width}.png`), animations: "disabled" });
     }
     expect(api.requests.filter((request) => request.method === "GET")).toHaveLength(reads);
-    await panel(page).getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
-    await expect(rowTitle(page, "QA 백엔드 개발")).toBeFocused();
+    await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
+    await expect(selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
   });
 
   test("사이드바 접기·펼치기는 뷰포트가 같아도 상세 모드를 작업 폭에 따라 전환한다", async ({ page }) => {
@@ -5183,7 +5440,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(page.getByRole("dialog", { name: "업무 상세", exact: true })).toBeVisible();
     await expect(page.locator("#root")).toHaveJSProperty("inert", true);
     await page.keyboard.press("Escape");
-    await expect(rowTitle(page, "QA 백엔드 개발")).toBeFocused();
+    await expect(selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
   });
 
   test("넓은 화면의 도킹 상세는 헤더·툴바·필터 메뉴 공간을 보존한다", async ({ page }) => {
@@ -5220,8 +5477,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(detail).toBeVisible();
     await conditions.getByRole("button", { name: "완료", exact: true }).click();
     await expect(filter).toBeFocused();
-    await detail.getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
-    await expect(rowTitle(page, "QA 백엔드 개발")).toBeFocused();
+    await detail.getByRole("button", { name: "업무 상세 접기", exact: true }).click();
+    await expect(selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
   });
 
@@ -5236,15 +5493,16 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     await expect(detail).toBeVisible();
     await expect(detail).toHaveAttribute("data-panel-mode", "fullscreen");
     await expect(page.locator("#root")).toHaveJSProperty("inert", true);
-    const close = detail.getByRole("button", { name: "업무 상세 닫기", exact: true });
+    const close = detail.getByRole("button", { name: "업무 상세 접기", exact: true });
     await expect(close).toBeInViewport();
+    await expandPanelDescription(page);
     const content = detail.locator(".work-panel-content");
     await content.evaluate((element) => { element.scrollTop = element.scrollHeight; });
     expect(await content.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
     await expect(close).toBeInViewport();
     await close.click();
     await expect(page.locator("#root")).toHaveJSProperty("inert", false);
-    await expect(rowTitle(page, "QA 백엔드 개발")).toBeFocused();
+    await expect(selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
   });
 
   test("낮은 화면의 도킹 상세는 화면 상단부터 확장되어 본문을 스크롤하고 닫기 버튼을 유지한다", async ({ page }) => {
@@ -5259,14 +5517,15 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     const bounds = await detail.boundingBox();
     expect(bounds!.y).toBeCloseTo(0, 0);
     expect(bounds!.height).toBeCloseTo(400, 0);
-    const close = detail.getByRole("button", { name: "업무 상세 닫기", exact: true });
+    const close = detail.getByRole("button", { name: "업무 상세 접기", exact: true });
     await expect(close).toBeInViewport();
+    await expandPanelDescription(page);
     const content = detail.locator(".work-panel-content");
     await content.evaluate((element) => { element.scrollTop = element.scrollHeight; });
     expect(await content.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
     await expect(close).toBeInViewport();
     await close.click();
-    await expect(rowTitle(page, "QA 백엔드 개발")).toBeFocused();
+    await expect(selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
   });
 
   test("상세 조회 실패로 업무 화면이 닫히면 AI와 알림 버튼 위치를 복구한다", async ({ page }) => {
@@ -5307,6 +5566,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     const originalOverflow = await page.locator("body").evaluate((element) => getComputedStyle(element).overflowY);
     await rowTitle(page, "QA 백엔드 개발").click();
     await expect(page.locator("#root")).toHaveJSProperty("inert", true);
+    await expandPanelDescription(page);
     const content = page.locator(".work-panel-content");
     await content.evaluate((element) => { element.scrollTop = 200; });
     const originalScroll = await content.evaluate((element) => element.scrollTop);
@@ -5352,12 +5612,18 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     expect(await content.evaluate((element) => element.scrollTop)).toBe(originalScroll);
     await expect(page.locator("#root")).toHaveJSProperty("inert", true);
     await expect(page.locator("body")).toHaveCSS("overflow-y", "hidden");
+    const editTooltip = page.getByRole("tooltip", { name: "업무 수정", exact: true });
+    await expect(editTooltip).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(editTooltip).toHaveCount(0);
+    await expect(panel(page)).toBeVisible();
+    await expect(edit).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(panel(page)).toHaveCount(0);
     await expect(page.locator("#root")).toHaveJSProperty("inert", false);
     await expect(page.locator("body")).toHaveCSS("overflow-y", originalOverflow);
-    await expect(rowTitle(page, "QA 백엔드 개발")).toBeFocused();
-    await expect(page.locator('[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
+    await expect(selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
+    await expect(page.locator('tr[data-work-id="501"]')).toHaveAttribute("aria-selected", "true");
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
   });
 
@@ -5517,7 +5783,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       panel(page).getByText("취소", { exact: true }).first(),
     ).toBeVisible();
     await page
-      .getByRole("button", { name: "업무 상세 닫기", exact: true })
+      .getByRole("button", { name: "업무 상세 접기", exact: true })
       .click();
     const row = page
       .getByRole("treegrid")
@@ -5575,6 +5841,7 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     api = await installWorkApi(page, { partial: true });
     await page.goto("/projects/901");
     await rowTitle(page, "QA 백엔드 개발").click();
+    await expandPanelChildren(page);
     await panel(page)
       .getByRole("button", { name: /^QA 인증 시스템/ })
       .click();
@@ -5620,12 +5887,13 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     ).toBeGreaterThanOrEqual(3);
   });
 
-  test("선택한 자식이 새 서버 응답에서 사라지면 이전 상세를 남기지 않고 닫은 뒤 부모로 포커스를 복구한다", async ({
+  test("선택한 자식이 새 서버 응답에서 사라지면 이전 상세를 남기지 않고 접힌 요약에서 재확인한다", async ({
     page,
   }) => {
     api = await installWorkApi(page, { partial: true });
     await page.goto("/projects/901");
     await rowTitle(page, "QA 백엔드 개발").click();
+    await expandPanelChildren(page);
     await panel(page)
       .getByRole("button", { name: /^QA 인증 시스템/ })
       .click();
@@ -5654,10 +5922,14 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       }),
     ).toHaveCount(0);
     await panel(page)
-      .getByRole("button", { name: "업무 상세 닫기", exact: true })
+      .getByRole("button", { name: "업무 상세 접기", exact: true })
       .click();
     await expect(panel(page)).toHaveCount(0);
-    await expect(rowTitle(page, "QA 백엔드 개발")).toBeFocused();
+    const summary = selectedWorkSummary(page);
+    await expect(summary).toContainText("선택 업무 확인 필요");
+    await expect(summary).not.toContainText("QA 인증 시스템");
+    await expect(summary).not.toContainText("진행 중");
+    await expect(summary.getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
   });
 
   test("프로젝트 새로고침은 사라진 lazy 업무와 이전 지연 응답을 현재 트리에 복원하지 않는다", async ({
@@ -5716,6 +5988,8 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
   }, testInfo) => {
     api = await installWorkApi(page);
     const colors: string[] = [];
+    const summaryColors: string[] = [];
+    const initialViewport = page.viewportSize()!;
     for (const theme of ["light", "dark"] as const) {
       await page.addInitScript((value) => {
         localStorage.setItem(
@@ -5743,13 +6017,44 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
       expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(
         page.viewportSize()!.width + 1,
       );
+      if (initialViewport.width <= 700) {
+        const toggleBounds = (await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).boundingBox())!;
+        expect(toggleBounds.height).toBeGreaterThanOrEqual(44);
+        expect(toggleBounds.width).toBeGreaterThanOrEqual(44);
+      }
       await expectNoPageOverflow(page);
       await testInfo.attach(`${theme}-work-detail`, {
         body: await page.screenshot(),
         contentType: "image/png",
       });
+      await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
+      const summary = selectedWorkSummary(page);
+      const reopen = summary.getByRole("button", { name: "업무 상세 펼치기", exact: true });
+      await expect(reopen).toBeFocused();
+      summaryColors.push(await summary.evaluate((element) => getComputedStyle(element).backgroundColor));
+      if (initialViewport.width <= 700) {
+        for (const width of [320, 360, 390, 768]) {
+          await page.setViewportSize({ width, height: initialViewport.height });
+          await expect(summary).toBeVisible();
+          const summaryBounds = (await summary.boundingBox())!;
+          const tableBounds = (await page.locator(".work-table-scroll").boundingBox())!;
+          expect(summaryBounds.x).toBeGreaterThanOrEqual(0);
+          expect(summaryBounds.x + summaryBounds.width).toBeLessThanOrEqual(width + 1);
+          expect(summaryBounds.y + summaryBounds.height).toBeLessThanOrEqual(tableBounds.y + 1);
+          expect((await reopen.boundingBox())!.height).toBeGreaterThanOrEqual(width <= 700 ? 44 : 40);
+          expect((await reopen.boundingBox())!.width).toBeGreaterThanOrEqual(44);
+          await reopen.click({ trial: true });
+          await expectNoPageOverflow(page);
+        }
+        await page.setViewportSize(initialViewport);
+      }
+      await testInfo.attach(`${theme}-selected-work-summary`, {
+        body: await page.screenshot(),
+        contentType: "image/png",
+      });
     }
     expect(colors[0]).not.toBe(colors[1]);
+    expect(summaryColors[0]).not.toBe(summaryColors[1]);
   });
 
   test("선택한 상세 패널은 화면 전환 후 제목 포커스와 배경 접근 제한을 복구한다", async ({
@@ -5791,10 +6096,10 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     ).toBeFocused();
     await expect(page.locator("#root")).toHaveJSProperty("inert", false);
     await page
-      .getByRole("button", { name: "업무 상세 닫기", exact: true })
+      .getByRole("button", { name: "업무 상세 접기", exact: true })
       .click();
     await expect(panel(page)).toHaveCount(0);
-    await expect(rowTitle(page, "QA 백엔드 개발")).toBeFocused();
+    await expect(selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true })).toBeFocused();
   });
 });
 

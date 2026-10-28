@@ -678,7 +678,7 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     await expect(panel.getByLabel("업무 담당자", { exact: true })).not.toContainText("QA 홍검토");
     await expect(panel).toContainText("QA 담당자 업무");
     await expect(panel).toContainText("수동 설정");
-    await panel.getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+    await panel.getByRole("button", { name: "업무 상세 접기", exact: true }).click();
     await expect(page.locator('tr[data-work-id="501"]')).toContainText(QA_USER.name);
     await expect(page.locator('tr[data-work-id="501"]')).not.toContainText("QA 홍검토");
     expect(api.workItems[0].progress_percent).toBe(37);
@@ -743,11 +743,13 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     api = await installMembersApi(page, { lazy: true });
     await page.goto("/projects/901");
     await row(page, "QA 담당자 업무").click();
+    await workPanel(page).locator('details[data-section="children"] > summary').click();
     await workPanel(page).getByRole("button", { name: /^QA 지연 조회 업무/ }).click();
-    await workPanel(page).getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+    await workPanel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
     await page.getByRole("textbox", { name: "업무 검색", exact: true }).fill("지연 조회");
     await row(page, "QA 지연 조회 업무").click();
     const panel = workPanel(page);
+    await panel.getByRole("button", { name: "설명 더 보기", exact: true }).click();
     await panel.locator(".work-panel-content").evaluate((element) => { element.scrollTop = 50; });
     const dialog = await openAssignments(page);
     const search = dialog.getByRole("textbox", { name: "프로젝트 구성원 검색", exact: true });
@@ -776,7 +778,7 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     await expect(panel.getByRole("button", { name: "담당자 관리", exact: true })).toBeFocused();
     await expect.poll(() => panel.locator(".work-panel-content").evaluate((element) => Math.abs(element.scrollTop - 50))).toBeLessThanOrEqual(1);
     await expect(panel).toContainText("QA 지연 조회 업무");
-    await panel.getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+    await panel.getByRole("button", { name: "업무 상세 접기", exact: true }).click();
     await expect(page.getByRole("textbox", { name: "업무 검색", exact: true })).toHaveValue("지연 조회");
     expect(api.requests.filter((request) => request.method === "POST")).toEqual([
       { method: "POST", path: "/company-projects/901/work-items/511/assignments", body: { assignee_company_member_id: 171, role: "assignee" } },
@@ -1168,7 +1170,7 @@ test.describe("프로젝트 구성원·담당자 · 기존 API 통합", () => {
     await expect(workPanel(page).getByLabel("업무 담당자", { exact: true })).not.toContainText("QA 홍검토");
     await expect(page.locator('tr[data-work-id="502"]')).not.toContainText("QA 홍검토");
     await expect(page.locator('tr[data-work-id="502"]')).toContainText("미배정");
-    await workPanel(page).getByRole("button", { name: "업무 상세 닫기", exact: true }).click();
+    await workPanel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
     await expect(page.getByRole("textbox", { name: "업무 검색", exact: true })).toHaveValue("QA");
     await expect(page.getByRole("button", { name: "상태 필터 해제", exact: true })).toBeVisible();
     expect(api.assignments[0]).toMatchObject({ assignee_company_member_id: 172, status: "in_progress" });

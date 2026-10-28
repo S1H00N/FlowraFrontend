@@ -3729,11 +3729,11 @@ export function ScheduleFormPanel({
   const categorySelectOptions = useMemo<CustomSelectOption<number | "">[]>(
     () => [
       {
-        label: mode === "create" ? "자동 분류" : "카테고리 없음",
+        label: mode === "create" ? "선택 안 함" : "카테고리 없음",
         value: "",
         colorDot: emptyCategoryColor,
         description:
-          mode === "create" ? "일정 내용에 따라 자동 분류" : "분류 없이 저장",
+          mode === "create" ? "카테고리를 지정하지 않고 추가" : "분류 없이 저장",
       },
       ...scheduleCategories.map((category) => ({
         label: category.name,

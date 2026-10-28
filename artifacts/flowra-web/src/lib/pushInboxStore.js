@@ -59,7 +59,7 @@
           if (existing.result) { done(existing.result); return; }
           const record = {
             userId, id, recipientId, notificationId, messageId,
-            title: title || 'Flowra', body, type: text(data.type) || 'push',
+            title: title || 'Flowit', body, type: text(data.type) || 'push',
             data: Object.fromEntries([
               'target_type', 'resource_type', 'entity_type', 'category',
               'project_id', 'project_work_item_id', 'task_id', 'schedule_id', 'notice_id',

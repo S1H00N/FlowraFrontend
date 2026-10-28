@@ -7,7 +7,7 @@ import * as authApi from "@/api/auth";
 import { signupSchema, type SignupFormValues } from "@/lib/schemas";
 import { getErrorCode, getErrorMessage } from "@/lib/error";
 import { toast } from "@/lib/toast";
-import { Sparkles } from "lucide-react";
+import BrandLogo from "@/components/BrandLogo";
 import GoogleAuthFlow from "@/components/GoogleAuthFlow";
 
 function getSignupErrorMessage(err: unknown) {
@@ -85,14 +85,9 @@ export default function Signup() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 py-10">
       <div className="w-full max-w-sm">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-600 text-white shadow-sm">
-            <Sparkles className="h-5 w-5" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-slate-950">Flowra</p>
-            <p className="text-xs text-slate-500">Personal productivity</p>
-          </div>
+        <div className="mb-6">
+          <BrandLogo className="h-10" />
+          <p className="mt-1 text-xs text-slate-500">Personal productivity</p>
         </div>
 
         <div className="rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
@@ -100,7 +95,7 @@ export default function Signup() {
             회원가입
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Flowra에서 오늘의 실행 흐름을 정리해 보세요.
+            Flowit에서 오늘의 실행 흐름을 정리해 보세요.
           </p>
 
           {verificationEmail ? (

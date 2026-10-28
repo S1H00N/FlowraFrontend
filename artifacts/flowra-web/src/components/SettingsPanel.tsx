@@ -1620,11 +1620,11 @@ function AccountSection() {
       <section className="rounded-lg bg-slate-50/80 p-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-4">
-            <Avatar className="h-14 w-14 rounded-lg">
+            <Avatar className="h-14 w-14 rounded-lg bg-muted">
               {profileImageUrl && (
-                <AvatarImage src={profileImageUrl} alt={displayName} />
+                <AvatarImage src={profileImageUrl} alt={displayName} className="object-cover" />
               )}
-              <AvatarFallback className="rounded-lg bg-violet-500 text-xl font-semibold text-white">
+              <AvatarFallback className="rounded-lg bg-violet-500 text-xl font-semibold text-white dark:bg-accent dark:text-accent-foreground">
                 {getInitial(displayName)}
               </AvatarFallback>
             </Avatar>
@@ -1809,11 +1809,11 @@ export function SettingsPanel({
 
         <div className="p-3">
           <div className="flex min-w-0 items-center gap-3 rounded-lg bg-slate-100/80 p-3 dark:bg-slate-800">
-            <Avatar className="h-8 w-8 rounded-lg">
+            <Avatar className="h-8 w-8 rounded-lg bg-muted">
               {profileImageUrl && (
-                <AvatarImage src={profileImageUrl} alt={displayName} />
+                <AvatarImage src={profileImageUrl} alt={displayName} className="object-cover" />
               )}
-              <AvatarFallback className="rounded-lg bg-violet-500 text-sm font-semibold text-white">
+              <AvatarFallback className="rounded-lg bg-violet-500 text-sm font-semibold text-white dark:bg-accent dark:text-accent-foreground">
                 {getInitial(displayName)}
               </AvatarFallback>
             </Avatar>

@@ -351,7 +351,7 @@ export function getBrowserPushAppVersion() {
 
 export function getPushNotificationText(payload: MessagePayload) {
   const data = payload.data ?? {};
-  const title = payload.notification?.title ?? data.title ?? "Flowra";
+  const title = payload.notification?.title ?? data.title ?? "Flowit";
   const body = payload.notification?.body ?? data.body ?? data.message ?? "";
   return { title, body };
 }

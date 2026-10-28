@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   LogIn,
   Mail,
-  Sparkles,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { acceptCompanyInvite, getCompanyInvite } from "@/api/companyInvites";
@@ -14,6 +13,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getErrorMessage } from "@/lib/error";
 import { toast } from "@/lib/toast";
 import Spinner from "@/components/ui/Spinner";
+import BrandLogo from "@/components/BrandLogo";
 
 function formatInviteDate(value?: string) {
   if (!value) return "";
@@ -80,14 +80,9 @@ export default function CompanyInvite() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 py-10">
       <div className="w-full max-w-md">
-        <Link to="/" className="mb-6 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-600 text-white shadow-sm">
-            <Sparkles className="h-5 w-5" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-slate-950">Flowra</p>
-            <p className="text-xs text-slate-500">Company invite</p>
-          </div>
+        <Link to="/" className="mb-6 block w-fit">
+          <BrandLogo className="h-10" />
+          <p className="mt-1 text-xs text-slate-500">Company invite</p>
         </Link>
 
         <section className="rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
@@ -123,7 +118,7 @@ export default function CompanyInvite() {
                 초대를 수락했습니다
               </h1>
               <p className="mt-2 text-sm leading-6 text-slate-500">
-                이제 {invite.company.name} 멤버로 Flowra를 사용할 수 있습니다.
+                이제 {invite.company.name} 멤버로 Flowit을 사용할 수 있습니다.
               </p>
               <Link
                 to="/"
@@ -143,7 +138,7 @@ export default function CompanyInvite() {
                     회사 초대가 도착했습니다
                   </h1>
                   <p className="mt-1 text-sm leading-6 text-slate-500">
-                    {invite.company.name}에서 Flowra 회사 멤버로 초대했습니다.
+                    {invite.company.name}에서 Flowit 회사 멤버로 초대했습니다.
                   </p>
                 </div>
               </div>
