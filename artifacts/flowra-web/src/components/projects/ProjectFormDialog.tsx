@@ -21,9 +21,10 @@ import {
 } from "@/components/projects/ProjectPresentation";
 import {
   useCreateCompanyProject,
+  useCompanyProjectMembers,
   useUpdateCompanyProject,
 } from "@/hooks/useCompanyProjects";
-import { getApiErrorDetails, getErrorCode, getErrorMessage } from "@/lib/error";
+import { getApiErrorDetails, getErrorCode, getErrorMessage, isTransientApiReadError } from "@/lib/error";
 import { registerProjectHistoryGuard } from "@/lib/projectNavigationGuard";
 import { isValidProjectDate, periodWarnings, type PlannedPeriod } from "@/lib/projectSchedule";
 import { ProjectPeriodWarning } from "./ProjectSchedulePresentation";
@@ -196,8 +197,17 @@ function ProjectFormSession({
   const saved = useRef(false);
   const create = useCreateCompanyProject();
   const update = useUpdateCompanyProject();
+  const permission = useCompanyProjectMembers(project?.company_project_id ?? 0, {
+    enabled: Boolean(project) && isActiveProjectMembership(membership) && project?.company_id === membership.company_id,
+  });
+  const canEdit = !project || (!permission.isError && permission.data?.some((member) =>
+    member.company_member_id === membership.company_member_id &&
+    (member.role === "owner" || member.role === "manager") &&
+    (!member.status || member.status === "active"),
+  ));
+  const transientPermissionError = Boolean(project) && permission.isError && isTransientApiReadError(permission.error);
   const pending = submitting || create.isPending || update.isPending;
-  const fieldsDisabled = pending || creationUncertain;
+  const fieldsDisabled = pending || creationUncertain || !canEdit;
   const dirty = hasDraftChanges(draft, initial);
   const navigationGuard = useRef({ dirty, pending, onOpenChange });
   navigationGuard.current = { dirty, pending, onOpenChange };
@@ -205,7 +215,11 @@ function ProjectFormSession({
     ? project.company_id !== membership.company_id ||
       !isActiveProjectMembership(membership)
       ? "프로젝트의 소속 회사와 구성원 상태를 확인한 후 다시 시도해 주세요."
-      : null
+      : !canEdit
+        ? permission.isError
+          ? getErrorMessage(permission.error, "프로젝트 권한을 확인하지 못했습니다.")
+          : "프로젝트 관리 권한이 없습니다."
+        : null
     : creationUnavailableReason(membership);
   const statusOptions = project
     ? PROJECT_STATUS_OPTIONS
@@ -754,6 +768,16 @@ function ProjectFormSession({
               >
                 {unavailable}
               </p>
+            )}
+            {transientPermissionError && (
+              <div className="mt-3 space-y-2">
+                <p role="status" className="text-sm text-muted-foreground">
+                  권한을 다시 확인할 때까지 입력 내용이 유지되며 저장할 수 없습니다.
+                </p>
+                <Button type="button" variant="outline" size="sm" onClick={() => void permission.refetch()} disabled={permission.isFetching} aria-busy={permission.isFetching}>
+                  권한 다시 확인
+                </Button>
+              </div>
             )}
             {error && (
               <p

@@ -2065,6 +2065,49 @@ test.describe("프로젝트 계층형 업무 · 가상 API", () => {
     expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
   });
 
+  test("간트: 첫 조회 중 업무 저장은 이전 요청을 취소하고 늦은 응답 대신 최신 업무를 표시한다", async ({ page }) => {
+    api = await installWorkApi(page);
+    const firstRead = deferred();
+    const lateResponse = deferred();
+    let ganttReads = 0;
+    await page.route("**/api/v1/company-projects/901/gantt**", async (route) => {
+      ganttReads += 1;
+      if (ganttReads !== 1) { await route.fallback(); return; }
+      const snapshot = structuredClone({
+        gantt_policy: { scale: "small", mode: "full", max_depth: 5, full_load_allowed: true },
+        phases: api.phases,
+        items: api.workItems.filter((item) => item.company_project_id === 901),
+        dependencies: api.dependencies,
+      });
+      await firstRead.promise;
+      try { await route.fulfill({ json: { success: true, message: "OK", data: snapshot } }); }
+      finally { lateResponse.release(); }
+    });
+    await page.goto("/projects/901");
+    await rowTitle(page, "QA 백엔드 개발").click();
+    await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
+    await page.getByRole("tab", { name: "간트 차트", exact: true }).click();
+    await expect.poll(() => ganttReads).toBe(1);
+    await expect(page.getByTestId("project-gantt")).toContainText("간트 일정을 불러오는 중입니다.");
+    await selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true }).click();
+    const form = await editResource(page, "QA 백엔드 개발");
+    await form.getByLabel("업무명", { exact: true }).fill("QA 첫 간트 조회 중 저장한 업무");
+    await form.getByRole("button", { name: "저장", exact: true }).click();
+    await expect.poll(() => ganttReads).toBe(2);
+    await expect(form).toHaveCount(0);
+    await expect(panel(page).getByRole("heading", { name: "QA 첫 간트 조회 중 저장한 업무", exact: true })).toBeVisible();
+    await panel(page).getByRole("button", { name: "업무 상세 접기", exact: true }).click();
+    await expect(ganttRow(page, 501)).toContainText("QA 첫 간트 조회 중 저장한 업무");
+    firstRead.release();
+    await lateResponse.promise;
+    await expect(ganttRow(page, 501)).toContainText("QA 첫 간트 조회 중 저장한 업무");
+    await selectedWorkSummary(page).getByRole("button", { name: "업무 상세 펼치기", exact: true }).click();
+    await expect(panel(page).getByRole("heading", { name: "QA 첫 간트 조회 중 저장한 업무", exact: true })).toBeVisible();
+    expect(api.requests.filter((request) => request.method === "PATCH").map((request) => request.body))
+      .toEqual([{ title: "QA 첫 간트 조회 중 저장한 업무" }]);
+    expect(ganttReads).toBe(2);
+  });
+
   test("간트: 기존 업무 수정 Dialog로 저장하면 공통 상세와 Gantt 응답을 갱신한다", async ({ page }) => {
     api = await installWorkApi(page);
     for (let index = 0; index < 30; index++) api.workItems.push(work(1700 + index, `QA 목록 위치 ${index + 1}`));

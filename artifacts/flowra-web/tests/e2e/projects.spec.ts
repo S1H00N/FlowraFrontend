@@ -1109,6 +1109,59 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     ).toHaveLength(0);
   });
 
+  for (const revoked of ["403", "viewer"] as const) {
+  test(`열린 프로젝트 수정에서 관리 권한이 ${revoked}로 회수되면 초안을 보존하고 재전송을 막는다`, async ({ page }) => {
+    api = await installProjectApi(page);
+    await page.goto("/projects/901");
+    await page.getByRole("button", { name: "프로젝트 수정", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "프로젝트 수정", exact: true });
+    const name = dialog.getByRole("textbox", { name: "프로젝트명", exact: true });
+    await name.fill("QA 권한 회수 후 보존할 수정");
+    const forbidden = { status: 403, code: "PROJECT_MANAGEMENT_FORBIDDEN", message: "프로젝트 관리 권한이 없습니다." };
+    api.failures.set("PATCH /company-projects/901", forbidden);
+    if (revoked === "403") api.failures.set("GET /company-projects/901/members", forbidden);
+    else api.payloads.set("GET /company-projects/901/members", { members: [{
+      company_project_member_id: 1901, company_member_id: memberships[0].company_member_id,
+      role: "viewer", status: "active",
+    }] });
+    await dialog.getByRole("button", { name: "저장", exact: true }).click();
+    await expect(name).toHaveValue("QA 권한 회수 후 보존할 수정");
+    await expect(name).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "권한 다시 확인", exact: true })).toHaveCount(0);
+    await dialog.locator("form").evaluate((form) => (form as HTMLFormElement).requestSubmit());
+    expect(api.requests.filter((request) => request.method === "PATCH")).toHaveLength(1);
+    expect(api.projects[0].name).toBe("QA 고객 프로젝트");
+  });
+  }
+
+  test("프로젝트 수정의 일시적인 권한 조회 실패는 초안을 보존하고 재확인 후 저장한다", async ({ page }) => {
+    api = await installProjectApi(page);
+    await page.goto("/projects/901");
+    await page.getByRole("button", { name: "프로젝트 수정", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "프로젝트 수정", exact: true });
+    const name = dialog.getByRole("textbox", { name: "프로젝트명", exact: true });
+    await name.fill("QA 권한 재확인 후 저장할 수정");
+    for (const key of ["PATCH /company-projects/901", "GET /company-projects/901/members"])
+      api.failures.set(key, { status: 503, code: "INTERNAL_ERROR", message: "QA 일시적인 서버 오류" });
+    await dialog.getByRole("button", { name: "저장", exact: true }).click();
+    await expect(name).toHaveValue("QA 권한 재확인 후 저장할 수정");
+    await expect(name).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
+    await expect(dialog.getByText("권한을 다시 확인할 때까지 입력 내용이 유지되며 저장할 수 없습니다.", { exact: true })).toBeVisible();
+    expect(api.requests.filter((request) => request.method === "PATCH")).toHaveLength(1);
+    for (const key of ["PATCH /company-projects/901", "GET /company-projects/901/members"])
+      api.failures.delete(key);
+    await dialog.getByRole("button", { name: "권한 다시 확인", exact: true }).click();
+    await expect(name).toHaveValue("QA 권한 재확인 후 저장할 수정");
+    await expect(dialog.getByRole("button", { name: "저장", exact: true })).toBeEnabled();
+    await dialog.getByRole("button", { name: "저장", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(api.projects[0].name).toBe("QA 권한 재확인 후 저장할 수정");
+    expect(api.requests.filter((request) => request.method === "PATCH").map((request) => request.body))
+      .toEqual([{ name: "QA 권한 재확인 후 저장할 수정" }, { name: "QA 권한 재확인 후 저장할 수정" }]);
+  });
+
   test("회사 멤버십이 없으면 프로젝트 조회 및 생성을 요청하지 않는다", async ({
     page,
   }) => {

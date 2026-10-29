@@ -139,7 +139,15 @@ export function companyProjectWorkRemindersKey(
 
 function useInvalidateCompanyProjectSurfaces() {
   const queryClient = useQueryClient();
-  return () => {
+  return async () => {
+    // An initial read has no cached data for invalidateQueries to replace.
+    // Cancel it first so a pre-mutation response cannot become current data.
+    await Promise.all([
+      queryClient.cancelQueries({ queryKey: COMPANY_PROJECTS_QUERY_KEY }),
+      queryClient.cancelQueries({ queryKey: COMPANY_SCHEDULES_QUERY_KEY }),
+      queryClient.cancelQueries({ queryKey: TODAY_HOME_QUERY_KEY }),
+      queryClient.cancelQueries({ queryKey: TODAY_BRIEFING_QUERY_KEY }),
+    ]);
     return Promise.all([
       queryClient.invalidateQueries({ queryKey: COMPANY_PROJECTS_QUERY_KEY }),
       queryClient.invalidateQueries({ queryKey: COMPANY_SCHEDULES_QUERY_KEY }),
