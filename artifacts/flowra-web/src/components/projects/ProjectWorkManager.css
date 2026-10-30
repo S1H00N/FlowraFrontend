@@ -810,6 +810,11 @@ body:has(.project-work-panel[aria-modal="true"]:not([hidden])) #root {
 .work-assignment-role {
   min-width: 0;
 }
+.work-assignment-current-name,
+.work-assignment-department {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
 .work-assignment-row-actions {
   display: flex;
   align-items: center;
@@ -824,11 +829,18 @@ body:has(.project-work-panel[aria-modal="true"]:not([hidden])) #root {
 }
 @media (max-width: 639px) {
   .work-assignment-list > li.work-assignment-current {
-    grid-template-columns: minmax(0, 1fr) 92px 60px;
-    gap: 4px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
   }
   .work-assignment-current .work-assignment-person {
+    grid-column: 1 / -1;
     gap: 6px;
+  }
+  .work-assignment-current .work-assignment-role {
+    width: 112px;
+  }
+  .work-assignment-current .work-assignment-row-actions {
+    justify-self: end;
   }
   .work-assignment-avatar {
     width: 24px;
@@ -1129,7 +1141,7 @@ body:has(.project-work-panel[aria-modal="true"]:not([hidden])) #root {
   background-color: transparent;
   color: var(--flowra-text-strong);
 }
-.project-work-select-menu [role="option"]:is(:hover, :focus, [aria-selected="true"]) {
+.project-work-select-menu [role="option"]:is([data-highlighted], [aria-selected="true"]) {
   background-color: var(--flowra-accent-bg);
   color: var(--flowra-accent-text);
 }

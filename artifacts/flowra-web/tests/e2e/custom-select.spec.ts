@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { build, transformWithEsbuild } from "vite";
 
 type Option = { label: string; value: string; disabled?: boolean };
-type Scenario = "default" | "selected" | "disabled-selected" | "disabled" | "empty" | "async" | "long" | "dialog" | "popover";
+type Scenario = "default" | "selected" | "disabled-selected" | "disabled" | "empty" | "async" | "long" | "dialog" | "popover" | "project-work" | "quick-add";
 
 // Bundle the real components in memory so edge cases need no application routes,
 // public test props, generated files, or authentication/API fixtures.
@@ -17,6 +17,7 @@ import CustomSelect from "@/components/ui/CustomSelect";
 import { FloatingPanelPortalProvider } from "@/components/ui/FloatingPanelPortal";
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent } from "@/components/ui/dropdown-menu";
 
 const scenario = new URL(location.href).searchParams.get("case");
 const defaults = [
@@ -46,12 +47,29 @@ function SelectExample() {
 
   return <div style={{ display: "grid", gap: 12, maxWidth: 280 }}>
     <button type="button">Before select</button>
-    {mounted && <CustomSelect value={value} options={options} onChange={setValue} ariaLabel="Harness select" />}
+    {mounted && <CustomSelect value={value} options={options} onChange={setValue} ariaLabel="Harness select" contentClassName={scenario === "project-work" ? "project-work-select-menu" : undefined} />}
     <button type="button">After select</button>
     <button type="button" style={{ position: "fixed", top: 12, right: 12, zIndex: 200 }} onClick={() => setMounted(current => !current)}>{mounted ? "Unmount select" : "Mount select"}</button>
     <output aria-label="Committed value">{value || "none"}</output>
     <output aria-label="Strict effects">{mountEffects}</output>
   </div>;
+}
+
+function MenuExample() {
+  return <DropdownMenu>
+    <DropdownMenuTrigger>Open action menu</DropdownMenuTrigger>
+    <DropdownMenuContent aria-label="Harness actions">
+      <DropdownMenuItem>First action</DropdownMenuItem>
+      <DropdownMenuItem>Second action</DropdownMenuItem>
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger>More actions</DropdownMenuSubTrigger>
+        <DropdownMenuSubContent aria-label="Harness subactions">
+          <DropdownMenuItem>First subaction</DropdownMenuItem>
+          <DropdownMenuItem>Second subaction</DropdownMenuItem>
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+    </DropdownMenuContent>
+  </DropdownMenu>;
 }
 
 function App() {
@@ -70,7 +88,10 @@ function App() {
       <FloatingPanelPortalProvider value={portal}><SelectExample /></FloatingPanelPortalProvider>
     </PopoverContent>
   </Popover>;
-  return <SelectExample />;
+  if (scenario === "quick-add") return <div ref={setPortal} className="tasks-quick-add">
+    <FloatingPanelPortalProvider value={portal}><SelectExample /></FloatingPanelPortalProvider>
+  </div>;
+  return <><SelectExample /><MenuExample /></>;
 }
 createRoot(document.getElementById("root")).render(<StrictMode><App /></StrictMode>);
 `;
@@ -340,4 +361,205 @@ test("CustomSelect supports touch or mouse selection, outside dismissal, rapid t
   await expect(menu).toHaveCount(0);
   await expect(trigger).toBeFocused();
   expect(errors).toEqual([]);
+});
+
+async function readPaint(locator: Locator) {
+  return locator.evaluate(element => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d")!;
+    const rgba = (color: string) => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = color;
+      context.fillRect(0, 0, 1, 1);
+      return [...context.getImageData(0, 0, 1, 1).data];
+    };
+    const style = getComputedStyle(element);
+    const background = rgba(style.backgroundColor);
+    const shadowColors = style.boxShadow.match(/(?:rgba?|hsla?|oklab|oklch|color)\([^)]*\)/g) || [];
+    const shadows = shadowColors.map(rgba).filter(color => color[3] > 0);
+    const ancestors: Element[] = [];
+    for (let current: Element | null = element; current; current = current.parentElement) ancestors.unshift(current);
+    context.clearRect(0, 0, 1, 1);
+    for (const ancestor of ancestors) {
+      context.fillStyle = getComputedStyle(ancestor).backgroundColor;
+      context.fillRect(0, 0, 1, 1);
+    }
+    return {
+      background,
+      composite: [...context.getImageData(0, 0, 1, 1).data],
+      shadows,
+      transitionSeconds: style.transitionDuration.split(",").map(value => parseFloat(value)),
+    };
+  });
+}
+
+async function expectOpaqueSurface(locator: Locator, theme: "light" | "dark") {
+  const paint = await readPaint(locator);
+  expect(paint.background[3], "floating surfaces must fully cover content below them").toBe(255);
+  if (theme === "dark") {
+    expect(Math.max(...paint.background.slice(0, 3)), "dark surfaces must not flash a light background").toBeLessThanOrEqual(64);
+    for (const shadow of paint.shadows) {
+      expect(Math.max(...shadow.slice(0, 3)), "dark floating panels must not retain a light halo").toBeLessThanOrEqual(64);
+    }
+  } else {
+    expect(Math.min(...paint.background.slice(0, 3))).toBeGreaterThanOrEqual(240);
+  }
+}
+
+test("CustomSelect keeps pointer and keyboard focus aligned during mixed input", async ({ page }) => {
+  const { trigger, menu } = await mountSelect(page);
+  await page.evaluate(() => document.documentElement.classList.add("dark"));
+  await trigger.click();
+  const first = menu.getByRole("option", { name: "First enabled", exact: true });
+  const middle = menu.getByRole("option", { name: "Current selection", exact: true });
+  const last = menu.getByRole("option", { name: "Last enabled", exact: true });
+  await expect(first).toBeFocused();
+  await last.hover();
+  await expect(last).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByLabel("Committed value")).toHaveText("last");
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await expect(last).toBeFocused();
+  await expect(last).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Home");
+  await expect(first).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(middle).toBeFocused();
+  expect((await readPaint(first)).background[3], "keyboard movement must clear the previous unselected highlight").toBe(0);
+  expect((await readPaint(middle)).background[3]).toBeGreaterThan(0);
+  await page.keyboard.press("Enter");
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByLabel("Committed value")).toHaveText("selected");
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await expect(middle).toBeFocused();
+  await expect(middle).toHaveAttribute("aria-selected", "true");
+  await expect(last).toHaveAttribute("aria-selected", "false");
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+});
+
+for (const theme of ["light", "dark"] as const) {
+  for (const scenario of ["default", "project-work", "quick-add"] as const) {
+    test(`CustomSelect ${scenario} clears previous hover highlights immediately in ${theme} mode`, async ({ page }) => {
+      const { trigger, menu } = await mountSelect(page, scenario);
+      await page.evaluate(dark => document.documentElement.classList.toggle("dark", dark), theme === "dark");
+      await trigger.click();
+      const first = menu.getByRole("option", { name: "First enabled", exact: true });
+      const next = menu.getByRole("option", { name: "Last enabled", exact: true });
+      await expect(first).toBeFocused();
+      await expectOpaqueSurface(menu, theme);
+      if (theme === "dark") {
+        await expect.poll(async () => (await readPaint(trigger)).shadows.every(color => Math.min(...color.slice(0, 3)) < 128), "dark select triggers must not retain pale shadows or focus rings").toBe(true);
+        expect(Math.max(...(await readPaint(first)).composite.slice(0, 3)), "active options must use a dark theme highlight").toBeLessThanOrEqual(96);
+      }
+      await next.hover();
+      expect((await readPaint(first)).background[3], "the previous focused option must not leave a second highlight").toBe(0);
+      expect((await readPaint(first)).transitionSeconds.every(duration => duration === 0), "option colors must update without trailing transitions").toBe(true);
+      expect((await readPaint(next)).background[3]).toBeGreaterThan(0);
+      if (theme === "dark") {
+        expect(Math.max(...(await readPaint(next)).composite.slice(0, 3))).toBeLessThanOrEqual(96);
+      }
+      await page.keyboard.press("Escape");
+      await expect(menu).toHaveCount(0);
+      await expect(trigger).toBeFocused();
+      await trigger.click();
+      await expect(first).toBeFocused();
+      expect((await readPaint(next)).background[3], "reopening must clear the previous pointer highlight").toBe(0);
+      await expectOpaqueSurface(menu, theme);
+      await page.getByRole("button", { name: "Unmount select", exact: true }).click();
+      await expect(menu).toHaveCount(0);
+    });
+  }
+
+  test(`Popover and nested select fully cover underlying content in ${theme} mode`, async ({ page }) => {
+    const { trigger, menu } = await mountSelect(page, "popover");
+    await page.evaluate(dark => document.documentElement.classList.toggle("dark", dark), theme === "dark");
+    const popover = page.getByRole("dialog", { name: "Select popover", exact: true });
+    await expectOpaqueSurface(popover, theme);
+    await trigger.click();
+    await expect(menu).toBeVisible();
+    await expectOpaqueSurface(menu, theme);
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(popover).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(popover).toHaveCount(0);
+    await page.getByRole("button", { name: "Open popover", exact: true }).click();
+    await expectOpaqueSurface(popover, theme);
+    await expect(menu).toHaveCount(0);
+  });
+
+  test(`DropdownMenu and submenu keep opaque surfaces and clear item highlights in ${theme} mode`, async ({ page }) => {
+    await mountSelect(page);
+    await page.evaluate(dark => document.documentElement.classList.toggle("dark", dark), theme === "dark");
+    const trigger = page.getByRole("button", { name: "Open action menu", exact: true });
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+    const menu = page.getByRole("menu", { name: "Open action menu", exact: true });
+    const first = menu.getByRole("menuitem", { name: "First action", exact: true });
+    const second = menu.getByRole("menuitem", { name: "Second action", exact: true });
+    await expect(first).toBeFocused();
+    await expectOpaqueSurface(menu, theme);
+    await page.keyboard.press("ArrowDown");
+    await expect(second).toBeFocused();
+    expect((await readPaint(first)).background[3]).toBe(0);
+    expect((await readPaint(first)).transitionSeconds.every(duration => duration === 0)).toBe(true);
+    await page.keyboard.press("ArrowDown");
+    await expect(menu.getByRole("menuitem", { name: "More actions", exact: true })).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    const submenu = page.getByRole("menu", { name: "More actions", exact: true });
+    await expect(submenu).toBeVisible();
+    await expectOpaqueSurface(submenu, theme);
+    const firstSubaction = submenu.getByRole("menuitem", { name: "First subaction", exact: true });
+    await expect(firstSubaction).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(submenu.getByRole("menuitem", { name: "Second subaction", exact: true })).toBeFocused();
+    expect((await readPaint(firstSubaction)).background[3]).toBe(0);
+    expect((await readPaint(firstSubaction)).transitionSeconds.every(duration => duration === 0)).toBe(true);
+    await page.keyboard.press("ArrowLeft");
+    await expect(submenu).toHaveCount(0);
+    await expect(menu).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(first).toBeFocused();
+    await expectOpaqueSurface(menu, theme);
+    expect((await readPaint(second)).background[3]).toBe(0);
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+  });
+}
+
+test("CustomSelect preserves keyboard highlight when reopening beneath a stationary pointer", async ({ page }) => {
+  const { trigger, menu } = await mountSelect(page);
+  await page.evaluate(() => document.documentElement.classList.add("dark"));
+  await trigger.click();
+  const first = menu.getByRole("option", { name: "First enabled", exact: true });
+  const last = menu.getByRole("option", { name: "Last enabled", exact: true });
+  await expect(menu).toBeVisible();
+  const lastBounds = await last.boundingBox();
+  if (!lastBounds) throw new Error("The last option must have a visible position");
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+
+  // Position the pointer before opening; no pointer movement should replace
+  // the option initialized by keyboard focus when the menu appears below it.
+  await page.mouse.move(lastBounds.x + lastBounds.width / 2, lastBounds.y + lastBounds.height / 2);
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  await expect(first).toBeFocused();
+  await page.evaluate(() => new Promise<void>(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+  await expect(first).toHaveAttribute("data-highlighted", "");
+  await expect(last).not.toHaveAttribute("data-highlighted");
+  await page.keyboard.press("Enter");
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByLabel("Committed value")).toHaveText("first");
+  await expect(trigger).toBeFocused();
 });

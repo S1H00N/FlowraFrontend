@@ -1,4 +1,5 @@
-import { useId, useRef, useState, useEffect, type FormEvent } from "react";
+import { useId, useRef, useState, useEffect, useLayoutEffect, type FormEvent } from "react";
+import { ChevronDown } from "lucide-react";
 import { CompactDateInput } from "@/components/CompactDateTimeInputs";
 import CustomSelect from "@/components/ui/CustomSelect";
 import { Button } from "@/components/ui/button";
@@ -20,9 +21,10 @@ import {
 } from "@/components/projects/ProjectPresentation";
 import {
   useCreateCompanyProject,
+  useCompanyProjectMembers,
   useUpdateCompanyProject,
 } from "@/hooks/useCompanyProjects";
-import { getApiErrorDetails, getErrorCode, getErrorMessage } from "@/lib/error";
+import { getApiErrorDetails, getErrorCode, getErrorMessage, isTransientApiReadError } from "@/lib/error";
 import { registerProjectHistoryGuard } from "@/lib/projectNavigationGuard";
 import { isValidProjectDate, periodWarnings, type PlannedPeriod } from "@/lib/projectSchedule";
 import { ProjectPeriodWarning } from "./ProjectSchedulePresentation";
@@ -179,6 +181,9 @@ function ProjectFormSession({
   const formId = useId();
   const [initial] = useState(() => initialDraft(project));
   const [draft, setDraft] = useState(initial);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [invalidField, setInvalidField] = useState<keyof ProjectDraft | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof ProjectDraft, string>>>({});
   const [error, setError] = useState<string | null>(null);
   const [periodWarning, setPeriodWarning] = useState<string[] | null>(null);
   const [nameInvalid, setNameInvalid] = useState(false);
@@ -192,8 +197,17 @@ function ProjectFormSession({
   const saved = useRef(false);
   const create = useCreateCompanyProject();
   const update = useUpdateCompanyProject();
+  const permission = useCompanyProjectMembers(project?.company_project_id ?? 0, {
+    enabled: Boolean(project) && isActiveProjectMembership(membership) && project?.company_id === membership.company_id,
+  });
+  const canEdit = !project || (!permission.isError && permission.data?.some((member) =>
+    member.company_member_id === membership.company_member_id &&
+    (member.role === "owner" || member.role === "manager") &&
+    (!member.status || member.status === "active"),
+  ));
+  const transientPermissionError = Boolean(project) && permission.isError && isTransientApiReadError(permission.error);
   const pending = submitting || create.isPending || update.isPending;
-  const fieldsDisabled = pending || creationUncertain;
+  const fieldsDisabled = pending || creationUncertain || !canEdit;
   const dirty = hasDraftChanges(draft, initial);
   const navigationGuard = useRef({ dirty, pending, onOpenChange });
   navigationGuard.current = { dirty, pending, onOpenChange };
@@ -201,7 +215,11 @@ function ProjectFormSession({
     ? project.company_id !== membership.company_id ||
       !isActiveProjectMembership(membership)
       ? "프로젝트의 소속 회사와 구성원 상태를 확인한 후 다시 시도해 주세요."
-      : null
+      : !canEdit
+        ? permission.isError
+          ? getErrorMessage(permission.error, "프로젝트 권한을 확인하지 못했습니다.")
+          : "프로젝트 관리 권한이 없습니다."
+        : null
     : creationUnavailableReason(membership);
   const statusOptions = project
     ? PROJECT_STATUS_OPTIONS
@@ -211,6 +229,36 @@ function ProjectFormSession({
   const visibilityOptions = project
     ? PROJECT_VISIBILITY_OPTIONS
     : PROJECT_VISIBILITY_OPTIONS.filter(({ value }) => value !== "company");
+  const phaseModeLabel = PHASE_MODE_OPTIONS.find(({ value }) => value === draft.phaseMode)?.label ?? draft.phaseMode;
+  const visibilityLabel = PROJECT_VISIBILITY_OPTIONS.find(({ value }) => value === draft.visibility)?.label ?? draft.visibility;
+  const statusLabel = PROJECT_STATUS_OPTIONS.find(({ value }) => value === draft.status)?.label ?? draft.status;
+
+  useLayoutEffect(() => {
+    fieldsRef.current?.querySelectorAll<HTMLElement>("[data-project-field]").forEach((wrapper) => {
+      const field = wrapper.dataset.projectField as keyof ProjectDraft;
+      const invalid = !!fieldErrors[field] || field === invalidField || (field === "name" && nameInvalid);
+      wrapper.querySelectorAll<HTMLElement>('input, textarea, button[aria-haspopup="listbox"]').forEach((control) => {
+        control.setAttribute("aria-invalid", String(invalid));
+        if (invalid) control.setAttribute("aria-describedby", fieldErrors[field] ? `${formId}-${field}-error` : `${formId}-error`);
+        else control.removeAttribute("aria-describedby");
+      });
+    });
+    if (!invalidField) return;
+    const control = fieldsRef.current?.querySelector<HTMLElement>(
+      `[data-project-field="${invalidField}"] input, [data-project-field="${invalidField}"] textarea, [data-project-field="${invalidField}"] button[aria-haspopup="listbox"]`,
+    );
+    control?.scrollIntoView({ block: "nearest" });
+    control?.focus({ preventScroll: true });
+  }, [invalidField, fieldErrors, nameInvalid, advancedOpen, error, formId]);
+
+  function revealInvalidField(field: keyof ProjectDraft) {
+    if (field === "description" || (!project && field === "status")) setAdvancedOpen(true);
+    setInvalidField(field);
+  }
+
+  function fieldError(field: keyof ProjectDraft) {
+    return fieldErrors[field] && <p id={`${formId}-${field}-error`} role="alert" className="text-xs text-destructive">{fieldErrors[field]}</p>;
+  }
 
   useEffect(() => {
     if (!dirty && !pending) return;
@@ -327,6 +375,8 @@ function ProjectFormSession({
     if (fieldsDisabled || submissionLock.current) return;
     setDraft((current) => ({ ...current, [field]: value }));
     setError(null);
+    setInvalidField(null);
+    setFieldErrors({});
     if (field === "name") setNameInvalid(false);
   }
 
@@ -351,28 +401,33 @@ function ProjectFormSession({
       return "프로젝트명을 입력해 주세요.";
     }
     if (!isValidDate(draft.startDate) || !isValidDate(draft.endDate)) {
+      revealInvalidField(!isValidDate(draft.startDate) ? "startDate" : "endDate");
       return "예정 날짜를 YYYY-MM-DD 형식의 유효한 날짜로 입력해 주세요.";
     }
     if (draft.startDate && draft.endDate && draft.startDate > draft.endDate) {
+      revealInvalidField("endDate");
       return "예정 종료일이 예정 시작일보다 빠를 수 없습니다.";
     }
     if (
       (!project || draft.status !== initial.status) &&
       !statusOptions.some(({ value }) => value === draft.status)
     ) {
+      revealInvalidField("status");
       return "지원하는 프로젝트 상태를 선택해 주세요.";
     }
     if (
       (!project || draft.visibility !== initial.visibility) &&
       !visibilityOptions.some(({ value }) => value === draft.visibility)
     ) {
+      revealInvalidField("visibility");
       return "지원하는 공개 범위를 선택해 주세요.";
     }
     if (
       !project &&
       !PHASE_MODE_OPTIONS.some(({ value }) => value === draft.phaseMode)
     ) {
-      return "지원하는 운영 방식을 선택해 주세요.";
+      revealInvalidField("phaseMode");
+      return "지원하는 관리 방식을 선택해 주세요.";
     }
     return null;
   }
@@ -439,6 +494,29 @@ function ProjectFormSession({
         result = await create.mutateAsync(payload);
       }
     } catch (err) {
+      const details = getApiErrorDetails(err);
+      const apiFields: Record<string, keyof ProjectDraft> = {
+        name: "name", description: "description", status: "status", visibility: "visibility",
+        phase_mode: "phaseMode", planned_start_date: "startDate", planned_end_date: "endDate",
+      };
+      const serverFields: Partial<Record<keyof ProjectDraft, string>> = {};
+      const issues = details?.details?.issues;
+      if (Array.isArray(issues)) {
+        for (const issue of issues) {
+          if (typeof issue !== "object" || issue === null || !("path" in issue)) continue;
+          const parts: unknown[] = Array.isArray(issue.path) ? issue.path : [issue.path];
+          const apiField = parts.find((part): part is string => typeof part === "string" && Object.hasOwn(apiFields, part));
+          if (!apiField) continue;
+          serverFields[apiFields[apiField]] = "message" in issue && typeof issue.message === "string"
+            ? issue.message : "입력값을 확인해 주세요.";
+        }
+      }
+      if (details?.code === "INVALID_PROJECT_DATE_RANGE" && !serverFields.endDate)
+        serverFields.endDate = getErrorMessage(err);
+      setFieldErrors(serverFields);
+      if (serverFields.description || (!project && serverFields.status)) setAdvancedOpen(true);
+      const invalid = (Object.keys(serverFields) as Array<keyof ProjectDraft>)[0];
+      if (invalid) revealInvalidField(invalid);
       const message = getErrorMessage(err, "프로젝트를 저장하지 못했습니다.");
       if (!project && isUncertainCreationError(err)) {
         setCreationUncertain(true);
@@ -479,7 +557,7 @@ function ProjectFormSession({
             submissionLock.current ||
             titleRef.current
               ?.closest('[role="dialog"]')
-              ?.querySelector('[data-project-fields] [aria-expanded="true"]')
+              ?.querySelector('[data-project-fields] input[aria-expanded="true"], [data-project-fields] button[aria-haspopup][aria-expanded="true"]')
           )
             event.preventDefault();
         }}
@@ -511,28 +589,7 @@ function ProjectFormSession({
             data-project-fields
           >
             <fieldset disabled={fieldsDisabled} className="min-w-0 space-y-4">
-              <div className="space-y-1.5">
-                <label
-                  htmlFor={`${formId}-company`}
-                  className="block text-sm font-medium"
-                >
-                  소속 회사
-                </label>
-                <Input
-                  id={`${formId}-company`}
-                  value={
-                    membership.company?.name || `회사 #${membership.company_id}`
-                  }
-                  readOnly
-                  className={`${fieldClassName} bg-muted text-muted-foreground`}
-                />
-                {membership.department?.name && (
-                  <p className="break-words text-xs text-muted-foreground">
-                    소속 부서: {membership.department.name}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-1.5">
+              <div className="space-y-1.5" data-project-field="name">
                 <label
                   htmlFor={`${formId}-name`}
                   className="block text-sm font-medium"
@@ -553,80 +610,23 @@ function ProjectFormSession({
                   placeholder="프로젝트명을 입력하세요"
                   className={fieldClassName}
                 />
+                {fieldError("name")}
               </div>
-              <div className="space-y-1.5">
-                <label
-                  htmlFor={`${formId}-description`}
-                  className="block text-sm font-medium"
-                >
-                  설명
-                </label>
-                <Textarea
-                  id={`${formId}-description`}
-                  value={draft.description}
-                  onChange={(event) =>
-                    change("description", event.target.value)
-                  }
-                  placeholder="프로젝트의 목표와 주요 내용을 입력하세요"
-                  rows={3}
-                  className={`${fieldClassName} min-h-20 resize-y`}
-                />
+              <div className="space-y-1" aria-label="소속">
+                <p className="text-sm font-medium">소속</p>
+                <p className="break-words text-sm text-muted-foreground">
+                  {membership.company?.name || `회사 #${membership.company_id}`}
+                  {membership.department?.name && ` · ${membership.department.name}`}
+                </p>
               </div>
-              <div
-                className="grid gap-4 sm:grid-cols-2"
-                role="group"
-                aria-label="예정 기간"
-              >
-                {(["startDate", "endDate"] as const).map((field) => {
-                  const label =
-                    field === "startDate" ? "예정 시작일" : "예정 종료일";
-                  return (
-                    <div key={field} className="min-w-0 space-y-1.5">
-                      <p className="text-sm font-medium">{label}</p>
-                      <CompactDateInput
-                        value={draft[field]}
-                        onChange={(value) => change(field, value)}
-                        emptyPlaceholder="날짜 선택"
-                        ariaLabel={label}
-                        clearLabel={`${label} 지우기`}
-                        disabled={fieldsDisabled}
-                        className="h-10 min-w-0 border-input bg-background hover:border-primary/50 hover:bg-background focus-within:border-primary focus-within:bg-background focus-within:ring-primary/20 [&_input]:text-foreground"
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="min-w-0 space-y-1.5">
-                  <p className="text-sm font-medium">공개 범위</p>
-                  <CustomSelect
-                    value={draft.visibility}
-                    options={visibilityOptions}
-                    onChange={(value) => change("visibility", value)}
-                    ariaLabel="공개 범위"
-                    placeholder={
-                      draft.visibility
-                        ? `현재 범위: ${draft.visibility}`
-                        : "공개 범위 선택"
-                    }
-                    disabled={fieldsDisabled}
-                    className={selectClassName}
-                    showFallbackMarker={false}
-                    matchTriggerWidth
-                    collisionBoundaryRef={fieldsRef}
-                    wrapDescriptions
-                    contentClassName="border-border bg-popover text-popover-foreground"
-                  />
-                </div>
-                <div className="min-w-0 space-y-1.5">
-                  <p className="text-sm font-medium">
-                    {project ? "상태" : "생성 상태"}
-                  </p>
+              {project && (
+                <div className="space-y-1.5" data-project-field="status">
+                  <p className="text-sm font-medium">상태</p>
                   <CustomSelect
                     value={draft.status}
                     options={statusOptions}
                     onChange={(value) => change("status", value)}
-                    ariaLabel={project ? "프로젝트 상태 변경" : "생성 상태"}
+                    ariaLabel="프로젝트 상태 변경"
                     placeholder={`현재 상태: ${draft.status}`}
                     disabled={fieldsDisabled}
                     className={selectClassName}
@@ -636,16 +636,45 @@ function ProjectFormSession({
                     wrapDescriptions
                     contentClassName="border-border bg-popover text-popover-foreground"
                   />
+                  {fieldError("status")}
                 </div>
+              )}
+              <div
+                className="grid gap-4 sm:grid-cols-2"
+                role="group"
+                aria-label="예정 기간"
+              >
+                {(["startDate", "endDate"] as const).map((field) => {
+                  const label =
+                    field === "startDate" ? "예정 시작일" : "예정 종료일";
+                  return (
+                    <div key={field} className="min-w-0 space-y-1.5" data-project-field={field}>
+                      <p className="text-sm font-medium">{label}</p>
+                      <CompactDateInput
+                        value={draft[field]}
+                        onChange={(value) => change(field, value)}
+                        emptyPlaceholder={field === "startDate" ? "시작일 미정" : "종료일 미정"}
+                        ariaLabel={label}
+                        clearLabel={`${label} 지우기`}
+                        disabled={fieldsDisabled}
+                        className="h-10 min-w-0 border-input bg-background hover:border-primary/50 hover:bg-background focus-within:border-primary focus-within:bg-background focus-within:ring-primary/20 [&_input]:text-foreground"
+                      />
+                      {fieldError(field)}
+                    </div>
+                  );
+                })}
               </div>
-              {!project && (
-                <div className="space-y-1.5">
-                  <p className="text-sm font-medium">운영 방식</p>
+              <div className="space-y-1.5" data-project-field="phaseMode">
+                <p className="text-sm font-medium">관리 방식</p>
+                {project ? (
+                  <p className="break-words text-sm">{phaseModeLabel || "관리 방식 정보 없음"}</p>
+                ) : (
                   <CustomSelect
                     value={draft.phaseMode}
                     options={PHASE_MODE_OPTIONS}
                     onChange={(value) => change("phaseMode", value)}
-                    ariaLabel="운영 방식"
+                    ariaLabel="관리 방식"
+                    triggerLabel={`${phaseModeLabel} · 변경`}
                     disabled={fieldsDisabled}
                     className={selectClassName}
                     showFallbackMarker={false}
@@ -654,11 +683,83 @@ function ProjectFormSession({
                     wrapDescriptions
                     contentClassName="border-border bg-popover text-popover-foreground"
                   />
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    운영 방식은 생성할 때 선택합니다.
-                  </p>
-                </div>
-              )}
+                )}
+                <p className="text-xs leading-5 text-muted-foreground">
+                  생성 후 변경할 수 없습니다.
+                </p>
+                {fieldError("phaseMode")}
+              </div>
+              <div className="min-w-0 space-y-1.5" data-project-field="visibility">
+                <p className="text-sm font-medium">공개 범위</p>
+                <CustomSelect
+                  value={draft.visibility}
+                  options={visibilityOptions}
+                  onChange={(value) => change("visibility", value)}
+                  ariaLabel="공개 범위"
+                  triggerLabel={visibilityLabel ? `${visibilityLabel} · 변경` : undefined}
+                  placeholder="공개 범위 선택"
+                  disabled={fieldsDisabled}
+                  className={selectClassName}
+                  showFallbackMarker={false}
+                  matchTriggerWidth
+                  collisionBoundaryRef={fieldsRef}
+                  wrapDescriptions
+                  contentClassName="border-border bg-popover text-popover-foreground"
+                />
+                {fieldError("visibility")}
+              </div>
+              <div>
+                <button
+                  type="button"
+                  aria-expanded={advancedOpen}
+                  aria-controls={`${formId}-advanced`}
+                  disabled={fieldsDisabled}
+                  onClick={() => setAdvancedOpen((open) => !open)}
+                  className="flex w-full items-center gap-2 rounded-lg py-2 text-left text-sm font-medium hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 disabled:opacity-50"
+                >
+                  <ChevronDown aria-hidden className={`h-4 w-4 shrink-0 transition-transform ${advancedOpen ? "" : "-rotate-90"}`} />
+                  <span>추가 설정 (선택)</span>
+                  <span className="ml-auto text-right text-xs text-muted-foreground">
+                    {!project ? `시작 상태 · ${statusLabel}` : draft.description ? "설명 있음" : "설명"}
+                    {!project && draft.description ? " · 설명 있음" : ""}
+                  </span>
+                </button>
+                {advancedOpen && (
+                  <div id={`${formId}-advanced`} className="space-y-4 pt-2">
+                    {!project && (
+                      <div className="space-y-1.5" data-project-field="status">
+                        <p className="text-sm font-medium">생성 상태</p>
+                        <CustomSelect
+                          value={draft.status}
+                          options={statusOptions}
+                          onChange={(value) => change("status", value)}
+                          ariaLabel="생성 상태"
+                          disabled={fieldsDisabled}
+                          className={selectClassName}
+                          showFallbackMarker={false}
+                          matchTriggerWidth
+                          collisionBoundaryRef={fieldsRef}
+                          wrapDescriptions
+                          contentClassName="border-border bg-popover text-popover-foreground"
+                        />
+                        {fieldError("status")}
+                      </div>
+                    )}
+                    <div className="space-y-1.5" data-project-field="description">
+                      <label htmlFor={`${formId}-description`} className="block text-sm font-medium">설명</label>
+                      <Textarea
+                        id={`${formId}-description`}
+                        value={draft.description}
+                        onChange={(event) => change("description", event.target.value)}
+                        placeholder="프로젝트의 목표와 주요 내용을 입력하세요"
+                        rows={3}
+                        className={`${fieldClassName} min-h-20 resize-y`}
+                      />
+                      {fieldError("description")}
+                    </div>
+                  </div>
+                )}
+              </div>
             </fieldset>
             {unavailable && (
               <p
@@ -667,6 +768,16 @@ function ProjectFormSession({
               >
                 {unavailable}
               </p>
+            )}
+            {transientPermissionError && (
+              <div className="mt-3 space-y-2">
+                <p role="status" className="text-sm text-muted-foreground">
+                  권한을 다시 확인할 때까지 입력 내용이 유지되며 저장할 수 없습니다.
+                </p>
+                <Button type="button" variant="outline" size="sm" onClick={() => void permission.refetch()} disabled={permission.isFetching} aria-busy={permission.isFetching}>
+                  권한 다시 확인
+                </Button>
+              </div>
             )}
             {error && (
               <p

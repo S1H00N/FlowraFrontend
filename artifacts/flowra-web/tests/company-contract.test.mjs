@@ -122,11 +122,11 @@ test("company switches never reuse previous project rows and search can opt out 
 
 test("project permissions reject damaged member rows and refresh lists even after creation transport failures", async () => {
   response = { members: [null] };
-  await assert.rejects(() => projectHooks.useCompanyProjectMembers(51).queryFn(), /멤버 응답/);
+  await assert.rejects(() => projectHooks.useCompanyProjectMembers(51).queryFn(), /구성원 응답/);
   response = { members: [{ company_member_id: 3, role: "owner" }] };
   assert.equal((await projectHooks.useCompanyProjectMembers(51).queryFn())[0].role, "owner");
   invalidations.length = 0;
-  projectHooks.useCreateCompanyProject().onSettled(undefined, new Error("response lost"));
+  await projectHooks.useCreateCompanyProject().onSettled(undefined, new Error("response lost"));
   assert.ok(invalidations.some((key) => JSON.stringify(key) === '["company-projects"]'));
 });
 

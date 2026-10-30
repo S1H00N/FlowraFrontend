@@ -13,6 +13,11 @@ let rejection;
 let responseForCall;
 const calls = [];
 const invalidations = [];
+let queryClientOverride;
+const queryClientStub = {
+  cancelQueries: () => Promise.resolve(),
+  invalidateQueries: ({ queryKey }) => { invalidations.push(queryKey); return Promise.resolve(); },
+};
 const client = Object.fromEntries(["get", "post", "patch", "put", "delete"].map((method) => [method, async (...args) => {
   calls.push({ method, args });
   if (rejection) throw rejection;
@@ -32,7 +37,7 @@ function loadSource(source) {
   const importModule = (specifier) => {
     if (specifier === "@tanstack/react-query") return {
       useMutation: (options) => options, useQuery: (options) => options,
-      useQueryClient: () => ({ invalidateQueries: ({ queryKey }) => { invalidations.push(queryKey); return Promise.resolve(); } }),
+      useQueryClient: () => queryClientOverride ?? queryClientStub,
     };
     if (specifier.startsWith("@/")) return loadSource(path.join(webRoot, "src", specifier.slice(2)));
     if (specifier.startsWith(".")) return loadSource(path.resolve(path.dirname(filename), specifier));
@@ -238,12 +243,54 @@ test("department replacement sends an empty list and dependency DELETE has no bo
   assert.equal(calls.length, start + 1);
 });
 
-test("work mutation failures still refresh project, home, calendar and briefing caches", () => {
+test("work mutation failures still refresh project, home, calendar and briefing caches", async () => {
   for (const mutation of [hooks.useCreateCompanyProjectPhase(), hooks.useUpdateCompanyProjectPhase(),
     hooks.useCreateCompanyProjectWorkItem(), hooks.useUpdateCompanyProjectWorkItem(), hooks.useUpdateCompanyProjectWorkAssignment()]) {
     invalidations.length = 0;
-    mutation.onSettled(undefined, new Error("response lost"));
+    await mutation.onSettled(undefined, new Error("response lost"));
     for (const key of [["company-projects"], ["company-schedules"], ["home", "today"], ["briefings", "today"]])
       assert.ok(invalidations.some((value) => JSON.stringify(value) === JSON.stringify(key)), `missing ${key}`);
+  }
+});
+
+test("work saves cancel an initial Gantt read and refetch before accepting a late pre-save response", async () => {
+  const { QueryClient, QueryObserver } = require("@tanstack/react-query");
+  for (const error of [undefined, new Error("response lost after saving")]) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    queryClientOverride = queryClient;
+    let release;
+    let initialSignal;
+    let reads = 0;
+    const data = (title) => ({ gantt_policy: { scale: "small", mode: "full", max_depth: 5, full_load_allowed: true },
+      phases: [], items: [{ ...work(10), title }], dependencies: [] });
+    responseForCall = (_method, args) => {
+      reads += 1;
+      if (reads === 1) {
+        initialSignal = args[1].signal;
+        return new Promise((resolve) => { release = resolve; });
+      }
+      return data("Saved title");
+    };
+    const options = hooks.useCompanyProjectGantt(7, { mode: "full", max_depth: 5 });
+    const observer = new QueryObserver(queryClient, options);
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      assert.equal(reads, 1);
+      assert.equal(observer.getCurrentResult().data, undefined);
+      const settled = hooks.useUpdateCompanyProjectWorkItem().onSettled(undefined, error);
+      // The old HTTP response may arrive after the server processed the write.
+      release(data("Pre-save title"));
+      await settled;
+      assert.equal(initialSignal.aborted, true);
+      assert.equal(reads, 2);
+      assert.equal(observer.getCurrentResult().data.items[0].title, "Saved title");
+      assert.equal(queryClient.getQueryState(options.queryKey).isInvalidated, false);
+    } finally {
+      responseForCall = undefined;
+      queryClientOverride = undefined;
+      unsubscribe();
+      observer.destroy();
+      queryClient.clear();
+    }
   }
 });

@@ -564,7 +564,7 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
             matchTriggerWidth ? "min-w-0" : "min-w-56",
             darkMenu
               ? "border-zinc-800 bg-zinc-950 text-zinc-100 shadow-zinc-950/30"
-              : "border-slate-200 bg-white text-slate-900 shadow-slate-200/80",
+              : "border-border bg-popover text-popover-foreground shadow-slate-200/80 dark:shadow-black/40",
             contentClassName,
           )}
         >
@@ -581,13 +581,19 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
                 type="button"
                 role="option"
                 aria-selected={selected}
+                data-highlighted={active ? "" : undefined}
                 tabIndex={-1}
                 disabled={option.disabled}
                 onClick={() => commitOption(option)}
-                onMouseEnter={() => {
-                  if (!option.disabled) {
+                onPointerMove={(event) => {
+                  // Follow actual pointer movement without stealing keyboard
+                  // focus when a menu opens beneath a stationary pointer.
+                  if (event.pointerType === "mouse" && !option.disabled) {
                     setActiveIndex(index);
                     previewOption(option);
+                    if (document.activeElement !== event.currentTarget) {
+                      focusOption(index);
+                    }
                   }
                 }}
                 onFocus={() => {
@@ -597,18 +603,16 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
                   }
                 }}
                 className={cn(
-                  "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm outline-none transition disabled:cursor-not-allowed disabled:opacity-50",
-                  darkMenu
-                    ? "text-zinc-200 hover:bg-white/10 hover:text-white focus:bg-white/10 focus:text-white"
-                    : "hover:bg-violet-50/70 focus:bg-violet-50/70 focus:text-slate-950",
+                  "flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm outline-none disabled:cursor-not-allowed disabled:opacity-50",
+                  darkMenu && "text-zinc-200",
                   active &&
                     (darkMenu
                       ? "bg-white/10 text-white"
-                      : "bg-violet-50/70 text-slate-950"),
+                      : "bg-accent text-accent-foreground"),
                   selected &&
                     (darkMenu
                       ? "bg-white/10 text-white"
-                      : "bg-violet-50 text-violet-700"),
+                      : "bg-accent text-accent-foreground"),
                 )}
               >
                 <OptionMarker
@@ -662,10 +666,10 @@ export default function CustomSelect<TValue extends CustomSelectValue>({
         onClick={() => setOpen((current) => !current)}
         onKeyDown={handleTriggerKeyDown}
         className={cn(
-          "group flex h-11 w-full cursor-pointer items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3.5 text-left text-sm shadow-sm shadow-slate-200/40 outline-none transition",
-          "hover:border-slate-300 hover:shadow-md hover:shadow-slate-200/50",
-          "focus-visible:border-violet-400 focus-visible:ring-2 focus-visible:ring-violet-100",
-          "data-[state=open]:border-violet-400 data-[state=open]:ring-2 data-[state=open]:ring-violet-100",
+          "group flex h-11 w-full cursor-pointer items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3.5 text-left text-sm shadow-sm shadow-slate-200/40 outline-none transition dark:shadow-black/20",
+          "hover:border-slate-300 hover:shadow-md hover:shadow-slate-200/50 dark:hover:shadow-black/30",
+          "focus-visible:border-violet-400 focus-visible:ring-2 focus-visible:ring-violet-100 dark:focus-visible:ring-primary/30",
+          "data-[state=open]:border-violet-400 data-[state=open]:ring-2 data-[state=open]:ring-violet-100 dark:data-[state=open]:ring-primary/30",
           "disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400 disabled:shadow-none",
           className,
         )}

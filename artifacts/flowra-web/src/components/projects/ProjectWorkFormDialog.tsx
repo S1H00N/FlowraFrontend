@@ -21,6 +21,8 @@ import {
 import {
   WORK_PRIORITY_OPTIONS,
   WORK_STATUS_OPTIONS,
+  workPriorityLabel,
+  workStatusLabel,
 } from "./ProjectWorkPresentation";
 import {
   useCreateCompanyProjectPhase,
@@ -144,6 +146,9 @@ export default function ProjectWorkFormDialog({
     updateWork.isPending ||
     createAssignment.isPending;
   const [selectedAssignees, setSelectedAssignees] = useState<number[]>([]);
+  const [assigneesOpen, setAssigneesOpen] = useState(false);
+  const assigneeToggleRef = useRef<HTMLButtonElement>(null);
+  const assigneeSearchRef = useRef<HTMLInputElement>(null);
   const [assigneeSearch, setAssigneeSearch] = useState("");
   const [assigneeLimit, setAssigneeLimit] = useState(10);
   const [createdWork, setCreatedWork] = useState<CompanyProjectWorkItem | null>(null);
@@ -250,15 +255,15 @@ export default function ProjectWorkFormDialog({
   const locationLabel = projectLocationLabel(tree, draft);
   const hasAdvancedValues = Boolean(
     draft.description ||
-    draft.status !== "todo" ||
-    draft.priority !== "medium" ||
+    (!editing && draft.status !== "todo") ||
+    (!editing && target.kind === "work" && draft.priority !== "medium") ||
     draft.actualStart ||
     draft.actualEnd ||
     draft.dueDate ||
     draft.dueTime ||
     draft.wbs ||
     Number(draft.sortOrder) !== 0 ||
-    draft.progressMode === "manual",
+    (!editing && target.kind === "work" && draft.progressMode === "manual"),
   );
   const [advancedOpen, setAdvancedOpen] = useState(false);
   useLayoutEffect(() => {
@@ -558,7 +563,7 @@ export default function ProjectWorkFormDialog({
       draft.progressMode === "manual" &&
       (!/^\d+$/.test(draft.progress) || Number(draft.progress) > 100)
     ) {
-      invalid("progress", "진행률은 0~100 사이의 정수로 입력해 주세요.", true);
+      invalid("progress", "진행률은 0~100 사이의 정수로 입력해 주세요.", !editing);
       return;
     }
     if (
@@ -581,6 +586,8 @@ export default function ProjectWorkFormDialog({
     if (selectedAssignees.length && (directoryLoading || directoryError || selectedAssignees.some((memberId) =>
       !availableAssignees.some((member) => member.company_member_id === memberId)))) {
       setError("선택한 담당자의 참여 상태를 확인할 수 없습니다. 구성원 정보를 다시 확인하거나 선택을 해제해 주세요.");
+      setAssigneesOpen(true);
+      requestAnimationFrame(() => assigneeSearchRef.current?.focus());
       return;
     }
     if (editing && !dirty) {
@@ -771,7 +778,8 @@ export default function ProjectWorkFormDialog({
             const parts = Array.isArray(path) ? path : [path];
             return parts.some(
               (part) =>
-                typeof part === "string" && advancedApiFields.includes(part),
+                typeof part === "string" && advancedApiFields.includes(part) &&
+                (!editing || !["status", "priority", "progress_percent", "progress_override_percent"].includes(part)),
             );
           }));
       if (advancedIssue) {
@@ -784,6 +792,94 @@ export default function ProjectWorkFormDialog({
     }
   }
   const kindLabel = target.kind === "phase" ? "단계" : "업무";
+  const statusFields = (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <div className="min-w-0 space-y-1" data-project-work-field="status">
+        <p className="text-sm">상태</p>
+        <CustomSelect
+          ariaLabel={`${kindLabel} 상태 선택`}
+          value={draft.status}
+          options={WORK_STATUS_OPTIONS}
+          onChange={(value) => field("status", value)}
+          disabled={fieldsDisabled}
+          className={selectClass}
+          showFallbackMarker={false}
+          matchTriggerWidth
+          collisionBoundaryRef={fieldsRef}
+          contentClassName="project-work-select-menu border-border bg-background text-foreground overscroll-contain"
+        />
+        {fieldError("status")}
+      </div>
+      {target.kind === "work" && (
+        <div className="min-w-0 space-y-1" data-project-work-field="priority">
+          <p className="text-sm">우선순위</p>
+          <CustomSelect
+            ariaLabel="업무 우선순위 선택"
+            value={draft.priority}
+            options={WORK_PRIORITY_OPTIONS}
+            onChange={(value) => field("priority", value)}
+            disabled={fieldsDisabled}
+            className={selectClass}
+            showFallbackMarker={false}
+            matchTriggerWidth
+            collisionBoundaryRef={fieldsRef}
+            contentClassName="project-work-select-menu border-border bg-background text-foreground overscroll-contain"
+          />
+          {fieldError("priority")}
+        </div>
+      )}
+    </div>
+  );
+  const progressFields = (
+    <div className="space-y-2">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="min-w-0 space-y-1" data-project-work-field="progressMode">
+          <p className="text-sm">진행률 설정</p>
+          <CustomSelect
+            ariaLabel="업무 진행률 설정"
+            value={draft.progressMode}
+            options={PROGRESS_MODE_OPTIONS}
+            onChange={(value) =>
+              field("progressMode", value)
+            }
+            disabled={fieldsDisabled}
+            className={selectClass}
+            showFallbackMarker={false}
+            matchTriggerWidth
+            collisionBoundaryRef={fieldsRef}
+            contentClassName="project-work-select-menu border-border bg-background text-foreground overscroll-contain"
+          />
+          {fieldError("progressMode")}
+        </div>
+        {draft.progressMode === "manual" && (
+          <label className="min-w-0 space-y-1" data-project-work-field="progress">
+            <span className="text-sm">
+              진행률 수동 설정 (%)
+            </span>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              aria-label="업무 진행률"
+              className={fieldClass}
+              value={draft.progress}
+              onChange={(event) =>
+                field("progress", event.target.value)
+              }
+            />
+            {fieldError("progress")}
+          </label>
+        )}
+      </div>
+      <p className="text-xs leading-5 text-muted-foreground">
+        수동 설정은 0%도 지정할 수 있습니다. 자동
+        계산으로 전환하면 담당자 배정을 기준으로 다시
+        계산하며, 배정이 없으면 기존 진행률이
+        유지됩니다.
+      </p>
+    </div>
+  );
   return (
     <Dialog
       open
@@ -899,6 +995,8 @@ export default function ProjectWorkFormDialog({
                         {fieldError("parentId")}
                       </>
                   </div>}
+                  {editing && statusFields}
+                  {editing && target.kind === "work" && progressFields}
                   <div className="space-y-2" role="group" aria-label="예정 기간">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-medium">예정 기간</p>
@@ -934,7 +1032,7 @@ export default function ProjectWorkFormDialog({
                       matchTriggerWidth
                       collisionBoundaryRef={fieldsRef}
                     />}
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
                     {(
                       [
                         ["plannedStart", "예정 시작일"],
@@ -948,7 +1046,7 @@ export default function ProjectWorkFormDialog({
                           clearLabel={`${kindLabel} ${label} 지우기`}
                           value={draft[key]}
                           onChange={(value) => field(key, value)}
-                          emptyPlaceholder="날짜 선택"
+                          emptyPlaceholder={key === "plannedStart" ? "시작일 미정" : "종료일 미정"}
                           disabled={fieldsDisabled}
                           className={dateClass}
                         />
@@ -961,8 +1059,21 @@ export default function ProjectWorkFormDialog({
                     </p>
                   </div>
                   {!editing && target.kind === "work" && <section className="space-y-2" aria-label="담당자 선택">
-                    <p className="text-sm font-medium">담당자 <span className="text-xs font-normal text-muted-foreground">(선택)</span></p>
-                    <Input aria-label="프로젝트 구성원 검색" placeholder="이름 또는 부서 검색" value={assigneeSearch}
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">담당자</p>
+                      <Button ref={assigneeToggleRef} type="button" size="sm" variant="outline"
+                        aria-label="담당자 선택" aria-expanded={assigneesOpen} aria-controls={`${id}-assignees`}
+                        disabled={fieldsDisabled} onClick={() => setAssigneesOpen((open) => !open)}>
+                        {assigneesOpen ? "접기" : selectedAssignees.length ? "변경" : "선택"}
+                      </Button>
+                    </div>
+                    <p role="status" className="truncate text-sm text-muted-foreground" title={selectedAssignees.map((company_member_id) => projectMemberName({ company_member_id }, directory, membership)).join(", ")}>
+                      {selectedAssignees.length
+                        ? `${projectMemberName({ company_member_id: selectedAssignees[0] }, directory, membership)}${selectedAssignees.length > 1 ? ` 외 ${selectedAssignees.length - 1}명` : ""}`
+                        : "선택 안 함"}
+                    </p>
+                    {assigneesOpen && <div id={`${id}-assignees`} className="space-y-2 rounded-xl border border-border p-3">
+                    <Input ref={assigneeSearchRef} aria-label="프로젝트 구성원 검색" placeholder="이름 또는 부서 검색" value={assigneeSearch}
                       className={fieldClass} disabled={fieldsDisabled}
                       onChange={(event) => { setAssigneeSearch(event.target.value); setAssigneeLimit(10); }} />
                     {directoryLoading && <p role="status" className="projects-note">구성원을 불러오는 중...</p>}
@@ -996,7 +1107,13 @@ export default function ProjectWorkFormDialog({
                         </Button>;
                       })}
                     </div>}
-                    <p className="projects-note">{selectedAssignees.length ? `${selectedAssignees.length}명 선택 · ` : "미배정 · "}현재 프로젝트의 활성 구성원을 여러 명 선택할 수 있습니다.</p>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="projects-note">{selectedAssignees.length ? `${selectedAssignees.length}명 선택` : "여러 명 선택 가능"}</p>
+                      <Button type="button" variant="outline" size="sm" disabled={fieldsDisabled}
+                        onClick={() => { setAssigneesOpen(false); assigneeToggleRef.current?.focus(); }}>담당자 선택 완료</Button>
+                    </div>
+                    </div>}
+                    {selectedAssignees.length > 0 && <p className="projects-note">업무를 추가한 뒤 담당자를 배정합니다.</p>}
                   </section>}
                   <div>
                     <button
@@ -1012,6 +1129,9 @@ export default function ProjectWorkFormDialog({
                         className={`h-4 w-4 shrink-0 transition-transform ${advancedOpen ? "" : "-rotate-90"}`}
                       />
                       <span>추가 설정 (선택)</span>
+                      {!editing && !advancedError && <span className="min-w-0 truncate text-xs font-normal text-muted-foreground">
+                        {workStatusLabel(draft.status)}{target.kind === "work" && ` · ${workPriorityLabel(draft.priority)}`}
+                      </span>}
                       {advancedError ? (
                         <span className="ml-auto text-xs text-destructive">
                           오류 확인
@@ -1044,44 +1164,9 @@ export default function ProjectWorkFormDialog({
                           />
                           {fieldError("description")}
                         </label>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div className="min-w-0 space-y-1" data-project-work-field="status">
-                            <p className="text-sm">상태</p>
-                            <CustomSelect
-                              ariaLabel={`${kindLabel} 상태 선택`}
-                              value={draft.status}
-                              options={WORK_STATUS_OPTIONS}
-                              onChange={(value) => field("status", value)}
-                              disabled={fieldsDisabled}
-                              className={selectClass}
-                              showFallbackMarker={false}
-                              matchTriggerWidth
-                              collisionBoundaryRef={fieldsRef}
-                              contentClassName="project-work-select-menu border-border bg-background text-foreground overscroll-contain"
-                            />
-                            {fieldError("status")}
-                          </div>
-                          {target.kind === "work" && (
-                            <div className="min-w-0 space-y-1" data-project-work-field="priority">
-                              <p className="text-sm">우선순위</p>
-                              <CustomSelect
-                                ariaLabel="업무 우선순위 선택"
-                                value={draft.priority}
-                                options={WORK_PRIORITY_OPTIONS}
-                                onChange={(value) => field("priority", value)}
-                                disabled={fieldsDisabled}
-                                className={selectClass}
-                                showFallbackMarker={false}
-                                matchTriggerWidth
-                                collisionBoundaryRef={fieldsRef}
-                                contentClassName="project-work-select-menu border-border bg-background text-foreground overscroll-contain"
-                              />
-                              {fieldError("priority")}
-                            </div>
-                          )}
-                        </div>
+                        {!editing && statusFields}
                         <div
-                          className="grid grid-cols-2 gap-3"
+                          className="grid gap-3 sm:grid-cols-2"
                           role="group"
                           aria-label="실제 기간"
                         >
@@ -1158,54 +1243,7 @@ export default function ProjectWorkFormDialog({
                                 {fieldError("dueTime")}
                               </div>
                             </div>
-                            <div className="space-y-2">
-                              <div className="grid gap-3 sm:grid-cols-2">
-                                <div className="min-w-0 space-y-1" data-project-work-field="progressMode">
-                                  <p className="text-sm">진행률 설정</p>
-                                  <CustomSelect
-                                    ariaLabel="업무 진행률 설정"
-                                    value={draft.progressMode}
-                                    options={PROGRESS_MODE_OPTIONS}
-                                    onChange={(value) =>
-                                      field("progressMode", value)
-                                    }
-                                    disabled={fieldsDisabled}
-                                    className={selectClass}
-                                    showFallbackMarker={false}
-                                    matchTriggerWidth
-                                    collisionBoundaryRef={fieldsRef}
-                                    contentClassName="project-work-select-menu border-border bg-background text-foreground overscroll-contain"
-                                  />
-                                  {fieldError("progressMode")}
-                                </div>
-                                {draft.progressMode === "manual" && (
-                                  <label className="min-w-0 space-y-1" data-project-work-field="progress">
-                                    <span className="text-sm">
-                                      진행률 수동 설정 (%)
-                                    </span>
-                                    <Input
-                                      type="number"
-                                      min={0}
-                                      max={100}
-                                      step={1}
-                                      aria-label="업무 진행률"
-                                      className={fieldClass}
-                                      value={draft.progress}
-                                      onChange={(event) =>
-                                        field("progress", event.target.value)
-                                      }
-                                    />
-                                    {fieldError("progress")}
-                                  </label>
-                                )}
-                              </div>
-                              <p className="text-xs leading-5 text-muted-foreground">
-                                수동 설정은 0%도 지정할 수 있습니다. 자동
-                                계산으로 전환하면 담당자 배정을 기준으로 다시
-                                계산하며, 배정이 없으면 기존 진행률이
-                                유지됩니다.
-                              </p>
-                            </div>
+                            {!editing && progressFields}
                             <label className="block space-y-1" data-project-work-field="wbs">
                               <span className="text-sm">WBS 코드</span>
                               <Input

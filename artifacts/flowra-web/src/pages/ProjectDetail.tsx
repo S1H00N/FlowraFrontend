@@ -291,7 +291,7 @@ export default function ProjectDetail() {
                     )}
                     {project.phase_mode && (
                       <div>
-                        <dt>운영 방식</dt>
+                        <dt>관리 방식</dt>
                         <dd>
                           {project.phase_mode === "phased"
                             ? "단계별 관리"

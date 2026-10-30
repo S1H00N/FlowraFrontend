@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { FolderKanban, Plus, RefreshCw, Search } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import type { CompanyProject, CompanyProjectStatus } from "@/types";
 import "./Projects.css";
 
 export default function Projects() {
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const memberships = useCompanyMemberships();
   const activeMemberships =
@@ -335,10 +336,10 @@ export default function Projects() {
             }}
             membership={membership}
             project={form === "create" ? undefined : form}
-            onSaved={() => {
+            onSaved={(savedProject) => {
               if (form === "create") {
                 setSearch("");
-                changeParams({ q: undefined, status: undefined });
+                navigate(`/projects/${savedProject.company_project_id}?company_id=${membership.company_id}`);
               }
               setForm(null);
             }}

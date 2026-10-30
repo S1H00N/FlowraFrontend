@@ -177,7 +177,7 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
     queryKey: snapshotKey(id),
     queryFn: async ({ signal }: { signal: AbortSignal }) => {
       const response = await listCompanyProjectWorkItemChildren(projectId, id, { depth: 1 }, { signal });
-      if (!response.success) throw new Error(response.message || "하위 업무를 불러오지 못했습니다.");
+      if (!response.success) throw new Error(response.message || "세부 업무를 불러오지 못했습니다.");
       return response.data;
     },
     enabled: active && Boolean(data), retry: false, staleTime: 30_000, structuralSharing: false,
@@ -284,8 +284,24 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
   const timelineViewport = Math.max(120, viewport.width - wbsWidth);
   const headers = useMemo(() => getProjectGanttHeaders(axis, viewport.left, timelineViewport), [axis, viewport.left, timelineViewport]);
   const todayX = axis.dateToX(today);
-  const dependencyRelations = useMemo(() => buildProjectGanttDependencies(data?.dependencies ?? [], items, visibleRows, axis),
-    [data, items, visibleRows, axis]);
+  const dependencies = useMemo(() => {
+    const merged = new Map((data?.dependencies ?? []).map((dependency) =>
+      [dependency.company_project_work_dependency_id, dependency]));
+    const snapshots = branches.filter((branch) => branch.data && !branch.isError)
+      .sort((left, right) => left.dataUpdatedAt - right.dataUpdatedAt);
+    for (const snapshot of snapshots) {
+      const returnedIds = new Set(snapshot.data!.items.map((item) => item.company_project_work_item_id));
+      // A successful branch replaces relationships for its returned children.
+      // Keep external endpoints so the text list can explain the query limit.
+      for (const [id, dependency] of merged)
+        if (returnedIds.has(dependency.predecessor_work_item_id) || returnedIds.has(dependency.successor_work_item_id)) merged.delete(id);
+      for (const dependency of snapshot.data!.dependencies)
+        merged.set(dependency.company_project_work_dependency_id, dependency);
+    }
+    return [...merged.values()];
+  }, [data, branchVersion, detailUpdatedAt]);
+  const dependencyRelations = useMemo(() => buildProjectGanttDependencies(dependencies, items, visibleRows, axis),
+    [dependencies, items, visibleRows, axis]);
   const drawableDependencyCount = dependencyRelations.filter((relation) => relation.geometry).length;
   const showDependencies = dependencyChoice ?? drawableDependencyCount <= 100;
   const relatedWorkIds = useMemo(() => {
@@ -544,7 +560,7 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
     const expandable = rowExpandable(row);
     const open = rowExpanded(row);
     return expandable ? <Button variant="ghost" size="icon" className="gantt-expand" disabled={Boolean(matchingIds) || branch?.isFetching}
-      aria-expanded={open} aria-label={`${row.label} ${branch?.isError ? "하위 업무 다시 조회" : open ? "접기" : "펼치기"}`}
+      aria-expanded={open} aria-label={`${row.label} ${branch?.isError ? "세부 업무 다시 조회" : open ? "접기" : "펼치기"}`}
       onClick={() => work ? toggleWork(work) : toggleGroup(row.key)}>
       {branch?.isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : branch?.isError ? <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
         : open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
@@ -582,9 +598,9 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
     if (period.kind === "unset" && !display.undated) return null;
     if (period.kind === "unset") return <Tooltip><TooltipTrigger asChild>
       {row.kind === "work" ? <button type="button" className="gantt-period-label gantt-period-unset"
-        aria-label={`${row.label} 계획 기간 미설정`} onClick={() => onSelect(row.item, items)}>—</button>
-        : <span tabIndex={0} className="gantt-period-label gantt-period-unset" aria-label={`${row.label} 계획 기간 미설정`}>—</span>}
-    </TooltipTrigger><TooltipContent className="gantt-tooltip">계획 기간이 설정되지 않았습니다.</TooltipContent></Tooltip>;
+        aria-label={`${row.label} 예정 기간 미설정`} onClick={() => onSelect(row.item, items)}>—</button>
+        : <span tabIndex={0} className="gantt-period-label gantt-period-unset" aria-label={`${row.label} 예정 기간 미설정`}>—</span>}
+    </TooltipTrigger><TooltipContent className="gantt-tooltip">예정 기간이 설정되지 않았습니다.</TooltipContent></Tooltip>;
     if (period.kind === "invalid") return <span className="gantt-period-label text-destructive">
       <AlertTriangle className="h-3 w-3" aria-hidden="true" />계획 날짜 확인 필요</span>;
     const marker = period.kind !== "period";
@@ -727,7 +743,7 @@ function ProjectGanttSession({ detail, detailUpdatedAt, active, selectedId, onSe
     </p>}
     {graph.warnings.length > 0 && <p className="gantt-warning" role="status"><AlertTriangle className="h-3.5 w-3.5" />상위 경로 일부를 확인할 수 없습니다. 조회된 관계만 표시합니다.</p>}
     {overDepthIds.size > 0 && <p className="gantt-warning" role="status"><AlertTriangle className="h-3.5 w-3.5" />최대 5단계를 초과한 계층은 표시할 수 없습니다. 원본 관계를 확인해 주세요.</p>}
-    {branches.some((branch) => branch.isError) && <p className="gantt-warning" role="status">하위 업무 조회에 실패했습니다. 경고가 표시된 펼치기 버튼으로 다시 조회해 주세요.</p>}
+    {branches.some((branch) => branch.isError) && <p className="gantt-warning" role="status">세부 업무 조회에 실패했습니다. 경고가 표시된 펼치기 버튼으로 다시 조회해 주세요.</p>}
     {gantt.isError ? <div className="gantt-state" role="alert"><AlertTriangle className="h-5 w-5" /><p>{errorMessage}</p>
       <Button size="sm" variant="outline" onClick={() => void gantt.refetch()}>다시 조회</Button></div>
       : !data ? <div className="gantt-state" role="status"><Loader2 className="h-5 w-5 animate-spin" />간트 일정을 불러오는 중입니다.</div>

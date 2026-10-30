@@ -660,7 +660,7 @@ export function CompactDateInput({
                       )
                     }
                     className={cn(
-                      "h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white",
+                      "h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-neutral-800 hover:text-white",
                       canResetVisibleMonth ? "inline-flex" : "hidden",
                     )}
                     aria-label="Go to current month"
@@ -677,7 +677,7 @@ export function CompactDateInput({
                           new Date(prev.getFullYear(), prev.getMonth() - 1, 1),
                       )
                     }
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-neutral-800 hover:text-white"
                     aria-label="Previous month"
                   >
                     <ChevronLeft className="h-4 w-4" />
@@ -691,7 +691,7 @@ export function CompactDateInput({
                           new Date(prev.getFullYear(), prev.getMonth() + 1, 1),
                       )
                     }
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-neutral-800 hover:text-white"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-neutral-800 hover:text-white"
                     aria-label="Next month"
                   >
                     <ChevronRight className="h-4 w-4" />
@@ -733,7 +733,7 @@ export function CompactDateInput({
                         if (!disabled) selectDate(date);
                       }}
                       className={cn(
-                        "aspect-square rounded-md text-sm font-medium transition",
+                        "aspect-square rounded-md text-sm font-medium",
                         dateKey === selectedKey
                           ? "bg-violet-500 text-white"
                           : disabled
@@ -1284,7 +1284,7 @@ export function CompactTimeInput({
               onPointerMove={() => previewTimeOption(option, index)}
               onClick={() => selectTimeOption(option)}
               className={cn(
-                "flex h-8 w-full items-center rounded-md px-2 text-left text-sm font-medium tabular-nums transition",
+                "flex h-8 w-full items-center rounded-md px-2 text-left text-sm font-medium tabular-nums",
                 index === activeOptionIndex ||
                   option === draftTimeOption ||
                   option === value

@@ -51,7 +51,7 @@ type ProjectRequest = {
   query: Record<string, string>;
   body: Record<string, unknown>;
 };
-type Failure = { status: number; code: string; message: string };
+type Failure = { status: number; code: string; message: string; details?: unknown };
 type ProjectFixtureOptions = {
   empty?: boolean;
   noMemberships?: boolean;
@@ -165,7 +165,7 @@ async function installProjectApi(
         json: {
           success: false,
           message: failure.message,
-          error: { code: failure.code },
+          error: { code: failure.code, ...(failure.details ? { details: failure.details } : {}) },
         },
       });
       return;
@@ -715,6 +715,130 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     });
   }
 
+  test("UX2B: 프로젝트 기본 생성은 필수 이름과 정책 요약을 표시하고 미정 기간으로 업무 목록에 이동한다", async ({ page }) => {
+    api = await installProjectApi(page);
+    await page.goto("/projects");
+    await page.getByRole("button", { name: "프로젝트 만들기", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "프로젝트 만들기", exact: true });
+    const additional = dialog.getByRole("button", { name: /^추가 설정/ });
+    await expect(additional).toHaveAttribute("aria-expanded", "false");
+    await expect(dialog.getByRole("textbox", { name: "설명", exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "생성 상태", exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "관리 방식", exact: true })).toContainText("단계형");
+    await expect(dialog.getByText("생성 후 변경할 수 없습니다.", { exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "공개 범위", exact: true })).toContainText("부서 및 하위 부서");
+    await dialog.getByRole("textbox", { name: "프로젝트명", exact: true }).fill("QA 이름만 입력한 프로젝트");
+    await dialog.getByRole("button", { name: "만들기", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page).toHaveURL(/\/projects\/997(?:\?|$)/);
+    await expect(page.getByRole("tab", { name: "업무 목록", exact: true })).toHaveAttribute("aria-selected", "true");
+    expect(api.requests.find((request) => request.method === "POST")?.body).toMatchObject({
+      name: "QA 이름만 입력한 프로젝트", status: "draft", phase_mode: "phased", visibility: "department_tree",
+      description: null, planned_start_date: null, planned_end_date: null,
+    });
+  });
+
+  test("UX2B: 프로젝트 추가 설정은 접어도 입력을 유지하고 수정에서 열지 않은 설명과 날짜를 생략한다", async ({ page }) => {
+    api = await installProjectApi(page);
+    const project = api.projects.find((entry) => entry.company_project_id === 901)!;
+    const original = { description: project.description, planned_start_date: project.planned_start_date, planned_end_date: project.planned_end_date };
+    await page.goto("/projects/901");
+    await page.getByRole("button", { name: "프로젝트 수정", exact: true }).click();
+    let dialog = page.getByRole("dialog", { name: "프로젝트 수정", exact: true });
+    await expect(dialog.getByRole("button", { name: /^추가 설정/ })).toHaveAttribute("aria-expanded", "false");
+    await expect(dialog.getByRole("button", { name: "프로젝트 상태 변경", exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "관리 방식", exact: true })).toHaveCount(0);
+    await dialog.getByRole("textbox", { name: "프로젝트명", exact: true }).fill("QA 기본 수정 프로젝트");
+    await dialog.getByRole("button", { name: "저장", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(api.requests.find((request) => request.method === "PATCH")?.body).toEqual({ name: "QA 기본 수정 프로젝트" });
+    expect(project).toMatchObject(original);
+    await page.getByRole("button", { name: "프로젝트 수정", exact: true }).click();
+    dialog = page.getByRole("dialog", { name: "프로젝트 수정", exact: true });
+    const additional = dialog.getByRole("button", { name: /^추가 설정/ });
+    await additional.click();
+    await dialog.getByRole("textbox", { name: "설명", exact: true }).fill("QA 접어 둔 설명");
+    await additional.click();
+    await expect(additional).toHaveAttribute("aria-expanded", "false");
+    await additional.click();
+    await expect(dialog.getByRole("textbox", { name: "설명", exact: true })).toHaveValue("QA 접어 둔 설명");
+    await additional.click();
+    await dialog.getByRole("button", { name: "저장", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(api.requests.filter((request) => request.method === "PATCH").at(-1)?.body).toEqual({ description: "QA 접어 둔 설명" });
+  });
+
+  test("UX2B: 접힌 프로젝트 추가 설정의 서버 오류는 영역을 펼치고 해당 입력에 포커스하며 재시도 값을 유지한다", async ({ page }) => {
+    api = await installProjectApi(page);
+    api.failures.set("POST /company-projects", { status: 400, code: "VALIDATION_ERROR", message: "프로젝트 설명을 확인해 주세요.",
+      details: { issues: [{ path: ["description"], message: "설명을 확인해 주세요." }] } });
+    await page.goto("/projects");
+    await page.getByRole("button", { name: "프로젝트 만들기", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "프로젝트 만들기", exact: true });
+    const additional = dialog.getByRole("button", { name: /^추가 설정/ });
+    await dialog.getByRole("textbox", { name: "프로젝트명", exact: true }).fill("QA 추가 설정 오류 복구");
+    await additional.click();
+    await dialog.getByRole("textbox", { name: "설명", exact: true }).fill("QA 기존 입력");
+    await additional.click();
+    await dialog.getByRole("button", { name: "만들기", exact: true }).click();
+    const description = dialog.getByRole("textbox", { name: "설명", exact: true });
+    await expect(additional).toHaveAttribute("aria-expanded", "true");
+    await expect(description).toHaveAttribute("aria-invalid", "true");
+    await expect(description).toHaveAccessibleDescription("설명을 확인해 주세요.");
+    await expect(description).toBeFocused();
+    await expect(description).toBeInViewport();
+    await expect(description).toHaveValue("QA 기존 입력");
+    await description.fill("QA 수정한 설명");
+    api.failures.delete("POST /company-projects");
+    await additional.click();
+    await dialog.getByRole("button", { name: "만들기", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(api.requests.filter((request) => request.method === "POST").at(-1)?.body).toMatchObject({ name: "QA 추가 설정 오류 복구", description: "QA 수정한 설명" });
+  });
+
+  test("UX2B: 320·390·768·1024·1440px에서 프로젝트 폼의 정책·날짜·추가 설정과 고정 저장 버튼을 유지한다", async ({ page }) => {
+    api = await installProjectApi(page);
+    await page.goto("/projects");
+    for (const width of [320, 390, 768, 1024, 1440]) {
+      await page.setViewportSize({ width, height: 560 });
+      await page.getByRole("button", { name: "프로젝트 만들기", exact: true }).click();
+      const dialog = page.getByRole("dialog", { name: "프로젝트 만들기", exact: true });
+      await expect(dialog.getByRole("button", { name: /^추가 설정/ })).toHaveAttribute("aria-expanded", "false");
+      for (const label of ["관리 방식", "공개 범위"]) {
+        const control = dialog.getByRole("button", { name: label, exact: true });
+        await control.focus();
+        await control.press("Enter");
+        await expect(dialog.getByRole("listbox", { name: label, exact: true })).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(dialog).toBeVisible();
+        await expect(control).toBeFocused();
+      }
+      const start = (await dialog.getByRole("textbox", { name: "예정 시작일", exact: true }).boundingBox())!;
+      const end = (await dialog.getByRole("textbox", { name: "예정 종료일", exact: true }).boundingBox())!;
+      if (width < 640) expect(end.y).toBeGreaterThanOrEqual(start.y + start.height);
+      else expect(end.y).toBeCloseTo(start.y, 0);
+      const additional = dialog.getByRole("button", { name: /^추가 설정/ });
+      await additional.focus();
+      await additional.press("Space");
+      await expect(additional).toHaveAttribute("aria-expanded", "true");
+      await dialog.getByRole("textbox", { name: "설명", exact: true }).focus();
+      await expect(dialog.getByRole("textbox", { name: "설명", exact: true })).toBeInViewport();
+      await expect(dialog.getByRole("button", { name: "만들기", exact: true })).toBeInViewport({ ratio: 1 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+      const startInput = dialog.getByRole("textbox", { name: "예정 시작일", exact: true });
+      await startInput.click();
+      await expect(dialog.locator(".schedule-date-popover")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(dialog.locator(".schedule-date-popover")).toHaveCount(0);
+      await expect(dialog).toBeVisible();
+      await expect(additional).toHaveAttribute("aria-expanded", "true");
+      await expect(startInput).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(dialog).toHaveCount(0);
+    }
+    expect(api.requests.filter((request) => request.method !== "GET")).toEqual([]);
+  });
+
   test("생성 폼을 검증하고 중복 제출 없이 날짜·정책 값을 전송한 뒤 서버 ID를 사용한다", async ({
     page,
   }) => {
@@ -745,6 +869,7 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     await dialog
       .getByRole("textbox", { name: "프로젝트명", exact: true })
       .fill("QA 새 프로젝트");
+    await dialog.getByRole("button", { name: /^추가 설정/ }).click();
     await dialog
       .getByRole("textbox", { name: "설명", exact: true })
       .fill("QA 생성 설명");
@@ -796,15 +921,8 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     await expect(page).toHaveURL(
       (url) => !url.searchParams.has("q") && !url.searchParams.has("status"),
     );
-    const createdLink = page.getByRole("link", {
-      name: /^QA 새 프로젝트(?:\s|$)/,
-    });
-    await expect(createdLink).toHaveAttribute(
-      "href",
-      /^\/projects\/997(?:\?|$)/,
-    );
-    await createdLink.click();
     await expect(page).toHaveURL(/\/projects\/997(?:\?|$)/);
+    await expect(page.getByRole("tab", { name: "업무 목록", exact: true })).toHaveAttribute("aria-selected", "true");
     await expect(
       page.getByRole("heading", { name: /^QA 새 프로젝트(?:\s|$)/ }),
     ).toBeVisible();
@@ -874,7 +992,7 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     await expect(startClear.locator("svg")).toBeVisible();
     await startClear.click();
     await expect(startClear).toHaveCount(0);
-    await expect(start).toHaveValue("날짜 선택");
+    await expect(start).toHaveValue("시작일 미정");
     await expect(end).toHaveValue("09.30(수)");
     await expect(endClear).toBeVisible();
     await expect(start).toHaveAttribute("aria-expanded", "false");
@@ -887,7 +1005,7 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     await endClear.focus();
     await endClear.press("Enter");
     await expect(endClear).toHaveCount(0);
-    await expect(end).toHaveValue("날짜 선택");
+    await expect(end).toHaveValue("종료일 미정");
     await expect(start).toHaveValue("09.20(일)");
     await expect(startClear).toBeVisible();
     await expect(calendar).toHaveCount(0);
@@ -934,6 +1052,7 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     await dialog
       .getByRole("textbox", { name: "프로젝트명", exact: true })
       .fill("QA 보관 프로젝트");
+    await dialog.getByRole("button", { name: /^추가 설정/ }).click();
     await dialog.getByRole("textbox", { name: "설명", exact: true }).fill("");
     await fillDate(page, "예정 시작일", "");
     await fillDate(page, "예정 종료일", "");
@@ -988,6 +1107,59 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     expect(
       api.requests.filter((request) => request.method === "PATCH"),
     ).toHaveLength(0);
+  });
+
+  for (const revoked of ["403", "viewer"] as const) {
+  test(`열린 프로젝트 수정에서 관리 권한이 ${revoked}로 회수되면 초안을 보존하고 재전송을 막는다`, async ({ page }) => {
+    api = await installProjectApi(page);
+    await page.goto("/projects/901");
+    await page.getByRole("button", { name: "프로젝트 수정", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "프로젝트 수정", exact: true });
+    const name = dialog.getByRole("textbox", { name: "프로젝트명", exact: true });
+    await name.fill("QA 권한 회수 후 보존할 수정");
+    const forbidden = { status: 403, code: "PROJECT_MANAGEMENT_FORBIDDEN", message: "프로젝트 관리 권한이 없습니다." };
+    api.failures.set("PATCH /company-projects/901", forbidden);
+    if (revoked === "403") api.failures.set("GET /company-projects/901/members", forbidden);
+    else api.payloads.set("GET /company-projects/901/members", { members: [{
+      company_project_member_id: 1901, company_member_id: memberships[0].company_member_id,
+      role: "viewer", status: "active",
+    }] });
+    await dialog.getByRole("button", { name: "저장", exact: true }).click();
+    await expect(name).toHaveValue("QA 권한 회수 후 보존할 수정");
+    await expect(name).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "권한 다시 확인", exact: true })).toHaveCount(0);
+    await dialog.locator("form").evaluate((form) => (form as HTMLFormElement).requestSubmit());
+    expect(api.requests.filter((request) => request.method === "PATCH")).toHaveLength(1);
+    expect(api.projects[0].name).toBe("QA 고객 프로젝트");
+  });
+  }
+
+  test("프로젝트 수정의 일시적인 권한 조회 실패는 초안을 보존하고 재확인 후 저장한다", async ({ page }) => {
+    api = await installProjectApi(page);
+    await page.goto("/projects/901");
+    await page.getByRole("button", { name: "프로젝트 수정", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "프로젝트 수정", exact: true });
+    const name = dialog.getByRole("textbox", { name: "프로젝트명", exact: true });
+    await name.fill("QA 권한 재확인 후 저장할 수정");
+    for (const key of ["PATCH /company-projects/901", "GET /company-projects/901/members"])
+      api.failures.set(key, { status: 503, code: "INTERNAL_ERROR", message: "QA 일시적인 서버 오류" });
+    await dialog.getByRole("button", { name: "저장", exact: true }).click();
+    await expect(name).toHaveValue("QA 권한 재확인 후 저장할 수정");
+    await expect(name).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "저장", exact: true })).toBeDisabled();
+    await expect(dialog.getByText("권한을 다시 확인할 때까지 입력 내용이 유지되며 저장할 수 없습니다.", { exact: true })).toBeVisible();
+    expect(api.requests.filter((request) => request.method === "PATCH")).toHaveLength(1);
+    for (const key of ["PATCH /company-projects/901", "GET /company-projects/901/members"])
+      api.failures.delete(key);
+    await dialog.getByRole("button", { name: "권한 다시 확인", exact: true }).click();
+    await expect(name).toHaveValue("QA 권한 재확인 후 저장할 수정");
+    await expect(dialog.getByRole("button", { name: "저장", exact: true })).toBeEnabled();
+    await dialog.getByRole("button", { name: "저장", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(api.projects[0].name).toBe("QA 권한 재확인 후 저장할 수정");
+    expect(api.requests.filter((request) => request.method === "PATCH").map((request) => request.body))
+      .toEqual([{ name: "QA 권한 재확인 후 저장할 수정" }, { name: "QA 권한 재확인 후 저장할 수정" }]);
   });
 
   test("회사 멤버십이 없으면 프로젝트 조회 및 생성을 요청하지 않는다", async ({
@@ -1223,6 +1395,7 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     await dialog
       .getByRole("textbox", { name: "프로젝트명", exact: true })
       .fill("QA 정책 거절 프로젝트");
+    await dialog.getByRole("button", { name: /^추가 설정/ }).click();
     await dialog
       .getByRole("textbox", { name: "설명", exact: true })
       .fill("QA 작성 내용 유지");
@@ -1230,7 +1403,7 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     await fillDate(page, "예정 종료일", "2026-09-30");
     await selectOption(page, "공개 범위", "프로젝트 구성원");
     await selectOption(page, "생성 상태", "진행 중");
-    await selectOption(page, "운영 방식", /^단계 없음/);
+    await selectOption(page, "관리 방식", /^단계 없음/);
     await expect(
       dialog.getByRole("button", { name: "만들기", exact: true }),
     ).toBeEnabled();
@@ -1263,7 +1436,7 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
       dialog.getByRole("button", { name: "생성 상태", exact: true }),
     ).toContainText("진행 중");
     await expect(
-      dialog.getByRole("button", { name: "운영 방식", exact: true }),
+      dialog.getByRole("button", { name: "관리 방식", exact: true }),
     ).toContainText("단계 없음");
     expect(
       api.projects.some((project) => project.name === "QA 정책 거절 프로젝트"),
@@ -1426,6 +1599,7 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     const create = dialog.getByRole("button", { name: "만들기", exact: true });
     const cancel = dialog.getByRole("button", { name: "취소", exact: true });
     const fields = dialog.locator("[data-project-fields]");
+    await dialog.getByRole("button", { name: /^추가 설정/ }).click();
     await expect(title).toBeInViewport({ ratio: 1 });
     await expect(create).toBeInViewport({ ratio: 1 });
     await expect(cancel).toBeInViewport({ ratio: 1 });
@@ -1445,16 +1619,9 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     const endBox = (await dialog
       .getByRole("textbox", { name: "예정 종료일", exact: true })
       .boundingBox())!;
-    const visibilityBox = (await dialog
-      .getByRole("button", { name: "공개 범위", exact: true })
-      .boundingBox())!;
-    const statusBox = (await dialog
-      .getByRole("button", { name: "생성 상태", exact: true })
-      .boundingBox())!;
-    for (const [first, second] of [
-      [startBox, endBox],
-      [visibilityBox, statusBox],
-    ]) {
+    await expect(dialog.getByRole("button", { name: "공개 범위", exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "생성 상태", exact: true })).toBeVisible();
+    for (const [first, second] of [[startBox, endBox]]) {
       if (width < 640) {
         expect(second.y).toBeGreaterThanOrEqual(first.y + first.height);
         expect(second.x).toBeCloseTo(first.x, 0);
@@ -1473,13 +1640,13 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     await create.click({ trial: true });
     await cancel.click({ trial: true });
     const trigger = dialog.getByRole("button", {
-      name: "운영 방식",
+      name: "관리 방식",
       exact: true,
     });
     await trigger.focus();
     await trigger.press("ArrowDown");
     const menu = dialog.getByRole("listbox", {
-      name: "운영 방식",
+      name: "관리 방식",
       exact: true,
     });
     const phased = menu.getByRole("option", { name: /^단계형/ });
@@ -1511,9 +1678,7 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     expect(menuBounds.x + menuBounds.width).toBeLessThanOrEqual(width + 1);
     expect(menuBounds.y).toBeGreaterThanOrEqual(0);
     expect(menuBounds.y + menuBounds.height).toBeLessThanOrEqual(500);
-    expect(menuBounds.y + menuBounds.height).toBeLessThanOrEqual(
-      triggerBounds.y + 1,
-    );
+    await expectProjectMenuInsideFields(page, "관리 방식");
     await expect(phased).toBeFocused();
     await page.keyboard.press("ArrowDown");
     await expect(phaseLess).toBeFocused();
@@ -1558,17 +1723,18 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
       exact: true,
     });
     await name.fill("QA dropdown footer 검증");
+    await dialog.getByRole("button", { name: /^추가 설정/ }).click();
     await description.fill("메뉴를 조작해도 작성 내용을 유지합니다.");
     for (const { label, next } of [
       { label: "공개 범위", next: "프로젝트 구성원" },
       { label: "생성 상태", next: "진행 중" },
-      { label: "운영 방식", next: "단계 없음" },
+      { label: "관리 방식", next: "단계 없음" },
     ]) {
       const trigger = dialog.getByRole("button", { name: label, exact: true });
       await trigger.click();
       const menu = dialog.getByRole("listbox", { name: label, exact: true });
       const bounds = await expectProjectMenuInsideFields(page, label);
-      if (label === "운영 방식") expect(bounds.side).toBe("top");
+      expect(["top", "bottom"]).toContain(bounds.side);
       await dialog
         .getByRole("button", { name: "만들기", exact: true })
         .click({ trial: true });
@@ -1628,7 +1794,7 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     });
     await name.fill("QA 작은 화면 입력 유지");
     const trigger = dialog.getByRole("button", {
-      name: "운영 방식",
+      name: "관리 방식",
       exact: true,
     });
     await trigger.evaluate((element) => {
@@ -1642,10 +1808,10 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     });
     await trigger.click();
     const menu = dialog.getByRole("listbox", {
-      name: "운영 방식",
+      name: "관리 방식",
       exact: true,
     });
-    const beforeScroll = await expectProjectMenuInsideFields(page, "운영 방식");
+    const beforeScroll = await expectProjectMenuInsideFields(page, "관리 방식");
     const menuMetrics = await menu.evaluate((element) => ({
       height: element.clientHeight,
       scrollHeight: element.scrollHeight,
@@ -1676,12 +1842,12 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     await expect
       .poll(async () => (await trigger.boundingBox())!.y)
       .toBeGreaterThan(beforeScroll.trigger.top + 10);
-    await expectProjectMenuInsideFields(page, "운영 방식");
+    await expectProjectMenuInsideFields(page, "관리 방식");
     await page.setViewportSize({
       width: width < 640 ? 360 : 1000,
       height: 500,
     });
-    await expectProjectMenuInsideFields(page, "운영 방식");
+    await expectProjectMenuInsideFields(page, "관리 방식");
     await expect(menu).toBeVisible();
     await page.keyboard.press("ArrowDown");
     await expect(
@@ -1694,11 +1860,17 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
     await expect(
       dialog.getByRole("button", { name: "만들기", exact: true }),
     ).toBeInViewport({ ratio: 1 });
+    await page.setViewportSize({ width: width < 640 ? 360 : 1000, height: 340 });
     await trigger.click();
     await expect(menu).toBeVisible();
     await dialog.locator("[data-project-fields]").evaluate((form) => {
       form.scrollTop = 0;
     });
+    expect(await trigger.evaluate((element) => {
+      const form = element.closest<HTMLElement>("[data-project-fields]")!;
+      const bounds = form.getBoundingClientRect();
+      return element.getBoundingClientRect().top >= bounds.top + form.clientTop + form.clientHeight;
+    })).toBe(true);
     await expect(menu).toHaveCount(0);
     await expect(trigger).toHaveAttribute("aria-expanded", "false");
     await expect(trigger).toContainText("단계 없음");
@@ -1820,10 +1992,10 @@ test.describe("프로젝트 기본 관리 · 가상 API", () => {
         .click({ trial: true });
       await capture(`${theme}-project-create-modal`);
       await dialog
-        .getByRole("button", { name: "운영 방식", exact: true })
+        .getByRole("button", { name: "관리 방식", exact: true })
         .click();
       const menu = dialog.getByRole("listbox", {
-        name: "운영 방식",
+        name: "관리 방식",
         exact: true,
       });
       await expect(

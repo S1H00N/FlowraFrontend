@@ -410,6 +410,78 @@ test("refresh rejection ends the session without recursive refresh", async (t) =
   assert.equal(logoutCount(), 1);
 });
 
+test("a protected retry rejected with the rotated token ends the session without another refresh", async (t) => {
+  const { apiClient, authStorage, logoutCount } = createClient();
+  const refresh = t.mock.method(axios, "post", async () => ({
+    data: { success: true, data: { tokens: { access_token: "new-access", refresh_token: "new-refresh" } } },
+  }));
+  const tokens = [];
+  apiClient.defaults.adapter = async (config) => {
+    tokens.push(config.headers.get("Authorization"));
+    throw rejectResponse(config, 401, "UNAUTHORIZED");
+  };
+  await assert.rejects(apiClient.get("/users/me"), (error) => error.response?.status === 401);
+  assert.deepEqual(tokens, ["Bearer old-access", "Bearer new-access"]);
+  assert.equal(refresh.mock.callCount(), 1);
+  assert.equal(logoutCount(), 1);
+  assert.equal(authStorage.getAccessToken(), null);
+  assert.equal(authStorage.getRefreshToken(), null);
+});
+
+test("a delayed retry rejection cannot clear a new session for the same user", async (t) => {
+  const { apiClient, authStorage, logoutCount } = createClient();
+  const refresh = t.mock.method(axios, "post", async () => ({
+    data: { success: true, data: { tokens: { access_token: "new-access", refresh_token: "new-refresh" } } },
+  }));
+  let attempts = 0;
+  apiClient.defaults.adapter = async (config) => {
+    attempts += 1;
+    if (attempts === 2) authStorage.setTokens("signed-in-access", "signed-in-refresh");
+    throw rejectResponse(config, 401, "UNAUTHORIZED");
+  };
+  await assert.rejects(apiClient.get("/users/me"), (error) => error.response?.status === 401);
+  assert.equal(attempts, 2);
+  assert.equal(refresh.mock.callCount(), 1);
+  assert.equal(logoutCount(), 0);
+  assert.equal(authStorage.getAccessToken(), "signed-in-access");
+  assert.equal(authStorage.getRefreshToken(), "signed-in-refresh");
+});
+
+test("non-session retry failures preserve the rotated session", async (t) => {
+  const refresh = t.mock.method(axios, "post", async () => ({
+    data: { success: true, data: { tokens: { access_token: "new-access", refresh_token: "new-refresh" } } },
+  }));
+  for (const outcome of ["network", "proxy-html", "permission", "server", "invalid-google-ticket"]) {
+    const { apiClient, authStorage, logoutCount } = createClient();
+    let attempts = 0;
+    apiClient.defaults.adapter = async (config) => {
+      attempts += 1;
+      if (attempts === 1) throw rejectResponse(config, 401, "UNAUTHORIZED");
+      if (outcome === "network") throw new axios.AxiosError("Network Error", "ERR_NETWORK", config);
+      if (outcome === "proxy-html") {
+        throw new axios.AxiosError("Proxy error", "ERR_BAD_RESPONSE", config, undefined, {
+          status: 401, statusText: "Unauthorized", config, headers: {}, data: "<html>Login</html>",
+        });
+      }
+      const [status, code] = {
+        permission: [403, "FORBIDDEN"],
+        server: [500, "INTERNAL_SERVER_ERROR"],
+        "invalid-google-ticket": [401, "INVALID_GOOGLE_LINK_TICKET"],
+      }[outcome];
+      throw rejectResponse(config, status, code);
+    };
+    const request = outcome === "invalid-google-ticket"
+      ? apiClient.post("/auth/google/link", { link_ticket: "memory-ticket", password: "account-password" })
+      : apiClient.get("/users/me");
+    await assert.rejects(request);
+    assert.equal(attempts, 2, outcome);
+    assert.equal(logoutCount(), 0, outcome);
+    assert.equal(authStorage.getAccessToken(), "new-access", outcome);
+    assert.equal(authStorage.getRefreshToken(), "new-refresh", outcome);
+  }
+  assert.equal(refresh.mock.callCount(), 5);
+});
+
 test("permission, conflict and server failures do not replay mutations", async (t) => {
   const { apiClient, logoutCount } = createClient();
   const refresh = t.mock.method(axios, "post", async () => { throw new Error("Must not refresh"); });

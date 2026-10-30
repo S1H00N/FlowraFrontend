@@ -745,7 +745,7 @@ function MemoCreatePanel({
                   onChange={field.onChange}
                   ariaLabel="메모 유형"
                   className="h-8 w-auto min-w-[112px] max-w-full gap-2 border-violet-200 bg-accent px-2.5 text-xs shadow-none hover:border-violet-300 hover:bg-accent hover:shadow-none [&>span>span]:gap-2 [&_.font-semibold]:text-accent-foreground [&_svg]:text-accent-foreground"
-                  contentClassName="shadow-lg shadow-slate-900/10 [&_[role=option]]:min-h-10 [&_[role=option]]:text-xs dark:[&_[role=option]]:bg-transparent dark:[&_[role=option]]:hover:bg-accent dark:[&_[role=option]]:focus:bg-accent dark:[&_[role=option][aria-selected=true]]:bg-accent"
+                  contentClassName="shadow-lg shadow-slate-900/10 [&_[role=option]]:min-h-10 [&_[role=option]]:text-xs"
                 />
               )}
             />
