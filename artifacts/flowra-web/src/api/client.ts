@@ -208,10 +208,20 @@ apiClient.interceptors.response.use(
     if (
       !isAuthError ||
       !original ||
-      original._retry ||
       original._skipAuthRefresh ||
       isPublicAuthRequest(original)
     ) {
+      return Promise.reject(error);
+    }
+
+    if (original._retry) {
+      // A rejected rotated token ends only the session that sent this retry.
+      // Another tab may have signed in again while the request was pending.
+      const currentToken = authStorage.getAccessToken();
+      if (currentToken &&
+          original.headers.get("Authorization") === `Bearer ${currentToken}`) {
+        handleAuthFailure();
+      }
       return Promise.reject(error);
     }
 
