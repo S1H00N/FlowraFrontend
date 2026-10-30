@@ -73,7 +73,7 @@ export default function CategorySelect({
           "h-8 w-auto min-w-[136px] max-w-full gap-2 px-2.5 text-xs shadow-none hover:bg-slate-50 hover:shadow-none [&>span>span]:gap-2",
           className,
         )}
-        contentClassName="shadow-lg shadow-slate-900/10 [&_[role=option]]:min-h-10 [&_[role=option]]:text-xs dark:[&_[role=option]]:bg-transparent dark:[&_[role=option]]:hover:bg-accent dark:[&_[role=option]]:focus:bg-accent dark:[&_[role=option][aria-selected=true]]:bg-accent"
+        contentClassName="shadow-lg shadow-slate-900/10 [&_[role=option]]:min-h-10 [&_[role=option]]:text-xs"
       />
     );
   }

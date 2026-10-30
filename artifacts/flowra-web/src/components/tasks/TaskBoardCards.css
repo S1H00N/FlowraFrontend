@@ -804,7 +804,7 @@
 .tasks-quick-add-date-label { display: block; margin-bottom: 4px; font-size: 12px; color: var(--flowra-text-muted); }
 .tasks-quick-add :is(.schedule-date-popover, [role="listbox"]) {
   border-color: var(--flowra-border);
-  background-color: var(--flowra-surface-elevated);
+  background-color: var(--flowra-surface);
   color: var(--flowra-text-strong);
 }
 .tasks-quick-add :is(.schedule-date-popover, [role="listbox"]) :where([class~="text-slate-100"], [class~="text-slate-200"]) {

@@ -726,7 +726,7 @@ function CompactDateInput({
                         getCalendarViewMonth(toDateKey(new Date())),
                       )
                     }
-                    className={`h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-accent-foreground ${
+                    className={`h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground ${
                       canResetVisibleMonth ? "inline-flex" : "hidden"
                     }`}
                     aria-label="Go to current month"
@@ -743,7 +743,7 @@ function CompactDateInput({
                           new Date(prev.getFullYear(), prev.getMonth() - 1, 1),
                       )
                     }
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                     aria-label="Previous month"
                   >
                     <ChevronLeft className="h-4 w-4" />
@@ -757,7 +757,7 @@ function CompactDateInput({
                           new Date(prev.getFullYear(), prev.getMonth() + 1, 1),
                       )
                     }
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                     aria-label="Next month"
                   >
                     <ChevronRight className="h-4 w-4" />
@@ -790,7 +790,7 @@ function CompactDateInput({
                       onClick={() => {
                         if (!disabled) selectDate(date);
                       }}
-                      className={`aspect-square rounded-md text-sm font-medium transition ${
+                      className={`aspect-square rounded-md text-sm font-medium ${
                         dateKey === selectedKey
                           ? "bg-violet-500 text-white"
                           : disabled
@@ -1326,7 +1326,7 @@ function CompactTimeInput({
               }}
               onPointerMove={() => previewTimeOption(option, index)}
               onClick={() => selectTimeOption(option)}
-              className={`flex h-8 w-full items-center rounded-md px-2 text-left text-sm font-medium tabular-nums transition ${
+              className={`flex h-8 w-full items-center rounded-md px-2 text-left text-sm font-medium tabular-nums ${
                 index === activeOptionIndex
                   ? "bg-accent text-accent-foreground"
                   : option === draftTimeOption || option === value
@@ -3142,10 +3142,10 @@ function FilterDropdown<TValue extends FilterOptionValue>({
       onClick={() => commitOption(option.value)}
       onMouseEnter={() => previewOption(option.value)}
       onFocus={() => previewOption(option.value)}
-      className={`flex min-h-9 w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold outline-none transition ${
+      className={`flex min-h-9 w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-violet-400 ${
         selected
           ? "bg-white/10 text-white"
-          : "text-zinc-200 hover:bg-white/10 hover:text-white focus:bg-white/10 focus:text-white"
+          : "text-zinc-200 hover:bg-white/10 hover:text-white"
       }`}
       title={option.label}
     >
@@ -3200,10 +3200,10 @@ function FilterDropdown<TValue extends FilterOptionValue>({
                   }}
                   onMouseEnter={previewClear}
                   onFocus={previewClear}
-                  className={`flex h-9 w-full items-center justify-between gap-2 rounded-lg px-2.5 text-left text-xs font-semibold outline-none transition ${
+                  className={`flex h-9 w-full items-center justify-between gap-2 rounded-lg px-2.5 text-left text-xs font-semibold outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-violet-400 ${
                     displayValues.length === 0
                       ? "bg-white/10 text-white"
-                      : "text-zinc-200 hover:bg-white/10 hover:text-white focus:bg-white/10 focus:text-white"
+                      : "text-zinc-200 hover:bg-white/10 hover:text-white"
                   }`}
                 >
                   <span>{allLabel}</span>
@@ -4731,7 +4731,7 @@ export function ScheduleFormPanel({
                         closeRepeatTypeMenu({ focusTrigger: true });
                       }
                     }}
-                    className={`grid w-full items-center rounded-lg px-3 py-1.5 text-left text-sm outline-none transition ${
+                    className={`grid w-full items-center rounded-lg px-3 py-1.5 text-left text-sm outline-none ${
                       summaryBelow
                         ? "min-h-11 grid-cols-[minmax(0,1fr)_1.25rem] gap-2"
                         : "min-h-8 grid-cols-[max-content_minmax(0,1fr)_1.25rem] gap-3"
@@ -4740,7 +4740,7 @@ export function ScheduleFormPanel({
                         ? "bg-white/10 text-white"
                         : previewed
                           ? "bg-white/10 text-white"
-                          : "text-zinc-200 hover:bg-white/10 hover:text-white focus:bg-white/10 focus:text-white"
+                          : "text-zinc-200 hover:bg-white/10 hover:text-white"
                     }`}
                   >
                     {summaryBelow ? (
@@ -5094,12 +5094,12 @@ export function ScheduleFormPanel({
                     closeRepeatEndMenu({ focusTrigger: true });
                   }
                 }}
-                className={`flex min-h-10 w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium outline-none transition ${
+                className={`flex min-h-10 w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium outline-none ${
                   selected
                     ? "bg-white/10 text-white"
                     : active
                       ? "bg-white/10 text-white"
-                      : "text-zinc-200 hover:bg-white/10 hover:text-white focus:bg-white/10 focus:text-white"
+                      : "text-zinc-200 hover:bg-white/10 hover:text-white"
                 }`}
               >
                 <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -5147,7 +5147,7 @@ export function ScheduleFormPanel({
                         getCalendarViewMonth(repeatUntilDateKey),
                       )
                     }
-                    className={`h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-accent-foreground ${
+                    className={`h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground ${
                       canResetRepeatUntilCalendarMonth
                         ? "inline-flex"
                         : "hidden"
@@ -5160,7 +5160,7 @@ export function ScheduleFormPanel({
                   <button
                     type="button"
                     onClick={() => moveRepeatUntilCalendarMonth(-1)}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                     aria-label="이전 달"
                   >
                     <ChevronLeft className="h-4 w-4" />
@@ -5168,7 +5168,7 @@ export function ScheduleFormPanel({
                   <button
                     type="button"
                     onClick={() => moveRepeatUntilCalendarMonth(1)}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                     aria-label="다음 달"
                   >
                     <ChevronRight className="h-4 w-4" />
@@ -5204,7 +5204,7 @@ export function ScheduleFormPanel({
                         disabled={disabled}
                         aria-selected={selected}
                         onClick={() => selectRepeatUntilDate(dateKey)}
-                        className={`aspect-square rounded-md text-sm font-semibold outline-none transition ${
+                        className={`aspect-square rounded-md text-sm font-semibold outline-none ${
                           selected
                             ? "bg-violet-500 text-white shadow-sm"
                             : disabled
@@ -5610,7 +5610,7 @@ export function ScheduleFormPanel({
             <button
               type="button"
               onClick={() => moveSelectedDatesMonth(-1)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               aria-label="이전 달"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -5618,7 +5618,7 @@ export function ScheduleFormPanel({
             <button
               type="button"
               onClick={() => moveSelectedDatesMonth(1)}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-accent-foreground"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               aria-label="다음 달"
             >
               <ChevronRight className="h-4 w-4" />
@@ -5680,7 +5680,7 @@ export function ScheduleFormPanel({
                         toggleDraftRepeatDate(dateKey);
                       }
                     }}
-                    className={`aspect-square rounded-md text-sm font-semibold outline-none transition ${
+                    className={`aspect-square rounded-md text-sm font-semibold outline-none ${
                       selected
                         ? "bg-violet-500 text-white shadow-sm"
                         : today
@@ -6364,7 +6364,7 @@ export function ScheduleFormPanel({
                           onClick={() =>
                             addCompanyDepartmentTarget(department.department_id)
                           }
-                          className="flex h-11 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left transition hover:bg-violet-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-100"
+                          className="flex h-11 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-100"
                         >
                           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">
                             {getDepartmentAvatarLabel(label)}
@@ -6448,7 +6448,7 @@ export function ScheduleFormPanel({
                       key={personalAttendeeKey(attendee)}
                       type="button"
                       onClick={() => addPersonalAttendee(attendee)}
-                      className="flex h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs font-medium text-slate-700 transition hover:bg-slate-50 hover:text-slate-950"
+                      className="flex h-9 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-950"
                     >
                       <Users className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                       <span className="min-w-0 flex-1 truncate">
@@ -6541,7 +6541,7 @@ export function ScheduleFormPanel({
         <button
           type="button"
           onClick={() => selectShareTarget("link")}
-          className={`flex h-11 w-full items-center gap-3 rounded-xl border px-3 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 ${
+          className={`flex h-11 w-full items-center gap-3 rounded-xl border px-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 ${
             shareTargetKind === "link"
               ? "border-violet-200 bg-violet-50 text-violet-700"
               : "border-slate-100 bg-slate-50 text-slate-700 hover:border-slate-200 hover:bg-white"
@@ -6613,7 +6613,7 @@ export function ScheduleFormPanel({
             <button
               type="button"
               onClick={() => selectShareTarget("all_friends")}
-              className={`flex h-12 w-full items-center gap-3 rounded-xl px-2 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 ${
+              className={`flex h-12 w-full items-center gap-3 rounded-xl px-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 ${
                 shareTargetKind === "all_friends"
                   ? "bg-violet-50"
                   : "hover:bg-slate-50"
@@ -6703,7 +6703,7 @@ export function ScheduleFormPanel({
                     onClick={() =>
                       selectShareTarget("preset", preset.friend_preset_id)
                     }
-                    className={`flex h-12 w-full items-center gap-3 rounded-xl px-2 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 ${
+                    className={`flex h-12 w-full items-center gap-3 rounded-xl px-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 ${
                       selected ? "bg-violet-50" : "hover:bg-slate-50"
                     }`}
                   >
@@ -10898,7 +10898,7 @@ function WeekScheduleGrid({
         >
           <button
             type="button"
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-violet-50 hover:text-violet-700"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-violet-50 hover:text-violet-700"
             onClick={() => {
               const menu = createContextMenu;
               setCreateContextMenu(null);

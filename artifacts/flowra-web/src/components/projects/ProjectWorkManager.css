@@ -1141,7 +1141,7 @@ body:has(.project-work-panel[aria-modal="true"]:not([hidden])) #root {
   background-color: transparent;
   color: var(--flowra-text-strong);
 }
-.project-work-select-menu [role="option"]:is(:hover, :focus, [aria-selected="true"]) {
+.project-work-select-menu [role="option"]:is([data-highlighted], [aria-selected="true"]) {
   background-color: var(--flowra-accent-bg);
   color: var(--flowra-accent-text);
 }

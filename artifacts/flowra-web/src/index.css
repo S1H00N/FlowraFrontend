@@ -124,7 +124,7 @@
   --color-foreground: var(--flowra-text-strong);
   --color-card: var(--flowra-surface);
   --color-card-foreground: var(--flowra-text-strong);
-  --color-popover: var(--flowra-surface-elevated);
+  --color-popover: var(--flowra-surface);
   --color-popover-foreground: var(--flowra-text-strong);
   --color-primary: var(--flowra-primary);
   --color-primary-foreground: var(--flowra-primary-foreground);
