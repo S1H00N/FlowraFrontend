@@ -2,6 +2,7 @@ type ProjectHistoryGuard = (event: PopStateEvent) => void;
 
 let installed = false;
 let activeGuard: ProjectHistoryGuard | null = null;
+let activeNavigationGuard: (() => boolean) | null = null;
 
 export function installProjectHistoryGuard() {
   if (installed || typeof window === "undefined") return;
@@ -11,9 +12,17 @@ export function installProjectHistoryGuard() {
   window.addEventListener("popstate", (event) => activeGuard?.(event), true);
 }
 
-export function registerProjectHistoryGuard(guard: ProjectHistoryGuard) {
+export function registerProjectHistoryGuard(guard: ProjectHistoryGuard, mayNavigate?: () => boolean) {
   activeGuard = guard;
+  activeNavigationGuard = mayNavigate ?? null;
   return () => {
-    if (activeGuard === guard) activeGuard = null;
+    if (activeGuard === guard) {
+      activeGuard = null;
+      activeNavigationGuard = null;
+    }
   };
+}
+
+export function allowGuardedNavigation() {
+  return activeNavigationGuard?.() ?? true;
 }

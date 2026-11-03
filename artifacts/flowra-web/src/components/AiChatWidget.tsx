@@ -503,6 +503,7 @@ export default function AiChatWidget({
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const messageScrollRef = useRef<HTMLDivElement | null>(null);
   const conversationVersion = useRef(0);
+  const lastMessageIdBeforeSend = useRef<number | null>(null);
 
   const sessionsQuery = useAiChatSessions(
     { status: sessionStatus, limit: SESSION_LIST_LIMIT },
@@ -635,6 +636,7 @@ export default function AiChatWidget({
     if (!content || busy || archived) return;
     const version = conversationVersion.current;
 
+    lastMessageIdBeforeSend.current = messages.at(-1)?.message_id ?? null;
     setDraft("");
     setPendingContent(content);
 
@@ -715,12 +717,20 @@ export default function AiChatWidget({
 
   const pendingMessage = useMemo<AiChatMessage | null>(() => {
     if (!pendingContent) return null;
+    // The message list can include the saved request before the AI reply arrives.
+    // Only consider messages after the previous tail, even when older pages load.
+    const previousTailIndex = messages.findIndex((message) => message.message_id === lastMessageIdBeforeSend.current);
+    const savedMessage = messages.slice(previousTailIndex + 1).some((message) =>
+      message.role === "user" &&
+      message.content === pendingContent,
+    );
+    if (savedMessage) return null;
     return {
       message_id: -1,
       role: "user",
       content: pendingContent,
     };
-  }, [pendingContent]);
+  }, [messages, pendingContent]);
   const offsetStyle = {
     "--flowra-ai-chat-button-offset": buttonRightOffset,
   } as CSSProperties;

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { installMockApi, QA_NOW, seedAuth } from "./fixtures";
+import { installMockApi, QA_API_ORIGIN, QA_NOW, seedAuth } from "./fixtures";
 
 type MockApi = Awaited<ReturnType<typeof installMockApi>>;
 
@@ -9,6 +9,13 @@ async function openMemoList(page: Page) {
   const opener = page.getByRole("button", { name: "메모 목록 열기", exact: true });
   if (await opener.isVisible()) await opener.click();
   await expect(page.getByRole("textbox", { name: "메모 검색", exact: true })).toBeVisible();
+}
+
+async function openAppSidebar(page: Page) {
+  if ((page.viewportSize()?.width ?? 1280) < 600) {
+    await page.locator("header").getByRole("button", { name: "사이드바 열기", exact: true }).click();
+  }
+  return page.locator(".flowra-app-shell > aside nav");
 }
 
 async function selectMonthView(page: Page) {
@@ -240,6 +247,177 @@ test.describe("사용자 기능 · 가상 API", () => {
     await page.getByRole("button", { name: "편집", exact: true }).click();
     await expect(reader.getByRole("combobox").first()).toHaveValue("meeting");
     await expect(reader.getByRole("combobox").last()).toHaveValue("31");
+  });
+
+  test("메모 편집도 공백과 최대 길이를 검증하고 유효한 내용을 정규화해 저장한다", async ({ page }) => {
+    await page.goto("/memos");
+    await page.getByRole("button", { name: "편집", exact: true }).click();
+    const editor = page.getByPlaceholder("메모를 입력하세요...");
+    const patches = () => api.requests.filter((request) => request.method === "PATCH" && request.path === "/memos/301");
+    await editor.fill(" \n ");
+    await page.getByRole("button", { name: "저장", exact: true }).click();
+    await expect(page.getByText("메모 내용을 입력하세요.", { exact: true })).toBeVisible();
+    expect(patches()).toHaveLength(0);
+    await editor.fill("가".repeat(20001));
+    await page.getByRole("button", { name: "저장", exact: true }).click();
+    await expect(page.getByText("메모는 20000자 이하여야 합니다.", { exact: true })).toBeVisible();
+    expect(patches()).toHaveLength(0);
+    await editor.fill("  QA 검증한 수정\n저장할 내용  ");
+    await page.getByRole("button", { name: "저장", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "QA 검증한 수정", exact: true })).toBeVisible();
+    expect(patches()).toHaveLength(1);
+    expect(patches()[0].body.raw_text).toBe("QA 검증한 수정\n저장할 내용");
+  });
+
+  test("메모 전환과 새 메모·작성 취소는 미저장 입력 폐기를 확인한다", async ({ page }) => {
+    await page.goto("/memos");
+    await page.getByRole("button", { name: "편집", exact: true }).click();
+    const editor = page.getByPlaceholder("메모를 입력하세요...");
+    await editor.fill("QA 보존할 편집 초안");
+    await openMemoList(page);
+    const nextMemo = page.locator("aside").getByRole("button", { name: /^QA 다음 회의 아이디어/ });
+    page.once("dialog", (dialog) => dialog.dismiss());
+    await nextMemo.click();
+    await expect(editor).toHaveValue("QA 보존할 편집 초안");
+    page.once("dialog", (dialog) => dialog.accept());
+    await nextMemo.click();
+    await expect(page.getByRole("heading", { name: "QA 다음 회의 아이디어", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "편집", exact: true }).click();
+    await editor.fill("QA 새 메모 이동 전 초안");
+    await openMemoList(page);
+    page.once("dialog", (dialog) => dialog.dismiss());
+    await page.getByRole("button", { name: "새 메모", exact: true }).click();
+    await expect(editor).toHaveValue("QA 새 메모 이동 전 초안");
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "새 메모", exact: true }).click();
+    await expect(editor).toHaveValue("");
+    await editor.fill("QA 작성 취소 전 초안");
+    page.once("dialog", (dialog) => dialog.dismiss());
+    await page.getByRole("button", { name: "취소", exact: true }).click();
+    await expect(editor).toHaveValue("QA 작성 취소 전 초안");
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "취소", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "QA 다음 회의 아이디어", exact: true })).toBeVisible();
+    expect(api.requests.filter((request) => ["PATCH", "POST"].includes(request.method) && request.path.startsWith("/memos"))).toHaveLength(0);
+  });
+
+  test("메모 초안은 링크·뒤로가기 취소와 새로고침 경고에서 보호된다", async ({ page }) => {
+    await page.goto("/notices");
+    await (await openAppSidebar(page)).getByRole("link", { name: "메모", exact: true }).click();
+    await page.getByRole("button", { name: "편집", exact: true }).click();
+    const editor = page.getByPlaceholder("메모를 입력하세요...");
+    await editor.fill("QA 경로 이동 보호 초안");
+    expect(await page.evaluate(() => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    })).toBe(true);
+    const navigation = await openAppSidebar(page);
+    page.once("dialog", (dialog) => dialog.dismiss());
+    await navigation.getByRole("link", { name: "할 일", exact: true }).click();
+    await expect(page).toHaveURL(/\/memos$/);
+    await expect(editor).toHaveValue("QA 경로 이동 보호 초안");
+    const index = await page.evaluate(() => history.state.idx);
+    const rejectedBack = page.waitForEvent("dialog");
+    await page.evaluate(() => history.back());
+    await (await rejectedBack).dismiss();
+    await expect.poll(() => page.evaluate(() => history.state.idx)).toBe(index);
+    await expect(page).toHaveURL(/\/memos$/);
+    await expect(editor).toHaveValue("QA 경로 이동 보호 초안");
+    const acceptedBack = page.waitForEvent("dialog");
+    await page.evaluate(() => history.back());
+    await (await acceptedBack).accept();
+    await expect(page).toHaveURL(/\/notices$/);
+    expect(api.requests.filter((request) => request.method === "PATCH" && request.path.startsWith("/memos"))).toHaveLength(0);
+  });
+
+  test("메모 초안은 사이드바 달력 이동을 취소하면 유지되고 확인하면 이동한다", async ({ page }) => {
+    await page.goto("/memos");
+    await page.getByRole("button", { name: "편집", exact: true }).click();
+    const editor = page.getByPlaceholder("메모를 입력하세요...");
+    await editor.fill("QA 사이드바 달력 이동 보호 초안");
+    await openAppSidebar(page);
+    const date = page.locator(".flowra-app-shell > aside [data-flowra-schedule-sidebar]")
+      .getByRole("button", { name: /^9월 10일/ });
+    page.once("dialog", (dialog) => dialog.dismiss());
+    await date.click();
+    await expect(page).toHaveURL(/\/memos$/);
+    await expect(editor).toHaveValue("QA 사이드바 달력 이동 보호 초안");
+    page.once("dialog", (dialog) => dialog.accept());
+    await date.click();
+    await expect(page).toHaveURL(/\/schedules\?date=2026-09-10$/);
+    expect(api.requests.filter((request) => request.method === "PATCH" && request.path.startsWith("/memos"))).toHaveLength(0);
+  });
+
+  test("메모 생성 실패는 초안을 유지하고 재시도 성공 후 경고 없이 상세로 이동한다", async ({ page }) => {
+    let fail = true;
+    await page.route(`${QA_API_ORIGIN}/api/v1/memos`, async (route) => {
+      if (route.request().method() !== "POST" || !fail) return route.fallback();
+      return route.fulfill({ status: 500, headers: { "access-control-allow-origin": "*" }, json: {
+        success: false, message: "QA 메모 저장 실패", error: { code: "INTERNAL_SERVER_ERROR" },
+      } });
+    });
+    await page.goto("/memos");
+    await openMemoList(page);
+    await page.getByRole("button", { name: "새 메모", exact: true }).click();
+    const editor = page.getByPlaceholder("메모를 입력하세요...");
+    await editor.fill("QA 재시도할 메모\n실패 후 내용 보존");
+    await page.getByRole("button", { name: "저장", exact: true }).click();
+    await expect(page.locator("main form").getByRole("alert")).toHaveText("QA 메모 저장 실패");
+    await expect(editor).toHaveValue("QA 재시도할 메모\n실패 후 내용 보존");
+    await expect(editor).toBeEnabled();
+    fail = false;
+    await page.getByRole("button", { name: "저장", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "QA 재시도할 메모", exact: true })).toBeVisible();
+    expect(api.state.memos.filter((memo) => memo.raw_text === "QA 재시도할 메모\n실패 후 내용 보존")).toHaveLength(1);
+  });
+
+  test("메모 저장 응답 대기 중에는 초안 이탈과 중복 저장을 막는다", async ({ page }) => {
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => { release = resolve; });
+    let requests = 0;
+    await page.route(`${QA_API_ORIGIN}/api/v1/memos/301`, async (route) => {
+      if (route.request().method() !== "PATCH") return route.fallback();
+      requests++;
+      await waiting;
+      return route.fallback();
+    });
+    try {
+      await page.goto("/memos");
+      await page.getByRole("button", { name: "편집", exact: true }).click();
+      const editor = page.getByPlaceholder("메모를 입력하세요...");
+      await editor.fill("QA 저장 중 이탈 보호");
+      await page.getByRole("button", { name: "저장", exact: true }).dblclick();
+      await expect.poll(() => requests).toBe(1);
+      await expect(editor).toBeDisabled();
+      await openMemoList(page);
+      await page.getByRole("button", { name: "새 메모", exact: true }).click();
+      await expect(editor).toHaveValue("QA 저장 중 이탈 보호");
+      await expect(page).toHaveURL(/\/memos$/);
+      release();
+      await expect(page.getByRole("heading", { name: "QA 저장 중 이탈 보호", exact: true })).toBeVisible();
+      expect(requests).toBe(1);
+    } finally {
+      release();
+    }
+  });
+
+  test("다른 메모를 삭제해도 현재 메모의 편집 초안과 선택을 유지한다", async ({ page }) => {
+    api.state.memos.push({ ...api.state.memos[0], memo_id: 303, raw_text: "QA 삭제할 다른 메모" });
+    await page.goto("/memos");
+    await openMemoList(page);
+    await page.locator("aside").getByRole("button", { name: /^QA 다음 회의 아이디어/ }).click();
+    await page.getByRole("button", { name: "편집", exact: true }).click();
+    const editor = page.getByPlaceholder("메모를 입력하세요...");
+    await editor.fill("QA 다른 메모 삭제 중에도 유지할 초안");
+    await openMemoList(page);
+    const otherMemo = page.locator("aside").getByRole("button", { name: /^QA 삭제할 다른 메모/ }).locator("..");
+    await otherMemo.getByRole("button", { name: "메모 삭제", exact: true }).click();
+    await otherMemo.getByRole("button", { name: "삭제", exact: true }).click();
+    await expect.poll(() => api.state.memos.some((memo) => memo.memo_id === 303)).toBe(false);
+    await expect(editor).toHaveValue("QA 다른 메모 삭제 중에도 유지할 초안");
+    await expect(page.getByRole("heading", { name: "QA 다음 회의 아이디어", exact: true })).toBeVisible();
+    expect(api.requests.filter((request) => request.method === "PATCH" && request.path.startsWith("/memos"))).toHaveLength(0);
   });
 
   test("메모 삭제 확인을 취소하면 유지되고 확인하면 목록에서 제거된다", async ({ page }) => {

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   getNotificationUnreadCount, listNotifications,
   markAllNotificationsRead, markNotificationRead,
@@ -12,10 +12,53 @@ import type { NotificationRecipient, NotificationsQuery } from "@/types";
 export const NOTIFICATIONS_QUERY_KEY = ["notifications"] as const;
 const inboxKey = (userId?: number) => [...NOTIFICATIONS_QUERY_KEY, userId, "inbox"] as const;
 
+type InboxSnapshot = ReturnType<typeof mergeInbox> & { serverUnavailable: boolean; serverUnread: number };
+
+function isCurrentUser(userId: number | undefined) {
+  return userId !== undefined && Boolean(authStorage.getAccessToken()) &&
+    authStorage.getUser<{ user_id: number }>()?.user_id === userId;
+}
+
 function ensureCurrentUser(userId: number) {
-  if (!authStorage.getAccessToken() || authStorage.getUser<{ user_id: number }>()?.user_id !== userId) {
+  if (!isCurrentUser(userId)) {
     throw new Error("로그인 정보가 변경되었습니다.");
   }
+}
+
+async function beginInboxMutation(queryClient: QueryClient, userId: number | undefined) {
+  if (userId === undefined) throw new Error("로그인이 필요합니다.");
+  ensureCurrentUser(userId);
+  await queryClient.cancelQueries({ queryKey: inboxKey(userId) });
+  ensureCurrentUser(userId);
+  return userId;
+}
+
+async function refreshInboxQueries(queryClient: QueryClient, userId: number | undefined) {
+  if (!isCurrentUser(userId)) return;
+  await queryClient.cancelQueries({ queryKey: inboxKey(userId) });
+  if (!isCurrentUser(userId)) return;
+  notifyInboxChanged();
+  // The inbox-change listener may already have started this fresh read.
+  await queryClient.invalidateQueries({ queryKey: inboxKey(userId) }, { cancelRefetch: false });
+}
+
+async function reflectReadNotification(queryClient: QueryClient, userId: number, target: NotificationRecipient) {
+  await beginInboxMutation(queryClient, userId);
+  const readAt = target.read_at || new Date().toISOString();
+  const localIds = new Set(target.local_push_ids ?? []);
+  queryClient.setQueriesData<InboxSnapshot>({ queryKey: inboxKey(userId) }, (previous) => {
+    if (!previous) return previous;
+    let newlyRead = 0;
+    const notifications = previous.notifications.map((item) => {
+      const matches = (!target.local_only && !item.local_only &&
+        item.notification_recipient_id === target.notification_recipient_id) ||
+        item.local_push_ids?.some((id) => localIds.has(id));
+      if (!matches || item.read_at) return item;
+      newlyRead += 1;
+      return { ...item, read_at: readAt };
+    });
+    return { ...previous, notifications, unreadCount: Math.max(0, previous.unreadCount - newlyRead) };
+  });
 }
 
 function useInboxSnapshot(enabled: boolean, allPages = false) {
@@ -27,9 +70,12 @@ function useInboxSnapshot(enabled: boolean, allPages = false) {
     enabled: enabled && isAuthenticated && userId !== undefined,
     staleTime: 0,
     refetchInterval: 60_000,
-    queryFn: async () => {
-      const [localResult, remoteResult, countResult] = await Promise.allSettled([
-        pushInbox.list(userId!),
+    queryFn: async ({ signal }) => {
+      const checkCurrentSnapshot = () => {
+        signal.throwIfAborted();
+        ensureCurrentUser(userId!);
+      };
+      const [remoteResult, countResult] = await Promise.allSettled([
         listNotifications({ page: 1, page_size: 100 }).then((res) => {
           if (!res.success) throw new Error(res.message || "알림 목록을 불러오지 못했습니다.");
           return res.data.notifications;
@@ -39,8 +85,11 @@ function useInboxSnapshot(enabled: boolean, allPages = false) {
           return res.data.unread_count ?? 0;
         }),
       ]);
-      ensureCurrentUser(userId!);
-      const local = localResult.status === "fulfilled" ? localResult.value : [];
+      checkCurrentSnapshot();
+      // Read receipts after the HTTP reads: a user can mark one read while a
+      // server request is pending, including the initial bell request.
+      const local = await pushInbox.list(userId!).catch(() => []);
+      checkCurrentSnapshot();
       if (remoteResult.status === "rejected" && local.length === 0) throw remoteResult.reason;
       const remote = remoteResult.status === "fulfilled" ? [...remoteResult.value] : [];
       let serverUnavailable = remoteResult.status === "rejected" || countResult.status === "rejected";
@@ -59,8 +108,9 @@ function useInboxSnapshot(enabled: boolean, allPages = false) {
       );
       while (lastPageSize === 100 && (allPages || hasDeletions || hasUnmatchedIds())) {
         try {
-          ensureCurrentUser(userId!);
+          checkCurrentSnapshot();
           const res = await listNotifications({ page: ++page, page_size: 100 });
+          checkCurrentSnapshot();
           if (!res.success) throw new Error(res.message);
           const newItems = res.data.notifications.filter((item) =>
             !remote.some((existing) => existing.notification_recipient_id === item.notification_recipient_id),
@@ -68,11 +118,12 @@ function useInboxSnapshot(enabled: boolean, allPages = false) {
           remote.push(...newItems);
           lastPageSize = newItems.length;
         } catch {
+          checkCurrentSnapshot();
           serverUnavailable = true;
           break;
         }
       }
-      ensureCurrentUser(userId!);
+      checkCurrentSnapshot();
       const serverUnread = !hasDeletions && countResult.status === "fulfilled"
         ? countResult.value : remote.filter((item) => !item.read_at).length;
       const merged = mergeInbox(remote, local,
@@ -96,13 +147,22 @@ function useInboxSnapshot(enabled: boolean, allPages = false) {
           return true;
         },
       })));
+      checkCurrentSnapshot();
       const readLocalIds = merged.notifications.filter((item) => !item.local_only && item.read_at)
         .flatMap((item) => item.local_push_ids ?? []);
       if (readLocalIds.length) await pushInbox.markRead(userId!, readLocalIds).catch(() => {});
+      checkCurrentSnapshot();
       const matchedIds = merged.notifications.filter((item) => !item.local_only)
         .flatMap((item) => item.local_push_ids ?? []);
       if (matchedIds.length) await pushInbox.reconcile(userId!, matchedIds).catch(() => {});
-      return { ...merged, serverUnavailable, serverUnread };
+      const latestLocal = await pushInbox.list(userId!).catch(() => local);
+      checkCurrentSnapshot();
+      return {
+        ...mergeInbox(remote, latestLocal, remoteResult.status === "rejected" ? 0 : serverUnread,
+          remoteResult.status === "rejected"),
+        serverUnavailable,
+        serverUnread,
+      };
     },
   });
 }
@@ -111,6 +171,7 @@ export function useDeleteNotifications() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   return useMutation({
+    onMutate: () => beginInboxMutation(queryClient, user?.user_id),
     mutationFn: async (target?: NotificationRecipient | NotificationRecipient[] | "read") => {
       if (!user) throw new Error("로그인이 필요합니다.");
       const userId = user.user_id;
@@ -153,7 +214,8 @@ export function useDeleteNotifications() {
       await pushInbox.remove(userId, localIds, remote);
       return { userId, localIds, readOnly, remoteIds: remote.map((item) => item.notification_recipient_id) };
     },
-    onSuccess: ({ userId, localIds, remoteIds, readOnly }) => {
+    onSuccess: async ({ userId, localIds, remoteIds, readOnly }) => {
+      await beginInboxMutation(queryClient, userId);
       if (readOnly && localIds.length === 0 && remoteIds.length === 0) {
         toast.info("삭제할 읽은 알림이 없습니다.");
       }
@@ -169,9 +231,8 @@ export function useDeleteNotifications() {
           unreadCount: Math.max(0, previous.unreadCount - removed.filter((item) => !item.read_at).length),
         };
       });
-      notifyInboxChanged();
-      void queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_QUERY_KEY });
     },
+    onSettled: (_data, _error, _target, userId) => refreshInboxQueries(queryClient, userId),
     meta: { suppressSuccessToast: true, errorMessage: "알림 삭제에 실패했습니다." },
   });
 }
@@ -201,6 +262,7 @@ export function useMarkNotificationRead() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   return useMutation({
+    onMutate: () => beginInboxMutation(queryClient, user?.user_id),
     mutationFn: async (target: NotificationRecipient | NotificationRecipient[]) => {
       if (!user) throw new Error("로그인이 필요합니다.");
       ensureCurrentUser(user.user_id);
@@ -214,12 +276,10 @@ export function useMarkNotificationRead() {
         if (notification.local_push_ids?.length) {
           await pushInbox.markRead(user.user_id, notification.local_push_ids);
         }
+        await reflectReadNotification(queryClient, user.user_id, notification);
       }
     },
-    onSettled: () => {
-      notifyInboxChanged();
-      void queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_QUERY_KEY });
-    },
+    onSettled: (_data, _error, _target, userId) => refreshInboxQueries(queryClient, userId),
     meta: { suppressSuccessToast: true, errorMessage: "알림 읽음 처리에 실패했습니다." },
   });
 }
@@ -228,6 +288,7 @@ export function useMarkAllNotificationsRead() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   return useMutation({
+    onMutate: () => beginInboxMutation(queryClient, user?.user_id),
     mutationFn: async () => {
       if (!user) throw new Error("로그인이 필요합니다.");
       ensureCurrentUser(user.user_id);
@@ -240,10 +301,7 @@ export function useMarkAllNotificationsRead() {
         if (!res.success) throw new Error(res.message || "알림 읽음 처리에 실패했습니다.");
       }
     },
-    onSettled: () => {
-      notifyInboxChanged();
-      void queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_QUERY_KEY });
-    },
+    onSettled: (_data, _error, _target, userId) => refreshInboxQueries(queryClient, userId),
     meta: { suppressSuccessToast: true, errorMessage: "알림 읽음 처리에 실패했습니다." },
   });
 }
