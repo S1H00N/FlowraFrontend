@@ -45,6 +45,188 @@ test("채팅의 과거 내역·제목·보관·복원이 서버 상태와 일치
   expect(errors).toEqual([]);
 });
 
+test("새 대화에서 Enter 전송 후 저장된 메시지를 불러와도 한 번만 표시한다", async ({ page }) => {
+  const api = await installMockApi(page);
+  await seedAuth(page);
+  const content = "새 대화 중복 표시 확인";
+  let posts = 0;
+  let requestStarted!: () => void;
+  const started = new Promise<void>((resolve) => { requestStarted = resolve; });
+  let releaseHistory!: () => void;
+  const historyGate = new Promise<void>((resolve) => { releaseHistory = resolve; });
+  let releaseReply!: () => void;
+  const replyGate = new Promise<void>((resolve) => { releaseReply = resolve; });
+  await page.route("**/api/v1/ai-chat/sessions/*/messages*", async (route) => {
+    const req = route.request();
+    const sessionId = Number(new URL(req.url()).pathname.split("/").at(-2));
+    if (req.method() === "GET") {
+      await started;
+      await historyGate;
+      await route.fulfill({ json: { success: true, data: {
+        messages: api.state.messages.filter((message) => message.session_id === sessionId),
+        pagination: { has_more: true, next_cursor: "older" },
+      } } });
+    } else if (req.method() === "POST") {
+      posts += 1;
+      expect(req.postDataJSON()).toEqual({ content });
+      const userMessage = { message_id: 71, session_id: sessionId, role: "user" as const, content, created_at: QA_NOW };
+      api.state.messages.push(userMessage);
+      requestStarted();
+      await replyGate;
+      const assistantMessage = { message_id: 72, session_id: sessionId, role: "assistant" as const, content: "첫 요청 답변", created_at: QA_NOW };
+      api.state.messages.push(assistantMessage);
+      await route.fulfill({ json: { success: true, data: { user_message: userMessage, assistant_message: assistantMessage } } });
+    } else await route.fallback();
+  });
+  await page.goto("/tasks");
+  await page.getByRole("button", { name: "AI 채팅 열기", exact: true }).click();
+  const panel = page.getByRole("region", { name: "Flowit AI 채팅" });
+  const messages = panel.locator("[data-flowra-ai-chat-messages]");
+  await panel.getByPlaceholder("AI에게 요청하기").fill(content);
+  await panel.getByPlaceholder("AI에게 요청하기").press("Enter");
+  try {
+    await started;
+    await expect(messages.getByText(content, { exact: true })).toHaveCount(1);
+    await expect(messages.getByText("답변 생성 중...", { exact: true })).toBeVisible();
+    releaseHistory();
+    // This control appears only after the saved-message GET has reached the UI.
+    await expect(messages.getByRole("button", { name: "이전 메시지 더 보기", exact: true })).toBeVisible();
+    await expect(messages.getByText(content, { exact: true })).toHaveCount(1);
+    await expect(messages.getByText("답변 생성 중...", { exact: true })).toBeVisible();
+    expect(posts).toBe(1);
+    releaseReply();
+    await expect(messages.getByText("첫 요청 답변", { exact: true })).toBeVisible();
+    await expect(messages.getByText(content, { exact: true })).toHaveCount(1);
+    await expect(messages.getByText("답변 생성 중...", { exact: true })).toHaveCount(0);
+    expect(posts).toBe(1);
+    expect(api.unhandled).toEqual([]);
+  } finally {
+    releaseHistory();
+    releaseReply();
+  }
+});
+
+test("같은 문장을 다시 보내면 이전 메시지와 새 메시지를 각각 한 번 표시한다", async ({ page }) => {
+  const api = await installMockApi(page);
+  await seedAuth(page);
+  await page.clock.setFixedTime(new Date(QA_NOW));
+  const content = "오늘 할 일 알려줘";
+  api.state.sessions.push({ session_id: 17, title: "QA 같은 문장 대화", status: "active" });
+  api.state.messages.push(
+    { message_id: 69, session_id: 17, role: "user", content, created_at: QA_NOW },
+    { message_id: 70, session_id: 17, role: "assistant", content: "이전 요청 답변", created_at: QA_NOW },
+  );
+  let posts = 0;
+  let requestStarted!: () => void;
+  const started = new Promise<void>((resolve) => { requestStarted = resolve; });
+  let releaseReply!: () => void;
+  const replyGate = new Promise<void>((resolve) => { releaseReply = resolve; });
+  await page.route("**/api/v1/ai-chat/sessions/17/messages*", async (route) => {
+    const req = route.request();
+    if (req.method() === "GET") {
+      await route.fulfill({ json: { success: true, data: {
+        messages: api.state.messages,
+        pagination: { has_more: posts > 0, next_cursor: posts > 0 ? "older" : null },
+      } } });
+    } else if (req.method() === "POST") {
+      posts += 1;
+      expect(req.postDataJSON()).toEqual({ content });
+      const userMessage = { message_id: 71, session_id: 17, role: "user" as const, content, created_at: QA_NOW };
+      api.state.messages.push(userMessage);
+      requestStarted();
+      await replyGate;
+      const assistantMessage = { message_id: 72, session_id: 17, role: "assistant" as const, content: "다시 보낸 요청 답변", created_at: QA_NOW };
+      api.state.messages.push(assistantMessage);
+      await route.fulfill({ json: { success: true, data: { user_message: userMessage, assistant_message: assistantMessage } } });
+    } else await route.fallback();
+  });
+  await page.goto("/tasks");
+  await page.getByRole("button", { name: "AI 채팅 열기", exact: true }).click();
+  const panel = page.getByRole("region", { name: "Flowit AI 채팅" });
+  const messages = panel.locator("[data-flowra-ai-chat-messages]");
+  await expect(messages.getByText("이전 요청 답변", { exact: true })).toBeVisible();
+  await expect(messages.getByText(content, { exact: true })).toHaveCount(1);
+  await panel.getByPlaceholder("AI에게 요청하기").fill(content);
+  await panel.getByPlaceholder("AI에게 요청하기").press("Enter");
+  try {
+    await started;
+    await expect(messages.getByText(content, { exact: true })).toHaveCount(2);
+    await expect(messages.getByText("답변 생성 중...", { exact: true })).toBeVisible();
+    await panel.getByRole("button", { name: "AI 채팅 닫기", exact: true }).click();
+    // Advance past the query's one-minute freshness window before reopening.
+    await page.clock.setFixedTime(new Date(Date.parse(QA_NOW) + 61_000));
+    await page.getByRole("button", { name: "AI 채팅 열기", exact: true }).click();
+    await expect(messages.getByRole("button", { name: "이전 메시지 더 보기", exact: true })).toBeVisible();
+    await expect(messages.getByText(content, { exact: true })).toHaveCount(2);
+    await expect(messages.getByText("답변 생성 중...", { exact: true })).toBeVisible();
+    expect(posts).toBe(1);
+    releaseReply();
+    await expect(messages.getByText("다시 보낸 요청 답변", { exact: true })).toBeVisible();
+    await expect(messages.getByText(content, { exact: true })).toHaveCount(2);
+    await expect(messages.getByText("답변 생성 중...", { exact: true })).toHaveCount(0);
+    expect(posts).toBe(1);
+    expect(api.unhandled).toEqual([]);
+  } finally {
+    releaseReply();
+  }
+});
+
+test("전송 중 과거의 같은 문장을 불러와도 새 메시지를 숨기지 않는다", async ({ page }) => {
+  const api = await installMockApi(page);
+  await seedAuth(page);
+  const content = "과거와 같은 요청";
+  const oldMessage = { message_id: 69, session_id: 17, role: "user" as const, content, created_at: QA_NOW };
+  const recentMessage = { message_id: 70, session_id: 17, role: "assistant" as const, content: "최근 답변", created_at: QA_NOW };
+  api.state.sessions.push({ session_id: 17, title: "QA 과거 메시지 대화", status: "active" });
+  let posts = 0;
+  let requestStarted!: () => void;
+  const started = new Promise<void>((resolve) => { requestStarted = resolve; });
+  let releaseReply!: () => void;
+  const replyGate = new Promise<void>((resolve) => { releaseReply = resolve; });
+  await page.route("**/api/v1/ai-chat/sessions/17/messages*", async (route) => {
+    const req = route.request();
+    const older = new URL(req.url()).searchParams.get("cursor") === "older";
+    if (req.method() === "GET") {
+      await route.fulfill({ json: { success: true, data: {
+        messages: older ? [oldMessage] : [recentMessage],
+        pagination: { has_more: !older, next_cursor: older ? null : "older" },
+      } } });
+    } else if (req.method() === "POST") {
+      posts += 1;
+      expect(req.postDataJSON()).toEqual({ content });
+      requestStarted();
+      await replyGate;
+      await route.fulfill({ json: { success: true, data: {
+        user_message: { message_id: 71, session_id: 17, role: "user", content, created_at: QA_NOW },
+        assistant_message: { message_id: 72, session_id: 17, role: "assistant", content: "새 요청 답변", created_at: QA_NOW },
+      } } });
+    } else await route.fallback();
+  });
+  await page.goto("/tasks");
+  await page.getByRole("button", { name: "AI 채팅 열기", exact: true }).click();
+  const panel = page.getByRole("region", { name: "Flowit AI 채팅" });
+  const messages = panel.locator("[data-flowra-ai-chat-messages]");
+  await expect(messages.getByText("최근 답변", { exact: true })).toBeVisible();
+  await panel.getByPlaceholder("AI에게 요청하기").fill(content);
+  await panel.getByPlaceholder("AI에게 요청하기").press("Enter");
+  try {
+    await started;
+    await expect(messages.getByText(content, { exact: true })).toHaveCount(1);
+    const loadOlder = messages.getByRole("button", { name: "이전 메시지 더 보기", exact: true });
+    await loadOlder.click();
+    await expect(loadOlder).toHaveCount(0);
+    await expect(messages.getByText(content, { exact: true })).toHaveCount(2);
+    await expect(messages.getByText("답변 생성 중...", { exact: true })).toBeVisible();
+    releaseReply();
+    await expect(messages.getByText("새 요청 답변", { exact: true })).toBeVisible();
+    await expect(messages.getByText(content, { exact: true })).toHaveCount(2);
+    expect(posts).toBe(1);
+    expect(api.unhandled).toEqual([]);
+  } finally {
+    releaseReply();
+  }
+});
+
 test("메시지 저장 후 응답 실패는 재조회로 복구하고 자동 재전송하지 않는다", async ({ page }) => {
   const api = await installMockApi(page);
   await seedAuth(page);

@@ -40,7 +40,7 @@ async function installAllDayCalendarApi(page: Page) {
   });
   await page.clock.setFixedTime(new Date(QA_NOW));
   await seedAuth(page);
-  return api;
+  return { ...api, companySchedules };
 }
 
 test("all-day disclosure summarizes personal and company schedules and restores calendar actions", async ({ page }, testInfo) => {
@@ -93,7 +93,7 @@ test("all-day disclosure summarizes personal and company schedules and restores 
 test("collapsed all-day summaries follow owner filters in week and day views (dark)", async ({ page }) => {
   const api = await installAllDayCalendarApi(page);
   await page.addInitScript(() => localStorage.setItem(
-    "flowra:user-settings", JSON.stringify({ theme: "dark" }),
+    "flowra:user-settings", JSON.stringify({ theme: "dark", defaultCalendarView: "week" }),
   ));
   await page.goto("/schedules");
   const row = page.locator("[data-flowra-all-day-row]");
@@ -128,7 +128,7 @@ for (const dark of [false, true]) {
     await seedAuth(page);
     if (dark) {
       await page.addInitScript(() => localStorage.setItem(
-        "flowra:user-settings", JSON.stringify({ theme: "dark" }),
+        "flowra:user-settings", JSON.stringify({ theme: "dark", defaultCalendarView: "week" }),
       ));
     }
     await page.goto("/schedules");
@@ -275,4 +275,181 @@ test.describe("schedule creation classification", () => {
     });
     expect(api.unhandled).toEqual([]);
   });
+});
+
+test.describe("calendar QA fixes", () => {
+  const editor = (page: Page) => page.locator("[data-flowra-schedule-editor]");
+  const footer = (page: Page) => page.locator("[data-flowra-schedule-editor-footer]");
+
+  for (const owner of ["personal", "company"] as const) {
+    test(`calendar QA fixes: ${owner} double click creates one schedule while the first request is pending`, async ({ page }) => {
+      const api = await installAllDayCalendarApi(page);
+      const title = `QA 중복 방지 ${owner}`;
+      const endpoint = owner === "personal" ? "/schedules" : "/company-schedules";
+      const bodies: Record<string, unknown>[] = [];
+      let release!: () => void;
+      const pending = new Promise<void>((resolve) => { release = resolve; });
+      await page.route(`**/api/v1${endpoint}`, async (route) => {
+        if (route.request().method() !== "POST") return route.fallback();
+        const body = route.request().postDataJSON() as Record<string, unknown>;
+        bodies.push(body);
+        await pending;
+        const data = owner === "personal"
+          ? { schedule: { ...api.state.schedules[0], schedule_id: 1800 + bodies.length, title,
+              all_day: true, start_datetime: "2026-09-09T00:00:00+09:00", end_datetime: "2026-09-09T23:59:00+09:00" } }
+          : { company_schedule: { ...api.companySchedules[0], company_schedule_id: 1800 + bodies.length, title,
+              all_day: true, start_datetime: "2026-09-09T00:00:00+09:00", end_datetime: "2026-09-09T23:59:00+09:00" } };
+        if (data.schedule) api.state.schedules.push(data.schedule);
+        else api.companySchedules.push(data.company_schedule);
+        await route.fulfill({ status: 201, headers: { "access-control-allow-origin": "*" }, json: { success: true, message: "OK", data } });
+      });
+      await page.goto("/schedules");
+      await page.getByRole("button", { name: "9월 9일 종일 일정 추가", exact: true }).click();
+      if (owner === "company") {
+        await page.locator("[data-flowra-schedule-editor-header]").getByRole("button", { name: "일정 종류", exact: true }).click();
+        await page.getByRole("listbox", { name: "일정 종류", exact: true })
+          .getByRole("option", { name: "회사 일정", exact: true }).click();
+      }
+      await page.getByPlaceholder("일정 제목", { exact: true }).fill(title);
+      try {
+        await footer(page).getByRole("button", { name: "추가", exact: true }).dblclick();
+        await expect(footer(page).getByRole("button", { name: "저장 중...", exact: true })).toBeDisabled();
+        await expect.poll(() => bodies.length).toBe(1);
+        // Keep the response held beyond both browser click events and their request delivery.
+        await page.waitForTimeout(150);
+        expect(bodies).toHaveLength(1);
+        expect(bodies[0]).toMatchObject({ title });
+      } finally {
+        release();
+      }
+      await expect(editor(page)).toHaveCount(0);
+      await page.reload();
+      await expect(page.getByRole("button", { name: `Move ${title}`, exact: true })).toHaveCount(1);
+      expect((owner === "personal" ? api.state.schedules : api.companySchedules)
+        .filter((schedule) => schedule.title === title)).toHaveLength(1);
+      expect(bodies).toHaveLength(1);
+      expect(api.unhandled).toEqual([]);
+    });
+  }
+
+  test("calendar QA fixes: validation and failed saves release the submit lock for a successful retry", async ({ page }) => {
+    const api = await installAllDayCalendarApi(page);
+    let attempts = 0;
+    await page.route("**/api/v1/company-schedules", async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      attempts += 1;
+      if (attempts === 1) {
+        return route.fulfill({ status: 500, headers: { "access-control-allow-origin": "*" }, json: { success: false, message: "QA 저장 재시도 오류", data: null } });
+      }
+      const companySchedule: CompanySchedule = {
+        ...api.companySchedules[0], company_schedule_id: 1801, title: "QA 재시도 후 저장",
+        start_datetime: "2026-09-09T00:00:00+09:00", end_datetime: "2026-09-09T23:59:00+09:00",
+      };
+      api.companySchedules.push(companySchedule);
+      await route.fulfill({ status: 201, headers: { "access-control-allow-origin": "*" }, json: {
+        success: true, message: "OK", data: { company_schedule: companySchedule },
+      } });
+    });
+    await page.goto("/schedules");
+    await page.getByRole("button", { name: "9월 9일 종일 일정 추가", exact: true }).click();
+    await page.locator("[data-flowra-schedule-editor-header]").getByRole("button", { name: "일정 종류", exact: true }).click();
+    await page.getByRole("listbox", { name: "일정 종류", exact: true })
+      .getByRole("option", { name: "회사 일정", exact: true }).click();
+    await page.getByPlaceholder("일정 제목", { exact: true }).fill("QA 재시도 후 저장");
+    const end = page.getByLabel("종료 날짜", { exact: true });
+    await end.fill("2026-09-08");
+    await end.press("Tab");
+    await footer(page).getByRole("button", { name: "추가", exact: true }).click();
+    await expect(editor(page).getByText("종료 시간은 시작 시간보다 늦어야 합니다.", { exact: true })).toBeVisible();
+    expect(attempts).toBe(0);
+    await end.fill("2026-09-09");
+    await end.press("Tab");
+    await footer(page).getByRole("button", { name: "추가", exact: true }).click();
+    await expect(editor(page).getByText("QA 저장 재시도 오류", { exact: true })).toBeVisible();
+    await expect(page.getByPlaceholder("일정 제목", { exact: true })).toHaveValue("QA 재시도 후 저장");
+    await expect(footer(page).getByRole("button", { name: "추가", exact: true })).toBeEnabled();
+    expect(attempts).toBe(1);
+    await footer(page).getByRole("button", { name: "추가", exact: true }).click();
+    await expect(editor(page)).toHaveCount(0);
+    expect(attempts).toBe(2);
+    expect(api.companySchedules.filter((schedule) => schedule.title === "QA 재시도 후 저장")).toHaveLength(1);
+    expect(api.unhandled).toEqual([]);
+  });
+
+  test("calendar QA fixes: the stored default view and changes in settings survive calendar entry and reload", async ({ page }) => {
+    const api = await installMockApi(page);
+    await page.clock.setFixedTime(new Date(QA_NOW));
+    await seedAuth(page);
+    await page.addInitScript(() => {
+      if (!sessionStorage.getItem("qa-calendar-month-seeded")) {
+        localStorage.setItem("flowra:user-settings", JSON.stringify({ defaultCalendarView: "month" }));
+        sessionStorage.setItem("qa-calendar-month-seeded", "1");
+      }
+    });
+    const view = page.getByRole("button", { name: "보기 선택", exact: true });
+    await page.goto("/schedules");
+    await expect(view).toHaveText("월");
+    await page.reload();
+    await expect(view).toHaveText("월");
+    await page.goto("/settings");
+    await page.getByRole("main").getByRole("button", { name: "주간", exact: true }).click();
+    await page.goto("/schedules");
+    await expect(view).toHaveText("주");
+    await page.reload();
+    await expect(view).toHaveText("주");
+    expect(api.unhandled).toEqual([]);
+  });
+
+  for (const viewName of ["month", "week"] as const) {
+    test(`calendar QA fixes: ${viewName} calendar reflects today weekend and count display switches`, async ({ page }, testInfo) => {
+      const api = await installMockApi(page);
+      await page.clock.setFixedTime(new Date(QA_NOW));
+      await seedAuth(page);
+      const calendar = page.locator("[data-flowra-schedule-page]");
+      const today = calendar.locator('[data-flowra-calendar-date="2026-09-09"]');
+      const weekend = calendar.locator('[data-flowra-calendar-date="2026-09-12"]');
+      const count = calendar.locator('[data-flowra-schedule-count="2026-09-09"]');
+      const todayNumber = viewName === "month" ? today.getByRole("button", { name: "9", exact: true }) : today.locator(":scope > span").nth(1);
+      const labels = ["주말 강조", "오늘 강조", "일정 개수 뱃지"];
+      const showCalendar = async () => {
+        // Select a different day so a selection highlight cannot hide today's setting.
+        await page.goto("/schedules?date=2026-09-10");
+        await page.getByRole("button", { name: "보기 선택", exact: true }).click();
+        await page.getByRole("menuitem", { name: viewName === "month" ? "월 M" : "주 W", exact: true }).click();
+        await page.mouse.move(0, 0);
+      };
+      const setDisplay = async (enabled: boolean) => {
+        await page.goto("/settings");
+        const settings = page.getByRole("main");
+        await settings.getByRole("button", { name: "화면 표시", exact: true }).click();
+        for (const label of labels) {
+          const toggle = settings.getByRole("switch", { name: label, exact: true });
+          await toggle.setChecked(enabled);
+          await expect(toggle).toBeChecked({ checked: enabled });
+        }
+      };
+      await showCalendar();
+      await expect(today).toHaveAttribute("data-flowra-calendar-today", "true");
+      await expect(count).toHaveText("2");
+      await expect(count).toBeVisible();
+      const todayColor = await todayNumber.evaluate((el) => getComputedStyle(el).backgroundColor);
+      const weekendColor = await weekend.evaluate((el) => getComputedStyle(el).backgroundColor);
+      expect(todayColor).not.toBe("rgba(0, 0, 0, 0)");
+      await setDisplay(false);
+      await showCalendar();
+      await expect(today).not.toHaveAttribute("data-flowra-calendar-today");
+      await expect(count).toHaveCount(0);
+      await expect(todayNumber).not.toHaveCSS("background-color", todayColor);
+      await expect(weekend).not.toHaveCSS("background-color", weekendColor);
+      await testInfo.attach(`${viewName}-display-disabled`, { body: await page.screenshot(), contentType: "image/png" });
+      await setDisplay(true);
+      await showCalendar();
+      await expect(today).toHaveAttribute("data-flowra-calendar-today", "true");
+      await expect(todayNumber).toHaveCSS("background-color", todayColor);
+      await expect(weekend).toHaveCSS("background-color", weekendColor);
+      await expect(count).toHaveText("2");
+      await expect(count).toBeVisible();
+      expect(api.unhandled).toEqual([]);
+    });
+  }
 });

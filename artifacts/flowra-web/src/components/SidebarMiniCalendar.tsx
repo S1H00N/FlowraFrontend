@@ -7,6 +7,7 @@ import { useSchedules } from "@/hooks/useSchedules";
 import { groupSchedulesByDate } from "@/lib/scheduleDateMeta";
 import { useUserSettings, type WeekStartDay } from "@/lib/userSettings";
 import { toOffsetISOString } from "@/utils/dateUtils";
+import { allowGuardedNavigation } from "@/lib/projectNavigationGuard";
 import type { Holiday } from "@/types";
 
 type DayMeta = { count: number; hasDeadline: boolean };
@@ -305,7 +306,9 @@ export default function SidebarMiniCalendar() {
           setVisibleMonth((month) => addMonths(month, amount))
         }
         onResetMonth={() => setVisibleMonth(startOfMonth(new Date()))}
-        onSelectDate={(date) => navigate(`/schedules?date=${toDateKey(date)}`)}
+        onSelectDate={(date) => {
+          if (allowGuardedNavigation()) navigate(`/schedules?date=${toDateKey(date)}`);
+        }}
       />
     </div>
   );

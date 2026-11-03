@@ -101,6 +101,9 @@ export async function seedAuth(page: Page) {
     localStorage.setItem("access_token", "qa-access-token");
     localStorage.setItem("refresh_token", "qa-refresh-token");
     localStorage.setItem("auth_user", JSON.stringify(user));
+    if (!localStorage.getItem("flowra:user-settings")) {
+      localStorage.setItem("flowra:user-settings", JSON.stringify({ defaultCalendarView: "week" }));
+    }
     sessionStorage.setItem("flowra-qa-auth-seeded", "1");
   }, QA_USER);
 }

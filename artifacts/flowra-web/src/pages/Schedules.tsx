@@ -3535,7 +3535,9 @@ export function ScheduleFormPanel({
   panelLayout: SchedulePanelLayout;
 }) {
   const [seriesPending, setSeriesPending] = useState(false);
-  const isPending = requestPending || seriesPending;
+  const [submitPending, setSubmitPending] = useState(false);
+  const submitLockRef = useRef(false);
+  const isPending = requestPending || seriesPending || submitPending;
   const ownerInitialForm = formForScheduleOwner(initial, defaultOwner);
   const [form, setForm] = useState<ScheduleFormState>(ownerInitialForm);
   const [allDay, setAllDay] = useState(ownerInitialForm.all_day);
@@ -5707,9 +5709,6 @@ export function ScheduleFormPanel({
 
   const normalizeAttendeeEmail = (value: string) => value.trim().toLowerCase();
 
-  const isValidAttendeeEmail = (value: string) =>
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
-
   const personalAttendeeKey = (attendee: PersonalScheduleAttendee) =>
     `${attendee.kind}:${normalizeAttendeeEmail(attendee.email)}`;
 
@@ -5768,8 +5767,8 @@ export function ScheduleFormPanel({
   const shareSelectionReady =
     form.visibility === "private" ||
     shareTargetKind === "link" ||
-    shareTargetKind === "all_friends" ||
-    (shareTargetKind === "preset" && selectedFriendPresetId !== null);
+    (shareTargetKind === "all_friends" && friendsQuery.isSuccess) ||
+    (shareTargetKind === "preset" && friendPresetsQuery.isSuccess && selectedFriendPreset !== null);
   const shareTargetLabel =
     form.visibility === "private"
       ? "비공개"
@@ -5784,8 +5783,12 @@ export function ScheduleFormPanel({
       : shareTargetKind === "link"
         ? "링크로 초대합니다."
         : shareTargetKind === "preset"
-          ? `${selectedFriendPreset?.members.length ?? 0}명에게 공유합니다.`
-          : `${shareFriends.length}명에게 공유합니다.`;
+          ? friendPresetsQuery.isError
+            ? "그룹 프리셋을 다시 확인해 주세요."
+            : `${selectedFriendPreset?.members.length ?? 0}명에게 공유합니다.`
+          : friendsQuery.isError
+            ? "친구 목록을 다시 확인해 주세요."
+            : `${shareFriends.length}명에게 공유합니다.`;
 
   const addPersonalAttendee = (attendee: PersonalScheduleAttendee) => {
     setError(null);
@@ -5802,22 +5805,6 @@ export function ScheduleFormPanel({
       return [...prev, attendee];
     });
     setPersonalAttendeeQuery("");
-  };
-
-  const addPersonalEmailInvite = () => {
-    const email = personalAttendeeQuery.trim();
-    if (!isValidAttendeeEmail(email)) {
-      setError("초대할 이메일을 입력해 주세요.");
-      return;
-    }
-
-    addPersonalAttendee({
-      id: `email:${normalizeAttendeeEmail(email)}`,
-      kind: "email",
-      email,
-      status: "pending_invite",
-    });
-    setPersonalAttendeeOpen(false);
   };
 
   const removePersonalAttendee = (attendee: PersonalScheduleAttendee) => {
@@ -5880,6 +5867,12 @@ export function ScheduleFormPanel({
     }
 
     if (shareTargetKind === "all_friends") {
+      if (!friendsQuery.isSuccess) {
+        setShareTargetTab("friends");
+        setShareTargetOpen(true);
+        setError("친구 목록을 확인한 뒤 공유해 주세요.");
+        return null;
+      }
       return {
         kind: "friends",
         scope: "all_friends",
@@ -5887,7 +5880,7 @@ export function ScheduleFormPanel({
       };
     }
 
-    if (selectedFriendPresetId === null) {
+    if (selectedFriendPresetId === null || !friendPresetsQuery.isSuccess || !selectedFriendPreset) {
       setShareTargetTab("presets");
       setShareTargetOpen(true);
       setError("공유할 그룹 프리셋을 선택해 주세요.");
@@ -5993,8 +5986,7 @@ export function ScheduleFormPanel({
       !selectedCompanyDepartmentIds.has(department.department_id),
   );
 
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault();
+  const submitForm = async () => {
     setError(null);
 
     if (isCompanyScheduleDraft) {
@@ -6076,7 +6068,7 @@ export function ScheduleFormPanel({
     }
   };
 
-  const handleApplyRepeat = async () => {
+  const applyRepeat = async () => {
     setError(null);
 
     if (
@@ -6111,6 +6103,25 @@ export function ScheduleFormPanel({
       setError(getErrorMessage(err, "반복 일정 생성에 실패했습니다."));
     }
   };
+
+  const submitWithLock = async (submit: () => Promise<void>) => {
+    if (submitLockRef.current || isPending) return;
+    submitLockRef.current = true;
+    setSubmitPending(true);
+    try {
+      await submit();
+    } finally {
+      submitLockRef.current = false;
+      setSubmitPending(false);
+    }
+  };
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    await submitWithLock(submitForm);
+  };
+
+  const handleApplyRepeat = () => submitWithLock(applyRepeat);
 
   const handleDelete = async () => {
     if (!onDelete) return;
@@ -6396,8 +6407,6 @@ export function ScheduleFormPanel({
   };
 
   const renderPersonalAttendeeControl = () => {
-    const canInviteByEmail = isValidAttendeeEmail(personalAttendeeQuery);
-
     return (
       <div className={compactFieldGroupClass}>
         <div className={settingsRowLabelClass}>참석자</div>
@@ -6467,12 +6476,14 @@ export function ScheduleFormPanel({
             <div className="mt-2 border-t border-slate-100 pt-2">
               <button
                 type="button"
-                onClick={addPersonalEmailInvite}
-                disabled={!canInviteByEmail}
+                disabled
                 className="flex h-9 w-full items-center justify-center gap-2 rounded-md bg-violet-600 px-3 text-xs font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
               >
-                <UserPlus className="h-3.5 w-3.5" />새 이메일 초대
+                <UserPlus className="h-3.5 w-3.5" />새 이메일 초대 (준비 중)
               </button>
+              <p className="mt-2 px-1 text-[11px] leading-5 text-slate-500">
+                이메일 참석자 초대는 준비 중입니다. 친구와의 공유는 공개 범위에서 설정해 주세요.
+              </p>
             </div>
           </PopoverContent>
         </Popover>
@@ -6612,8 +6623,9 @@ export function ScheduleFormPanel({
           <div className="space-y-2">
             <button
               type="button"
+              disabled={friendsQuery.isLoading || friendsQuery.isError}
               onClick={() => selectShareTarget("all_friends")}
-              className={`flex h-12 w-full items-center gap-3 rounded-xl px-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 ${
+              className={`flex h-12 w-full items-center gap-3 rounded-xl px-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-200 disabled:cursor-not-allowed disabled:opacity-50 ${
                 shareTargetKind === "all_friends"
                   ? "bg-violet-50"
                   : "hover:bg-slate-50"
@@ -6627,7 +6639,7 @@ export function ScheduleFormPanel({
                   전체 친구
                 </span>
                 <span className="block text-[11px] font-semibold text-slate-400">
-                  {shareFriends.length}명
+                  {friendsQuery.isError ? "확인 필요" : friendsQuery.isLoading ? "확인 중" : `${shareFriends.length}명`}
                 </span>
               </span>
               <span
@@ -6650,6 +6662,16 @@ export function ScheduleFormPanel({
             {friendsQuery.isLoading ? (
               <div className="rounded-xl bg-slate-50 px-3 py-5 text-center text-xs font-semibold text-slate-400">
                 친구 목록을 불러오는 중입니다.
+              </div>
+            ) : friendsQuery.isError ? (
+              <div role="alert">
+                <ErrorState
+                  compact
+                  title="친구 목록을 불러오지 못했습니다."
+                  message={getErrorMessage(friendsQuery.error, "잠시 후 다시 시도해 주세요.")}
+                  onRetry={() => { void friendsQuery.refetch(); }}
+                  retrying={friendsQuery.isFetching}
+                />
               </div>
             ) : filteredShareFriends.length > 0 ? (
               filteredShareFriends.map((item, index) => {
@@ -6690,6 +6712,16 @@ export function ScheduleFormPanel({
             {friendPresetsQuery.isLoading ? (
               <div className="rounded-xl bg-slate-50 px-3 py-5 text-center text-xs font-semibold text-slate-400">
                 그룹 프리셋을 불러오는 중입니다.
+              </div>
+            ) : friendPresetsQuery.isError ? (
+              <div role="alert">
+                <ErrorState
+                  compact
+                  title="그룹 프리셋을 불러오지 못했습니다."
+                  message={getErrorMessage(friendPresetsQuery.error, "잠시 후 다시 시도해 주세요.")}
+                  onRetry={() => { void friendPresetsQuery.refetch(); }}
+                  retrying={friendPresetsQuery.isFetching}
+                />
               </div>
             ) : filteredFriendPresets.length > 0 ? (
               filteredFriendPresets.map((preset) => {
@@ -8044,7 +8076,11 @@ function CompanyScheduleApprovalPopover({
   approverApprovals,
   requestedApprovals,
   loading,
+  approverError,
+  requestedError,
+  retrying,
   actionPending,
+  onRetry,
   onApprove,
   onReject,
   onWithdraw,
@@ -8052,92 +8088,114 @@ function CompanyScheduleApprovalPopover({
   approverApprovals: CompanyScheduleApproval[];
   requestedApprovals: CompanyScheduleApproval[];
   loading?: boolean;
+  approverError?: string;
+  requestedError?: string;
+  retrying?: { approver: boolean; requested: boolean };
   actionPending?: boolean;
+  onRetry: (role: "approver" | "requested") => void;
   onApprove: (approval: CompanyScheduleApproval) => void;
   onReject: (approval: CompanyScheduleApproval) => void;
   onWithdraw: (approval: CompanyScheduleApproval) => void;
 }) {
-  const pendingCount = approverApprovals.length + requestedApprovals.length;
+  const pendingCount = (approverError ? 0 : approverApprovals.length)
+    + (requestedError ? 0 : requestedApprovals.length);
 
   const renderApprovalList = (
     title: string,
     approvals: CompanyScheduleApproval[],
     actionable: boolean,
-  ) => (
-    <section>
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-xs font-semibold text-slate-700">{title}</h3>
-        <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">
-          {approvals.length}
-        </span>
-      </div>
-      {approvals.length === 0 ? (
-        <p className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-xs font-medium text-slate-400">
-          승인 대기 요청이 없습니다.
-        </p>
-      ) : (
-        <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-          {approvals.map((approval, index) => {
-            const approvalId = getCompanyScheduleApprovalId(approval);
-            const targetLabel = companyScheduleApprovalTargetLabel(approval);
-            const createdAt = companyScheduleApprovalCreatedAt(approval);
-
-            return (
-              <article
-                key={approvalId ?? `${approval.approval_type}-${index}`}
-                className="rounded-md border border-slate-200 bg-white p-3"
-              >
-                <div className="flex items-start gap-2">
-                  <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-violet-50 text-violet-700">
-                    <CheckSquare2 className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-semibold text-slate-950">
-                      {companyScheduleApprovalTitle(approval)}
-                    </p>
-                    <p className="mt-1 text-[11px] font-medium text-slate-500">
-                      {companyScheduleApprovalTypeLabel(approval.approval_type)}
-                      {targetLabel ? ` · ${targetLabel}` : ""}
-                    </p>
-                    {createdAt && (
-                      <p className="mt-1 text-[11px] text-slate-400">
-                        {createdAt}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                {!actionable && approval.status === "pending" && (
-                  <div className="mt-3 flex justify-end">
-                    <button type="button" onClick={() => onWithdraw(approval)} disabled={actionPending || !approvalId} className="inline-flex h-7 items-center justify-center rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50">요청 철회</button>
-                  </div>
-                )}
-                {actionable && (
-                  <div className="mt-3 flex justify-end gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => onReject(approval)}
-                      disabled={actionPending || !approvalId}
-                      className="inline-flex h-7 items-center justify-center rounded-md border border-red-200 bg-white px-2.5 text-[11px] font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
-                    >
-                      반려
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onApprove(approval)}
-                      disabled={actionPending || !approvalId}
-                      className="inline-flex h-7 items-center justify-center rounded-md border border-violet-200 bg-violet-50 px-2.5 text-[11px] font-semibold text-violet-700 transition hover:bg-violet-100 disabled:opacity-50"
-                    >
-                      승인
-                    </button>
-                  </div>
-                )}
-              </article>
-            );
-          })}
+  ) => {
+    const errorMessage = actionable ? approverError : requestedError;
+    return (
+      <section>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-xs font-semibold text-slate-700">{title}</h3>
+          <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500">
+            {errorMessage ? "확인 필요" : loading && approvals.length === 0 ? "..." : approvals.length}
+          </span>
         </div>
-      )}
-    </section>
-  );
+        {errorMessage ? (
+          <div role="alert">
+            <ErrorState
+              compact
+              title={`${title}을 불러오지 못했습니다.`}
+              message={errorMessage}
+              onRetry={() => onRetry(actionable ? "approver" : "requested")}
+              retrying={retrying?.[actionable ? "approver" : "requested"]}
+            />
+          </div>
+        ) : loading && approvals.length === 0 ? (
+          <p className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-xs font-medium text-slate-400">
+            승인 요청을 불러오는 중입니다.
+          </p>
+        ) : approvals.length === 0 ? (
+          <p className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-xs font-medium text-slate-400">
+            승인 대기 요청이 없습니다.
+          </p>
+        ) : (
+          <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+            {approvals.map((approval, index) => {
+              const approvalId = getCompanyScheduleApprovalId(approval);
+              const targetLabel = companyScheduleApprovalTargetLabel(approval);
+              const createdAt = companyScheduleApprovalCreatedAt(approval);
+
+              return (
+                <article
+                  key={approvalId ?? `${approval.approval_type}-${index}`}
+                  className="rounded-md border border-slate-200 bg-white p-3"
+                >
+                  <div className="flex items-start gap-2">
+                    <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-violet-50 text-violet-700">
+                      <CheckSquare2 className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-semibold text-slate-950">
+                        {companyScheduleApprovalTitle(approval)}
+                      </p>
+                      <p className="mt-1 text-[11px] font-medium text-slate-500">
+                        {companyScheduleApprovalTypeLabel(approval.approval_type)}
+                        {targetLabel ? ` · ${targetLabel}` : ""}
+                      </p>
+                      {createdAt && (
+                        <p className="mt-1 text-[11px] text-slate-400">
+                          {createdAt}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {!actionable && approval.status === "pending" && (
+                    <div className="mt-3 flex justify-end">
+                      <button type="button" onClick={() => onWithdraw(approval)} disabled={actionPending || !approvalId} className="inline-flex h-7 items-center justify-center rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50">요청 철회</button>
+                    </div>
+                  )}
+                  {actionable && (
+                    <div className="mt-3 flex justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => onReject(approval)}
+                        disabled={actionPending || !approvalId}
+                        className="inline-flex h-7 items-center justify-center rounded-md border border-red-200 bg-white px-2.5 text-[11px] font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
+                      >
+                        반려
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onApprove(approval)}
+                        disabled={actionPending || !approvalId}
+                        className="inline-flex h-7 items-center justify-center rounded-md border border-violet-200 bg-violet-50 px-2.5 text-[11px] font-semibold text-violet-700 transition hover:bg-violet-100 disabled:opacity-50"
+                      >
+                        승인
+                      </button>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    );
+  };
 
   return (
     <Popover>
@@ -8795,6 +8853,8 @@ function MonthScheduleGrid({
   onMoveWeek: (offset: number) => void;
 }) {
   const gridRef = useRef<HTMLDivElement | null>(null);
+  const { highlightWeekends, highlightToday, showScheduleCountBadge } =
+    useUserSettings();
   const wheelAccumulatorRef = useRef(0);
   const wheelResetTimeoutRef = useRef<number | null>(null);
   const [interaction, setInteraction] =
@@ -9147,7 +9207,7 @@ function MonthScheduleGrid({
           const isHoliday = holidays.length > 0;
           const schedules = schedulesByDate.get(key) ?? [];
           const selected = key === selectedKey;
-          const today = isToday(day);
+          const today = highlightToday && isToday(day);
           const contentCapacity = contentCapacitiesByDate.get(key) ?? 0;
           const visibleHolidayCount = Math.min(
             holidays.length,
@@ -9169,14 +9229,22 @@ function MonthScheduleGrid({
           return (
             <div
               key={key}
+              data-flowra-calendar-date={key}
+              data-flowra-calendar-today={today || undefined}
               onDoubleClick={(event) => handleDayCellDoubleClick(event, day)}
               className={`relative min-h-0 cursor-default overflow-hidden border-b border-r border-slate-100 p-1.5 transition hover:bg-violet-50/40 sm:p-2 ${
                 (index + 1) % 7 === 0 ? "border-r-0" : ""
               } ${
                 currentMonth
-                  ? isHoliday && !selected
-                    ? "bg-rose-50/30"
-                    : "bg-white"
+                  ? today && !selected
+                    ? "bg-violet-50/40"
+                    : isHoliday && !selected
+                      ? "bg-rose-50/30"
+                      : highlightWeekends && day.getDay() === 0 && !selected
+                        ? "bg-rose-50/20"
+                        : highlightWeekends && day.getDay() === 6 && !selected
+                          ? "bg-sky-50/20"
+                          : "bg-white"
                   : "bg-slate-50/70 text-slate-300"
               } ${
                 selected ? "bg-violet-50 ring-2 ring-inset ring-violet-400" : ""
@@ -9188,7 +9256,7 @@ function MonthScheduleGrid({
                   event.stopPropagation();
                   onOpenDay(day);
                 }}
-                className={`ml-auto flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-xs font-semibold transition ${
+                className={`relative ml-auto flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-xs font-semibold transition ${
                   selected
                     ? "bg-violet-600 text-white"
                     : today
@@ -9201,6 +9269,16 @@ function MonthScheduleGrid({
                 }`}
               >
                 {day.getDate()}
+                {showScheduleCountBadge && schedules.length > 0 && (
+                  <span
+                    aria-hidden="true"
+                    data-flowra-schedule-count={key}
+                    title={`일정 ${schedules.length}개`}
+                    className="pointer-events-none absolute -right-1 -top-1 flex h-3 min-w-3 items-center justify-center rounded-full bg-violet-100 px-0.5 text-[9px] font-semibold leading-none text-violet-700 ring-1 ring-white"
+                  >
+                    {schedules.length}
+                  </span>
+                )}
               </button>
               <div className="group/month-add-zone absolute left-1.5 right-10 top-1.5 z-10 h-6 sm:left-2 sm:top-2">
                 <button
@@ -9537,28 +9615,40 @@ function PreviewPriorityBadge({
   );
 }
 
-function weekdayToneClass(day: Date, selected = false, holiday = false) {
-  if (isToday(day)) {
+function weekdayToneClass(
+  day: Date,
+  selected = false,
+  holiday = false,
+  highlightToday = true,
+  highlightWeekends = true,
+) {
+  if (highlightToday && isToday(day)) {
     return "flowra-calendar-today-heading bg-violet-50/95 text-violet-800 shadow-[inset_0_-2px_0_rgba(124,58,237,0.45)]";
   }
-  if (holiday || day.getDay() === 0) {
+  if (holiday || (highlightWeekends && day.getDay() === 0)) {
     return selected
       ? "bg-rose-50/90 text-rose-700"
       : "bg-rose-50/45 text-rose-600";
   }
-  if (day.getDay() === 6) {
+  if (highlightWeekends && day.getDay() === 6) {
     return selected ? "bg-sky-50/90 text-sky-700" : "bg-sky-50/45 text-sky-600";
   }
   return selected ? "bg-violet-50/80 text-slate-950" : "text-slate-500";
 }
 
-function weekdayColumnClass(day: Date, selected = false, holiday = false) {
-  if (isToday(day)) {
+function weekdayColumnClass(
+  day: Date,
+  selected = false,
+  holiday = false,
+  highlightToday = true,
+  highlightWeekends = true,
+) {
+  if (highlightToday && isToday(day)) {
     return "flowra-calendar-today-column bg-violet-50/35 shadow-[inset_2px_0_0_rgba(124,58,237,0.18),inset_-2px_0_0_rgba(124,58,237,0.18)]";
   }
   if (selected) return "bg-violet-50/20";
-  if (holiday || day.getDay() === 0) return "bg-rose-50/20";
-  if (day.getDay() === 6) return "bg-sky-50/20";
+  if (holiday || (highlightWeekends && day.getDay() === 0)) return "bg-rose-50/20";
+  if (highlightWeekends && day.getDay() === 6) return "bg-sky-50/20";
   return "";
 }
 
@@ -10041,6 +10131,8 @@ function WeekScheduleGrid({
   onScheduleTimeChange: ScheduleTimeChangeHandler;
 }) {
   const dayCount = weekDates.length;
+  const { highlightWeekends, highlightToday, showScheduleCountBadge } =
+    useUserSettings();
   const now = new Date();
   const todayKey = toDateKey(now);
   const todayIndex = weekDates.findIndex((day) => toDateKey(day) === todayKey);
@@ -10935,27 +11027,40 @@ function WeekScheduleGrid({
           {weekDates.map((day) => {
             const key = toDateKey(day);
             const selected = key === selectedKey;
-            const today = isToday(day);
+            const today = highlightToday && isToday(day);
             const isHoliday = (holidaysByDate.get(key)?.length ?? 0) > 0;
+            const scheduleCount = schedulesByDate.get(key)?.length ?? 0;
 
             return (
               <button
                 key={key}
+                data-flowra-calendar-date={key}
+                data-flowra-calendar-today={today || undefined}
                 type="button"
                 onClick={() => onOpenDay(day)}
-                className={`flex h-11 items-center justify-center gap-1 border-r border-slate-100 text-xs font-medium transition last:border-r-0 hover:bg-white ${weekdayToneClass(day, selected, isHoliday)} ${key === focusedDateKey ? "flowra-calendar-date-heading" : ""}`}
+                className={`flex h-11 items-center justify-center gap-1 border-r border-slate-100 text-xs font-medium transition last:border-r-0 hover:bg-white ${weekdayToneClass(day, selected, isHoliday, highlightToday, highlightWeekends)} ${key === focusedDateKey ? "flowra-calendar-date-heading" : ""}`}
               >
                 <span>{weekdayLabels[day.getDay()]}</span>
                 <span
                   className={
                     today
-                      ? "flex h-6 min-w-6 items-center justify-center rounded-full bg-violet-600 px-1.5 text-[11px] font-semibold text-white"
+                      ? "relative flex h-6 min-w-6 items-center justify-center rounded-full bg-violet-600 px-1.5 text-[11px] font-semibold text-white"
                       : selected
-                        ? "font-semibold text-slate-950"
-                        : ""
+                        ? "relative font-semibold text-slate-950"
+                        : "relative"
                   }
                 >
                   {day.getDate()}
+                  {showScheduleCountBadge && scheduleCount > 0 && (
+                    <span
+                      aria-hidden="true"
+                      data-flowra-schedule-count={key}
+                      title={`일정 ${scheduleCount}개`}
+                      className="pointer-events-none absolute -right-2 -top-1 flex h-3 min-w-3 items-center justify-center rounded-full bg-violet-100 px-0.5 text-[9px] font-semibold leading-none text-violet-700 ring-1 ring-white"
+                    >
+                      {scheduleCount}
+                    </span>
+                  )}
                 </span>
               </button>
             );
@@ -11005,7 +11110,7 @@ function WeekScheduleGrid({
                 return (
                   <div
                     key={`all-day-summary-${key}`}
-                    className={`min-w-0 border-r border-slate-100 last:border-r-0 ${weekdayColumnClass(day, selectedKey === key, holidays.length > 0)}`}
+                    className={`min-w-0 border-r border-slate-100 last:border-r-0 ${weekdayColumnClass(day, selectedKey === key, holidays.length > 0, highlightToday, highlightWeekends)}`}
                   >
                     {hasContent && (
                       <button
@@ -11085,7 +11190,7 @@ function WeekScheduleGrid({
                       allDay: true,
                     });
                   }}
-                  className={`border-r border-slate-100 px-1.5 py-1.5 last:border-r-0 ${weekdayColumnClass(day, selectedKey === key, isHoliday)}`}
+                  className={`border-r border-slate-100 px-1.5 py-1.5 last:border-r-0 ${weekdayColumnClass(day, selectedKey === key, isHoliday, highlightToday, highlightWeekends)}`}
                 >
                   <button
                     type="button"
@@ -11371,7 +11476,7 @@ function WeekScheduleGrid({
                     }
                   }}
                   onContextMenu={(event) => showCreateContextMenu(event, day)}
-                  className={`relative border-r border-slate-100 transition hover:bg-violet-50/20 last:border-r-0 ${weekdayColumnClass(day, selected, isHoliday)}`}
+                  className={`relative border-r border-slate-100 transition hover:bg-violet-50/20 last:border-r-0 ${weekdayColumnClass(day, selected, isHoliday, highlightToday, highlightWeekends)}`}
                 />
               );
             })}
@@ -11636,7 +11741,7 @@ function WeekScheduleGrid({
 export default function Schedules() {
   const [searchParams, setSearchParams] = useSearchParams();
   const classificationSettings = useClassificationSettings();
-  const { showHolidays, weekStart } = useUserSettings();
+  const { showHolidays, weekStart, defaultCalendarView } = useUserSettings();
   const deepLinkedScheduleIdParam = searchParams.get("schedule_id");
   const deepLinkedScheduleId = deepLinkedScheduleIdParam
     ? Number(deepLinkedScheduleIdParam)
@@ -11650,7 +11755,10 @@ export default function Schedules() {
   const deepLinkHandledRef = useRef(false);
 
   const [scheduleView, setScheduleView] =
-    useState<ScheduleCalendarView>("week");
+    useState<ScheduleCalendarView>(defaultCalendarView);
+  useEffect(() => {
+    setScheduleView(defaultCalendarView);
+  }, [defaultCalendarView]);
   const [desktopFiltersOpen, setDesktopFiltersOpen] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [visibleMonth, setVisibleMonth] = useState(
@@ -12687,6 +12795,35 @@ export default function Schedules() {
     void withdrawCompanyScheduleApprovalMutation.mutateAsync(approvalId).catch(() => undefined);
   };
 
+  const companyApprovalControl = companyApprovalsEnabled ? (
+    <CompanyScheduleApprovalPopover
+      approverApprovals={approverApprovalsQuery.data ?? []}
+      requestedApprovals={requestedApprovalsQuery.data ?? []}
+      approverError={approverApprovalsQuery.isError
+        ? getErrorMessage(approverApprovalsQuery.error, "회사 일정 승인함을 불러오지 못했습니다.")
+        : undefined}
+      requestedError={requestedApprovalsQuery.isError
+        ? getErrorMessage(requestedApprovalsQuery.error, "회사 일정 요청을 불러오지 못했습니다.")
+        : undefined}
+      retrying={{
+        approver: approverApprovalsQuery.isFetching,
+        requested: requestedApprovalsQuery.isFetching,
+      }}
+      loading={approverApprovalsQuery.isLoading || requestedApprovalsQuery.isLoading}
+      actionPending={
+        approveCompanyScheduleApprovalMutation.isPending ||
+        rejectCompanyScheduleApprovalMutation.isPending ||
+        withdrawCompanyScheduleApprovalMutation.isPending
+      }
+      onRetry={(role) => {
+        void (role === "approver" ? approverApprovalsQuery : requestedApprovalsQuery).refetch();
+      }}
+      onApprove={handleApproveCompanyScheduleApproval}
+      onReject={handleRejectCompanyScheduleApproval}
+      onWithdraw={handleWithdrawCompanyScheduleApproval}
+    />
+  ) : null;
+
   return (
     <AppShell
       fullBleed
@@ -12858,24 +12995,7 @@ export default function Schedules() {
               </button>
             </div>
           </div>
-          {companyApprovalsEnabled && (
-            <CompanyScheduleApprovalPopover
-              approverApprovals={approverApprovalsQuery.data ?? []}
-              requestedApprovals={requestedApprovalsQuery.data ?? []}
-              loading={
-                approverApprovalsQuery.isLoading ||
-                requestedApprovalsQuery.isLoading
-              }
-              actionPending={
-                approveCompanyScheduleApprovalMutation.isPending ||
-                rejectCompanyScheduleApprovalMutation.isPending ||
-                withdrawCompanyScheduleApprovalMutation.isPending
-              }
-              onApprove={handleApproveCompanyScheduleApproval}
-              onReject={handleRejectCompanyScheduleApproval}
-              onWithdraw={handleWithdrawCompanyScheduleApproval}
-            />
-          )}
+          {companyApprovalControl}
           {!dockedPanelOpen && (
             <button
               type="button"
@@ -12949,6 +13069,7 @@ export default function Schedules() {
         >
           <section className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-white">
             <div className="flex flex-wrap items-center justify-end gap-2 border-b border-slate-100 bg-white px-4 py-2 min-[600px]:hidden">
+              {companyApprovalControl}
               <Popover
                 open={mobileFiltersOpen}
                 onOpenChange={(open) => {

@@ -91,10 +91,99 @@ import CategorySelect from "@/components/CategorySelect";
 import CustomSelect from "@/components/ui/CustomSelect";
 import { useCategories } from "@/hooks/useCategories";
 import { memoSchema, type MemoFormValues } from "@/lib/schemas";
+import { registerProjectHistoryGuard } from "@/lib/projectNavigationGuard";
 import { cn } from "@/lib/utils";
 
 type DetectedType = "schedule" | "task" | "note" | "mixed";
 type MemoWorkspaceMode = "read" | "create";
+
+type MemoLeaveGuard = () => boolean;
+
+function useMemoDraftGuard(
+  state: { dirty: boolean; pending: boolean; lock: { current: boolean }; discard: () => void },
+  onGuardChange: (guard: MemoLeaveGuard | null) => void,
+) {
+  const currentState = useRef(state);
+  currentState.current = state;
+  const mayLeave = useCallback(() => {
+    const current = currentState.current;
+    if (current.pending || current.lock.current) return false;
+    if (!current.dirty) return true;
+    if (!window.confirm("저장하지 않은 메모 내용이 있습니다. 이동하면 변경 내용이 사라집니다. 이동할까요?")) return false;
+    current.dirty = false;
+    current.discard();
+    return true;
+  }, []);
+
+  useEffect(() => {
+    onGuardChange(mayLeave);
+    return () => onGuardChange(null);
+  }, [mayLeave, onGuardChange]);
+
+  useEffect(() => {
+    function snapshot() {
+      const state: unknown = window.history.state;
+      const index = typeof state === "object" && state !== null && "idx" in state &&
+        typeof state.idx === "number" && Number.isSafeInteger(state.idx) ? state.idx : null;
+      return { href: window.location.href, state, index };
+    }
+    let current = snapshot();
+    let restoring: ReturnType<typeof snapshot> | null = null;
+    function protectLink(event: MouseEvent) {
+      if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!(anchor instanceof HTMLAnchorElement) || anchor.hasAttribute("download") || (anchor.target && anchor.target !== "_self")) return;
+      const destination = new URL(anchor.href, window.location.href);
+      if (destination.origin !== window.location.origin || destination.href === window.location.href) return;
+      if (!mayLeave()) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    }
+    function protectHistory(event: PopStateEvent) {
+      const destination = snapshot();
+      if (restoring) {
+        event.stopImmediatePropagation();
+        if (destination.index === restoring.index) {
+          current = restoring;
+          restoring = null;
+        } else if (destination.index !== null && restoring.index !== null) {
+          window.history.go(restoring.index - destination.index);
+        } else {
+          window.history.pushState(restoring.state, "", restoring.href);
+          current = restoring;
+          restoring = null;
+        }
+        return;
+      }
+      if (mayLeave()) {
+        current = destination;
+        return;
+      }
+      event.stopImmediatePropagation();
+      if (current.index !== null && destination.index !== null && current.index !== destination.index) {
+        restoring = current;
+        window.history.go(current.index - destination.index);
+      } else {
+        window.history.pushState(current.state, "", current.href);
+      }
+    }
+    function beforeUnload(event: BeforeUnloadEvent) {
+      const current = currentState.current;
+      if (!current.dirty && !current.pending && !current.lock.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    document.addEventListener("click", protectLink, true);
+    window.addEventListener("beforeunload", beforeUnload);
+    const unregister = registerProjectHistoryGuard(protectHistory, mayLeave);
+    return () => {
+      document.removeEventListener("click", protectLink, true);
+      window.removeEventListener("beforeunload", beforeUnload);
+      unregister();
+    };
+  }, [mayLeave]);
+}
 
 const MEMO_AI_PANEL_WIDTH = "380px";
 
@@ -654,17 +743,23 @@ function MemoListPanel({
 function MemoCreatePanel({
   onCreated,
   onCancel,
+  onGuardChange,
 }: {
   onCreated: (memo: Memo) => void;
   onCancel: () => void;
+  onGuardChange: (guard: MemoLeaveGuard | null) => void;
 }) {
   const createMutation = useCreateMemo();
+  const submissionLock = useRef(false);
   const {
     register,
     handleSubmit,
     control,
     watch,
-    formState: { errors },
+    reset,
+    setError,
+    clearErrors,
+    formState: { errors, isDirty },
   } = useForm<MemoFormValues>({
     resolver: zodResolver(memoSchema),
     defaultValues: {
@@ -677,23 +772,38 @@ function MemoCreatePanel({
 
   const onSubmit = useCallback(
     async (values: MemoFormValues) => {
-      const created = await createMutation.mutateAsync({
-        raw_text: values.raw_text,
-        memo_type: values.memo_type,
-        source_type: "manual",
-        auto_parse: values.auto_parse,
-        category_id:
-          typeof values.category_id === "number"
-            ? String(values.category_id)
-            : undefined,
-      });
-      onCreated(created);
+      if (submissionLock.current) return;
+      submissionLock.current = true;
+      clearErrors("root");
+      try {
+        const created = await createMutation.mutateAsync({
+          raw_text: values.raw_text,
+          memo_type: values.memo_type,
+          source_type: "manual",
+          auto_parse: values.auto_parse,
+          category_id:
+            typeof values.category_id === "number"
+              ? String(values.category_id)
+              : undefined,
+        });
+        onCreated(created);
+      } catch (error) {
+        setError("root", { message: getErrorMessage(error, "메모 추가에 실패했습니다.") });
+      } finally {
+        submissionLock.current = false;
+      }
     },
-    [createMutation, onCreated],
+    [clearErrors, createMutation, onCreated, setError],
   );
 
   const rawText = watch("raw_text") ?? "";
   const autoParse = watch("auto_parse") ?? false;
+  useMemoDraftGuard({
+    dirty: isDirty,
+    pending: createMutation.isPending,
+    lock: submissionLock,
+    discard: () => reset(),
+  }, onGuardChange);
 
   return (
     <form
@@ -712,6 +822,7 @@ function MemoCreatePanel({
           <button
             type="button"
             onClick={onCancel}
+            disabled={createMutation.isPending}
             className="h-8 rounded-lg px-2.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
           >
             취소
@@ -743,6 +854,7 @@ function MemoCreatePanel({
                   value={field.value}
                   options={MEMO_TYPE_OPTIONS}
                   onChange={field.onChange}
+                  disabled={createMutation.isPending}
                   ariaLabel="메모 유형"
                   className="h-8 w-auto min-w-[112px] max-w-full gap-2 border-violet-200 bg-accent px-2.5 text-xs shadow-none hover:border-violet-300 hover:bg-accent hover:shadow-none [&>span>span]:gap-2 [&_.font-semibold]:text-accent-foreground [&_svg]:text-accent-foreground"
                   contentClassName="shadow-lg shadow-slate-900/10 [&_[role=option]]:min-h-10 [&_[role=option]]:text-xs"
@@ -757,6 +869,7 @@ function MemoCreatePanel({
                   type="memo"
                   value={field.value as number | "" | undefined}
                   onChange={field.onChange}
+                  disabled={createMutation.isPending}
                   variant="custom"
                   className="max-w-[180px]"
                 />
@@ -766,6 +879,7 @@ function MemoCreatePanel({
               <input
                 type="checkbox"
                 {...register("auto_parse")}
+                disabled={createMutation.isPending}
                 className="sr-only"
               />
               <span
@@ -787,6 +901,7 @@ function MemoCreatePanel({
             rows={16}
             placeholder="메모를 입력하세요..."
             {...register("raw_text")}
+            disabled={createMutation.isPending}
             aria-invalid={!!errors.raw_text}
             className="scrollbar-none min-h-[310px] flex-1 resize-none border-0 bg-white px-5 py-5 text-[15px] leading-[1.85] text-slate-700 outline-none placeholder:text-slate-300 focus:ring-0"
           />
@@ -820,6 +935,11 @@ function MemoCreatePanel({
             {errors.raw_text.message}
           </p>
         )}
+        {errors.root?.message && (
+          <p role="alert" className="mx-auto mt-2 w-full max-w-[920px] text-xs text-red-600">
+            {errors.root.message}
+          </p>
+        )}
         <p className="mx-auto mt-2 w-full max-w-[920px] text-[11px] font-medium text-slate-400">
           ✦ 저장 후 AI가 메모를 분석하고 태그를 추천합니다
         </p>
@@ -834,12 +954,14 @@ function MemoReaderPanel({
   latestResult,
   onDeleted,
   onParseStart,
+  onGuardChange,
 }: {
   memo: Memo;
   parseStatus?: ParseStatus;
   latestResult?: AiParseResult | null;
   onDeleted: (memoId: number) => void;
   onParseStart: () => void;
+  onGuardChange: (guard: MemoLeaveGuard | null) => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [text, setText] = useState(memo.raw_text);
@@ -849,6 +971,7 @@ function MemoReaderPanel({
   );
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const submissionLock = useRef(false);
 
   const updateMutation = useUpdateMemo();
   const deleteMutation = useDeleteMemo();
@@ -856,6 +979,19 @@ function MemoReaderPanel({
   const { data: categories = [] } = useCategories("memo");
   const category = categories.find((c) => c.category_id === memo.category_id);
   const status = parseStatus ?? memo.parse_status;
+  const discardChanges = () => {
+    setIsEditing(false);
+    setText(memo.raw_text);
+    setMemoType(memo.memo_type);
+    setCategoryId(memo.category_id ?? "");
+    setError(null);
+  };
+  useMemoDraftGuard({
+    dirty: isEditing && (text !== memo.raw_text || memoType !== memo.memo_type || categoryId !== (memo.category_id ?? "")),
+    pending: updateMutation.isPending || deleteMutation.isPending,
+    lock: submissionLock,
+    discard: discardChanges,
+  }, onGuardChange);
 
   useEffect(() => {
     setIsEditing(false);
@@ -871,20 +1007,30 @@ function MemoReaderPanel({
 
   const handleSave = async (event?: FormEvent) => {
     event?.preventDefault();
+    if (submissionLock.current || updateMutation.isPending) return;
     setError(null);
+    const validated = memoSchema.safeParse({ raw_text: text, memo_type: memoType, category_id: categoryId });
+    if (!validated.success) {
+      setError(validated.error.issues[0]?.message ?? "메모 내용을 확인해 주세요.");
+      textareaRef.current?.focus();
+      return;
+    }
+    submissionLock.current = true;
     try {
       await updateMutation.mutateAsync({
         memoId: memo.memo_id,
         payload: {
-          raw_text: text.trim(),
-          memo_type: memoType,
+          raw_text: validated.data.raw_text,
+          memo_type: validated.data.memo_type,
           category_id:
-            typeof categoryId === "number" ? String(categoryId) : null,
+            typeof validated.data.category_id === "number" ? String(validated.data.category_id) : null,
         },
       });
       setIsEditing(false);
     } catch (err) {
       setError(getErrorMessage(err, "수정에 실패했습니다."));
+    } finally {
+      submissionLock.current = false;
     }
   };
 
@@ -952,12 +1098,8 @@ function MemoReaderPanel({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setIsEditing(false);
-                  setText(memo.raw_text);
-                  setMemoType(memo.memo_type);
-                  setCategoryId(memo.category_id ?? "");
-                }}
+                onClick={discardChanges}
+                disabled={updateMutation.isPending}
                 className="h-7 rounded-lg px-2.5 text-xs text-slate-500 transition-colors hover:bg-slate-100"
               >
                 취소
@@ -968,7 +1110,7 @@ function MemoReaderPanel({
           <button
             type="button"
             onClick={handleDelete}
-            disabled={deleteMutation.isPending}
+            disabled={deleteMutation.isPending || updateMutation.isPending}
             className="flex h-7 items-center gap-1 rounded-lg px-2.5 text-xs text-slate-500 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-60"
             aria-label="메모 삭제"
             title="메모 삭제"
@@ -981,7 +1123,7 @@ function MemoReaderPanel({
             <button
               type="button"
               onClick={handleParse}
-              disabled={parseMutation.isPending}
+              disabled={parseMutation.isPending || updateMutation.isPending}
               className="flex h-7 items-center gap-1.5 rounded-lg px-3 text-xs text-violet-500 transition-colors hover:bg-violet-50 hover:text-violet-700 disabled:opacity-60"
             >
               {parseMutation.isPending ? (
@@ -1015,6 +1157,7 @@ function MemoReaderPanel({
               <label className="relative inline-flex">
                 <select
                   value={memoType}
+                  disabled={updateMutation.isPending}
                   onChange={(event) =>
                     setMemoType(event.target.value as MemoType)
                   }
@@ -1035,6 +1178,7 @@ function MemoReaderPanel({
                 type="memo"
                 value={categoryId}
                 onChange={setCategoryId}
+                disabled={updateMutation.isPending}
                 className="h-7 min-w-[108px] max-w-[150px] rounded-lg border-slate-200 px-2.5 py-1 text-[11px] shadow-none"
               />
             </div>
@@ -1042,6 +1186,7 @@ function MemoReaderPanel({
               ref={textareaRef}
               value={text}
               onChange={(event) => setText(event.target.value)}
+              disabled={updateMutation.isPending}
               className="scrollbar-none min-h-[320px] flex-1 resize-none border-0 bg-white px-5 py-5 text-[15px] leading-[1.85] text-slate-700 outline-none placeholder:text-slate-300 focus:ring-0"
               placeholder="메모를 입력하세요..."
             />
@@ -2440,6 +2585,10 @@ export default function Memos() {
   const [selectedMemoId, setSelectedMemoId] = useState<number | null>(null);
   const [transientMemo, setTransientMemo] = useState<Memo | null>(null);
   const [mode, setMode] = useState<MemoWorkspaceMode>("read");
+  const leaveGuard = useRef<MemoLeaveGuard | null>(null);
+  const handleGuardChange = useCallback((guard: MemoLeaveGuard | null) => {
+    leaveGuard.current = guard;
+  }, []);
   const [leftOpen, setLeftOpen] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const [rightOpen, setRightOpen] = useState(() => window.matchMedia("(min-width: 1280px)").matches);
   const [panelsDocked, setPanelsDocked] = useState(() => window.matchMedia("(min-width: 1280px)").matches);
@@ -2522,18 +2671,32 @@ export default function Memos() {
     setSelectedMemoId(items[0].memo_id);
   }, [items, mode, selectedMemoId, transientMemo]);
 
-  const handleSelect = (memoId: number) => {
+  const selectMemo = (memoId: number) => {
     if (!window.matchMedia("(min-width: 1024px)").matches) setLeftOpen(false);
     setSelectedMemoId(memoId);
     setMode("read");
     setConfirmDeleteId(null);
   };
 
+  const handleSelect = (memoId: number) => {
+    if (mode === "read" && selectedMemoId === memoId) {
+      if (!window.matchMedia("(min-width: 1024px)").matches) setLeftOpen(false);
+      return;
+    }
+    if (leaveGuard.current && !leaveGuard.current()) return;
+    selectMemo(memoId);
+  };
+
+  const handleCreate = () => {
+    if (leaveGuard.current && !leaveGuard.current()) return;
+    setMode("create");
+    setConfirmDeleteId(null);
+  };
+
   const handleDeleted = (memoId: number) => {
     const nextMemo = items.find((memo) => memo.memo_id !== memoId);
     if (transientMemo?.memo_id === memoId) setTransientMemo(null);
-    setSelectedMemoId(nextMemo?.memo_id ?? null);
-    setMode("read");
+    setSelectedMemoId((current) => current === memoId ? nextMemo?.memo_id ?? null : current);
     setConfirmDeleteId(null);
   };
 
@@ -2589,14 +2752,12 @@ export default function Memos() {
             onToggleLeft={() => setLeftOpen((open) => !open)}
             onSearchChange={setSearch}
             onSelect={handleSelect}
-            onCreate={() => {
-              setMode("create");
-              setConfirmDeleteId(null);
-            }}
+            onCreate={handleCreate}
             onRequestDelete={(memoId) => setConfirmDeleteId(memoId)}
             onConfirmDelete={(memoId) => void handleConfirmDelete(memoId)}
             onCancelDelete={() => setConfirmDeleteId(null)}
             onRetry={() => {
+              if (leaveGuard.current && !leaveGuard.current()) return;
               void refetch();
             }}
           />
@@ -2606,9 +2767,13 @@ export default function Memos() {
           <MemoCreatePanel
             onCreated={(memo) => {
               setTransientMemo(memo);
-              handleSelect(memo.memo_id);
+              selectMemo(memo.memo_id);
             }}
-            onCancel={() => setMode("read")}
+            onCancel={() => {
+              if (leaveGuard.current && !leaveGuard.current()) return;
+              setMode("read");
+            }}
+            onGuardChange={handleGuardChange}
           />
         ) : selectedMemo ? (
           <MemoReaderPanel
@@ -2617,9 +2782,10 @@ export default function Memos() {
             latestResult={selectedResult}
             onDeleted={handleDeleted}
             onParseStart={() => setRightOpen(true)}
+            onGuardChange={handleGuardChange}
           />
         ) : (
-          <EmptyMemoPanel onCreate={() => setMode("create")} />
+          <EmptyMemoPanel onCreate={handleCreate} />
         )}
 
         {mode !== "create" && (
